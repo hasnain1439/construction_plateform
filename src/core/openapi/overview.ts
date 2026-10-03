@@ -98,4 +98,5 @@ export const TAGS = [
   { name: 'Subscription', description: 'Plan, trial/grace status, usage limits, payment slips and plan changes (THEKEDAR)' },
   { name: 'Attachments', description: 'File uploads (logos, photos, receipts, documents, voice notes) with signed download links' },
   { name: 'Platform admin auth', description: 'Platform owners only — separate accounts and tokens' },
+  { name: 'Platform admin', description: 'Platform console: dashboard, companies, payment review, plans, holidays, audit log (platform token)' },
 ];

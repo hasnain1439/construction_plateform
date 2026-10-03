@@ -137,6 +137,7 @@ model PlatformAdmin {
   createdAt        DateTime               @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime               @updatedAt @db.Timestamptz(3)
   sessions         PlatformAdminSession[]
+  reviewedPayments SubscriptionPayment[]
 }
 
 model PlatformAdminSession {
@@ -167,6 +168,8 @@ model Plan {
   maxOfficeUsers    Int?
   /// Marketing bullet points shown on the plans screen.
   features          String[]              @default([])
+  /// Display order on the plans screen (ascending).
+  sortOrder         Int                   @default(0)
   isActive          Boolean               @default(true)
   createdAt         DateTime              @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime              @updatedAt @db.Timestamptz(3)
@@ -175,14 +178,30 @@ model Plan {
   payments          SubscriptionPayment[]
 }
 
+/// Nationwide (region null) or regional public holidays, managed by platform admins.
 model PlatformHoliday {
-  id        String   @id @default(uuid(7)) @db.Uuid
-  date      DateTime @db.Date
+  id        String      @id @default(uuid(7)) @db.Uuid
+  startDate DateTime    @db.Date
+  /// null = single day
+  endDate   DateTime?   @db.Date
   name      String
+  type      HolidayType @default(NON_WORKING)
   region    Region?
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  createdAt DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime    @default(now()) @updatedAt @db.Timestamptz(3)
 
-  @@unique([date, name])
+  @@unique([startDate, name])
+}
+
+/// Last run of each background job (shown on GET /admin/health).
+model JobRun {
+  name           String    @id
+  lastStartedAt  DateTime  @db.Timestamptz(3)
+  lastFinishedAt DateTime? @db.Timestamptz(3)
+  /// RUNNING / SUCCESS / FAILED
+  lastStatus     String
+  lastError      String?
+  lastResult     Json?
 }
 
 /// Accessed only through the admin (BYPASSRLS) client during auth flows.
@@ -293,31 +312,35 @@ model Subscription {
 /// Manual payment (JazzCash / Easypaisa / Raast / bank transfer) with an uploaded slip,
 /// reviewed by a platform admin (Phase 1 · Step 3B).
 model SubscriptionPayment {
-  id             String        @id @default(uuid(7)) @db.Uuid
-  tenantId       String        @db.Uuid
-  subscriptionId String        @db.Uuid
-  planId         String        @db.Uuid
+  id             String         @id @default(uuid(7)) @db.Uuid
+  tenantId       String         @db.Uuid
+  subscriptionId String         @db.Uuid
+  planId         String         @db.Uuid
   amountPaisa    BigInt
   method         PaymentMethod
   /// Upper-cased; unique across ALL tenants (a slip can only be used once).
-  transactionId  String        @unique
-  paidOn         DateTime      @db.Date
-  status         PaymentStatus @default(PENDING_REVIEW)
+  transactionId  String         @unique
+  paidOn         DateTime       @db.Date
+  status         PaymentStatus  @default(PENDING_REVIEW)
   rejectReason   String?
   /// Slip image/PDF (kind PAYMENT_SLIP). Null only for historical/admin-entered payments.
-  attachmentId   String?       @db.Uuid
-  submittedById  String?       @db.Uuid
+  attachmentId   String?        @db.Uuid
+  submittedById  String?        @db.Uuid
   /// Set when approved.
-  periodStart    DateTime?     @db.Timestamptz(3)
-  periodEnd      DateTime?     @db.Timestamptz(3)
-  receiptNo      String?       @unique
-  reviewedAt     DateTime?     @db.Timestamptz(3)
-  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
-  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  subscription   Subscription  @relation(fields: [tenantId, subscriptionId], references: [tenantId, id], onDelete: Cascade)
-  plan           Plan          @relation(fields: [planId], references: [id])
-  slip           Attachment?   @relation("PaymentSlip", fields: [tenantId, attachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
-  submittedBy    User?         @relation("PaymentSubmittedBy", fields: [tenantId, submittedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  periodStart    DateTime?      @db.Timestamptz(3)
+  periodEnd      DateTime?      @db.Timestamptz(3)
+  receiptNo      String?        @unique
+  reviewedAt     DateTime?      @db.Timestamptz(3)
+  /// Platform admin who approved / rejected it.
+  reviewedById   String?        @db.Uuid
+  reviewNote     String?
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription   Subscription   @relation(fields: [tenantId, subscriptionId], references: [tenantId, id], onDelete: Cascade)
+  plan           Plan           @relation(fields: [planId], references: [id])
+  slip           Attachment?    @relation("PaymentSlip", fields: [tenantId, attachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  submittedBy    User?          @relation("PaymentSubmittedBy", fields: [tenantId, submittedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  reviewedBy     PlatformAdmin? @relation(fields: [reviewedById], references: [id], onDelete: SetNull)
 
   @@index([tenantId, createdAt])
   @@index([status])

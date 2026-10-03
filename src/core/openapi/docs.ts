@@ -4,6 +4,7 @@ import { registerAttachmentsDocs } from '../../modules/attachments/attachments.d
 import { registerAuthDocs } from '../../modules/auth/auth.docs.js';
 import { registerCompanyDocs } from '../../modules/company/company.docs.js';
 import { registerHealthDocs } from '../../modules/health/health.routes.js';
+import { registerPlatformAdminDocs } from '../../modules/platform-admin/platformAdmin.docs.js';
 import { registerSubscriptionDocs } from '../../modules/subscription/subscription.docs.js';
 import { registerTeamDocs } from '../../modules/team/team.docs.js';
 import { buildOpenApiDocument } from './registry.js';
@@ -20,6 +21,7 @@ export function openApiDocument() {
     registerTeamDocs();
     registerSubscriptionDocs();
     registerAttachmentsDocs();
+    registerPlatformAdminDocs();
     document = buildOpenApiDocument();
   }
   return document;

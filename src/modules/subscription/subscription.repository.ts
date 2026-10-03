@@ -18,7 +18,7 @@ export type SubscriptionRow = NonNullable<Awaited<ReturnType<typeof findSubscrip
 
 /** Purchasable plans (TRIAL is never offered). Plan is shared reference data. */
 export function listPurchasablePlans(tx: Db) {
-  return tx.plan.findMany({ where: { isActive: true, code: { not: 'TRIAL' } }, orderBy: [{ priceMonthlyPaisa: 'asc' }, { code: 'asc' }] });
+  return tx.plan.findMany({ where: { isActive: true, code: { not: 'TRIAL' } }, orderBy: [{ sortOrder: 'asc' }, { priceMonthlyPaisa: 'asc' }, { code: 'asc' }] });
 }
 
 export function findPurchasablePlan(tx: Db, id: string) {
@@ -69,10 +69,6 @@ export function listPayments(tx: Db, skip: number, take: number) {
 
 export function countPayments(tx: Db) {
   return tx.subscriptionPayment.count();
-}
-
-export function activeProjectIds(tx: Db, ids: string[]) {
-  return tx.project.findMany({ where: { id: { in: ids }, status: 'ACTIVE' }, select: { id: true } });
 }
 
 export function setPendingChange(

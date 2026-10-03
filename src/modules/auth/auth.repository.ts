@@ -297,6 +297,11 @@ export function findInvitationById(tx: Db, id: string) {
   return tx.invitation.findUnique({ where: { id }, select: { status: true, expiresAt: true, tokenHash: true } });
 }
 
+/** RLS-scoped (called inside withTenant): does the company have any user yet? */
+export async function tenantHasUsers(tx: Db): Promise<boolean> {
+  return (await tx.user.count()) > 0;
+}
+
 export function emailTakenInTenant(tx: Db, email: string) {
   return tx.user.findFirst({ where: { email }, select: { id: true } });
 }

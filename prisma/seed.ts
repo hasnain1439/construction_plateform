@@ -33,10 +33,10 @@ export const SEED = {
 } as const;
 
 const PLANS = [
-  { code: 'TRIAL', name: 'Trial', priceMonthlyPaisa: 0n, maxActiveProjects: 2, maxOfficeUsers: 3, features: ['14 days free', '2 active projects', '3 office users', 'Unlimited munshis'] },
-  { code: 'STARTER', name: 'Starter', priceMonthlyPaisa: 400_000n, maxActiveProjects: 2, maxOfficeUsers: 3, features: ['2 active projects', '3 office users', 'Unlimited munshis', 'Mobile app for site staff'] },
-  { code: 'PROFESSIONAL', name: 'Professional', priceMonthlyPaisa: 950_000n, maxActiveProjects: 5, maxOfficeUsers: 10, features: ['5 active projects', '10 office users', 'Unlimited munshis', 'Profit & billing reports'] },
-  { code: 'ENTERPRISE', name: 'Enterprise', priceMonthlyPaisa: 2_000_000n, maxActiveProjects: null, maxOfficeUsers: null, features: ['Unlimited projects', 'Unlimited office users', 'Priority support'] },
+  { code: 'TRIAL', sortOrder: 0, name: 'Trial', priceMonthlyPaisa: 0n, maxActiveProjects: 2, maxOfficeUsers: 3, features: ['14 days free', '2 active projects', '3 office users', 'Unlimited munshis'] },
+  { code: 'STARTER', sortOrder: 1, name: 'Starter', priceMonthlyPaisa: 400_000n, maxActiveProjects: 2, maxOfficeUsers: 3, features: ['2 active projects', '3 office users', 'Unlimited munshis', 'Mobile app for site staff'] },
+  { code: 'PROFESSIONAL', sortOrder: 2, name: 'Professional', priceMonthlyPaisa: 950_000n, maxActiveProjects: 5, maxOfficeUsers: 10, features: ['5 active projects', '10 office users', 'Unlimited munshis', 'Profit & billing reports'] },
+  { code: 'ENTERPRISE', sortOrder: 3, name: 'Enterprise', priceMonthlyPaisa: 2_000_000n, maxActiveProjects: null, maxOfficeUsers: null, features: ['Unlimited projects', 'Unlimited office users', 'Priority support'] },
 ] as const;
 
 const DAY = 86_400_000;
@@ -204,8 +204,8 @@ export async function seed(db: PrismaClient = prismaAdmin) {
   const year = new Date().getUTCFullYear();
   for (const y of [year, year + 1]) {
     for (const [monthDay, name] of NATIONAL_HOLIDAYS) {
-      const date = new Date(`${y}-${monthDay}T00:00:00.000Z`);
-      await db.platformHoliday.upsert({ where: { date_name: { date, name } }, create: { date, name }, update: {} });
+      const startDate = new Date(`${y}-${monthDay}T00:00:00.000Z`);
+      await db.platformHoliday.upsert({ where: { startDate_name: { startDate, name } }, create: { startDate, name }, update: {} });
     }
   }
 

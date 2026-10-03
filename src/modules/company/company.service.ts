@@ -151,9 +151,9 @@ export async function listHolidays(query: HolidaysQuery): Promise<HolidayDto[]> 
       ...platform.map((h) => ({
         id: h.id,
         name: h.name,
-        startDate: formatDateOnly(h.date),
-        endDate: formatDateOnly(h.date),
-        type: 'NON_WORKING' as const,
+        startDate: formatDateOnly(h.startDate),
+        endDate: formatDateOnly(h.endDate ?? h.startDate),
+        type: h.type,
         source: 'platform' as const,
         editable: false,
       })),

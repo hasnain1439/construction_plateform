@@ -8,8 +8,9 @@ import { PlanLimit } from '../errors/AppError.js';
  *   officeUsers    – active THEKEDAR + PM, plus pending (unexpired) PM invitations,
  *                    which reserve a seat. MUNSHI users and invites never count.
  *
- * All functions take a `withTenant` transaction, so RLS scopes the counts. Callers
- * that check-then-create should hold `lockPlanUsage` for the same transaction.
+ * Every count filters by tenantId explicitly, so these work both inside `withTenant`
+ * (RLS) and with the platform-admin client (BYPASSRLS). Callers that check-then-create
+ * should hold `lockPlanUsage` for the same transaction.
  */
 export type LimitedResource = 'activeProjects' | 'officeUsers';
 
@@ -29,17 +30,17 @@ export async function lockPlanUsage(tx: Tx, tenantId: string): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`office-seats:${tenantId}`}))`;
 }
 
-async function activeOfficeUsers(tx: Tx): Promise<number> {
-  return tx.user.count({ where: { status: 'ACTIVE', role: { in: ['THEKEDAR', 'PM'] } } });
+async function activeOfficeUsers(tx: Tx, tenantId: string): Promise<number> {
+  return tx.user.count({ where: { tenantId, status: 'ACTIVE', role: { in: ['THEKEDAR', 'PM'] } } });
 }
 
-async function pendingPmInvites(tx: Tx, now: Date): Promise<number> {
-  return tx.invitation.count({ where: { role: 'PM', status: 'PENDING', expiresAt: { gt: now } } });
+async function pendingPmInvites(tx: Tx, tenantId: string, now: Date): Promise<number> {
+  return tx.invitation.count({ where: { tenantId, role: 'PM', status: 'PENDING', expiresAt: { gt: now } } });
 }
 
-export async function getUsage(tx: Tx, _tenantId: string, now = new Date()): Promise<Usage> {
-  const activeProjects = await tx.project.count({ where: { status: 'ACTIVE' } });
-  const officeUsers = (await activeOfficeUsers(tx)) + (await pendingPmInvites(tx, now));
+export async function getUsage(tx: Tx, tenantId: string, now = new Date()): Promise<Usage> {
+  const activeProjects = await tx.project.count({ where: { tenantId, status: 'ACTIVE' } });
+  const officeUsers = (await activeOfficeUsers(tx, tenantId)) + (await pendingPmInvites(tx, tenantId, now));
   return { activeProjects, officeUsers };
 }
 
@@ -70,8 +71,8 @@ export async function assertWithinLimit(
 
   let used: number;
   if (resource === 'officeUsers') {
-    used = await activeOfficeUsers(tx);
-    if (options.countPendingInvites !== false) used += await pendingPmInvites(tx, new Date());
+    used = await activeOfficeUsers(tx, tenantId);
+    if (options.countPendingInvites !== false) used += await pendingPmInvites(tx, tenantId, new Date());
   } else {
     used = (await getUsage(tx, tenantId)).activeProjects;
   }

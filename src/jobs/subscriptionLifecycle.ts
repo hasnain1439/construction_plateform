@@ -13,9 +13,11 @@ import { logger } from '../config/logger.js';
 import { writeAudit } from '../core/audit/audit.js';
 import { prismaAdmin } from '../core/db/prisma.js';
 import { invalidateTenantStatus } from '../core/middleware/tenantContext.js';
+import { formatDisplayDate } from '../core/utils/dates.js';
 import { maskPhone } from '../core/utils/phone.js';
 import type { Prisma, SubscriptionStatus } from '../generated/prisma/client.js';
 import { smsProvider } from '../modules/auth/sms.provider.js';
+import { parkProjectsOverLimit } from '../modules/subscription/subscription.rules.js';
 import { syncTenantStatus } from '../modules/subscription/subscription.status.js';
 
 const DAY = 86_400_000;
@@ -69,21 +71,7 @@ async function applyDowngrade(subId: string, now: Date): Promise<string | null> 
     });
     if (!count) return null;
 
-    let parked: string[] = [];
-    if (target.maxActiveProjects !== null) {
-      const active = await tx.project.findMany({
-        where: { tenantId: sub.tenantId, status: 'ACTIVE' },
-        select: { id: true },
-        orderBy: { updatedAt: 'desc' },
-      });
-      if (active.length > target.maxActiveProjects) {
-        const chosen = sub.keepActiveProjectIds.filter((id) => active.some((p) => p.id === id));
-        // Fallback (shouldn't happen — change-plan requires the list): keep the most recently used.
-        const keep = new Set(chosen.length ? chosen.slice(0, target.maxActiveProjects) : active.slice(0, target.maxActiveProjects).map((p) => p.id));
-        parked = active.map((p) => p.id).filter((id) => !keep.has(id));
-        await tx.project.updateMany({ where: { id: { in: parked } }, data: { status: 'READ_ONLY' } });
-      }
-    }
+    const parked = await parkProjectsOverLimit(tx, sub.tenantId, target, sub.keepActiveProjectIds);
     await auditSystem(tx, sub.tenantId, sub.id, 'subscription.downgraded', {
       from: sub.plan.code,
       to: target.code,
@@ -91,10 +79,6 @@ async function applyDowngrade(subId: string, now: Date): Promise<string | null> 
     });
     return sub.tenantId;
   });
-}
-
-function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Karachi' }).format(date);
 }
 
 /** Sends the 3-day / 1-day reminder for one subscription if it is due and not sent yet. */
@@ -119,7 +103,7 @@ async function remind(
     where: { tenantId: sub.tenantId, role: 'THEKEDAR', status: 'ACTIVE' },
     select: { phone: true },
   });
-  const body = `Aap ka ${sub.planName} plan ${formatDate(endsAt)} ko khatam ho raha hai. Payment slip upload karein.`;
+  const body = `Aap ka ${sub.planName} plan ${formatDisplayDate(endsAt)} ko khatam ho raha hai. Payment slip upload karein.`;
   for (const owner of owners) {
     try {
       await smsProvider().send({ to: owner.phone, body });

@@ -11,9 +11,9 @@ Backend for a multi-tenant Construction Management SaaS for Pakistani constructi
 | Phase 1 · Step 1 | Core infrastructure, **Auth** | done |
 | Phase 1 · Step 2 | **Attachments**, **Company**, **Team** (users, invitations, devices) | done |
 | Phase 1 · Step 3A | **Subscription** (company side), plan limits helper, lifecycle job | done |
-| Phase 1 · Step 3B | Platform admin: payment review/approval, plans, tenants | next |
+| Phase 1 · Step 3B | **Platform admin** console: overview/health, companies, payment review + receipts, plans, holidays, audit log | done |
 
-Tests: 193 passing in 25 files. Migrations: `init_core_auth`, `company_team`, `tenant_logo_fk`, `auth_indexes`, `subscription`.
+Tests: 235 passing in 30 files. Migrations: `init_core_auth`, `company_team`, `tenant_logo_fk`, `auth_indexes`, `subscription`, `platform_admin`.
 
 ## Stack
 Node 24, Express 5, TypeScript 7 (strict ESM, NodeNext → imports end in `.js`), Prisma **7.10.0** (pinned; `@prisma/adapter-pg`; client generated to `src/generated/prisma`), PostgreSQL 18, Zod 4, zod-to-openapi 9, pino, jsonwebtoken, bcryptjs, multer 2, Vitest 5 + Supertest. Do not upgrade Prisma to 8 (npm `latest` is an RC).
@@ -47,6 +47,8 @@ env (Zod), logger (redacted), requestContext (ALS), AppError family, response/as
 - **subscription** — GET status/usage/limits, plans, payments (manual slip: JazzCash/Easypaisa/Raast/IBFT, amount = plan price, global unique transaction id, one pending at a time, allowed while READ_ONLY), change-plan (upgrade pending until approval; downgrade at period end with keepActiveProjectIds). Statuses TRIAL/ACTIVE/GRACE → company ACTIVE, LAPSED → READ_ONLY (`subscription.status.ts`).
 - **core/plan/planLimits.ts** — `getUsage`, `getLimits`, `assertWithinLimit(tx, tenantId, 'activeProjects'|'officeUsers')` → 402; office users include pending PM invites. Projects module must use it.
 - **jobs** — `src/jobs/subscriptionLifecycle.ts` (trial end → LAPSED, period end → GRACE +3 d → LAPSED, scheduled downgrades, 3-day/1-day reminder SMS), scheduled in-process at start-up + 02:00 PKT with `pg_try_advisory_lock`; `npm run jobs:subscriptions`. `src/jobs/**` may use prismaAdmin.
+- **platform-admin** (`/api/v1/admin`, prismaAdmin allowed) — overview (counts, MRR, revenue), health (+ `JobRun`), tenants (list/detail, create TRIAL/PAID with a THEKEDAR invite, status actions, plan change), payments (queue with duplicate warnings, approve → period/plan/receipt `RCPT-YYYY-NNNN`/company ACTIVE/SMS, reject with reason), plans CRUD, platform holidays CRUD, audit log. Every write audited as PLATFORM_ADMIN.
+- **subscription.rules.ts** — `assertPlanFits` / `parkProjectsOverLimit`, shared by company change-plan, admin plan change, payment approval and the lifecycle job. `planLimits` filters by tenantId explicitly (safe under prismaAdmin).
 - **health**, **projects** (stub model only — status `READ_ONLY` exists for downgrades).
 
 ## Seed (`npm run db:seed`, idempotent)

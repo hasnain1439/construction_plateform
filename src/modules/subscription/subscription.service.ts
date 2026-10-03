@@ -8,6 +8,7 @@ import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { getLimits, getUsage } from '../../core/plan/planLimits.js';
 import { dateOnly, formatDateOnly, todayIn } from '../../core/utils/dates.js';
 import * as repo from './subscription.repository.js';
+import { assertPlanFits } from './subscription.rules.js';
 import type {
   ChangePlanInput,
   ChangePlanResultDto,
@@ -235,36 +236,8 @@ export async function changePlan(input: ChangePlanInput): Promise<ChangePlanResu
     if (target.id === sub.planId) throw new BadRequest('SAME_PLAN', 'You are already on this plan');
 
     const now = new Date();
-    const usage = await getUsage(tx, tenantId, now);
-
-    // Whatever the timing, the company must fit the target plan.
-    if (target.maxOfficeUsers !== null && usage.officeUsers > target.maxOfficeUsers) {
-      throw new BadRequest(
-        'DOWNGRADE_USERS_OVER_LIMIT',
-        `${target.name} allows ${target.maxOfficeUsers} office users; you have ${usage.officeUsers}. Deactivate users or cancel PM invites first.`,
-        { officeUsers: usage.officeUsers, limit: target.maxOfficeUsers },
-      );
-    }
-    let keep: string[] = [];
-    if (target.maxActiveProjects !== null && usage.activeProjects > target.maxActiveProjects) {
-      const requested = input.keepActiveProjectIds ?? [];
-      if (!requested.length) {
-        throw new BadRequest(
-          'KEEP_PROJECTS_REQUIRED',
-          `${target.name} allows ${target.maxActiveProjects} active projects; you have ${usage.activeProjects}. Choose which to keep active (keepActiveProjectIds).`,
-          { activeProjects: usage.activeProjects, limit: target.maxActiveProjects },
-        );
-      }
-      if (requested.length > target.maxActiveProjects) {
-        throw new BadRequest('TOO_MANY_PROJECTS', `Keep at most ${target.maxActiveProjects} projects active`, {
-          limit: target.maxActiveProjects,
-        });
-      }
-      const found = new Set((await repo.activeProjectIds(tx, requested)).map((p) => p.id));
-      const invalidIds = requested.filter((id) => !found.has(id));
-      if (invalidIds.length) throw new BadRequest('INVALID_PROJECT', 'Some ids are not active projects of this company', { invalidIds });
-      keep = requested;
-    }
+    // Whatever the timing, the company must fit the target plan (shared with the admin console).
+    const keep = await assertPlanFits(tx, tenantId, target, input.keepActiveProjectIds);
 
     const isDowngrade = inPaidPeriod(sub, now) && target.priceMonthlyPaisa <= sub.plan.priceMonthlyPaisa;
     const effectiveOn = isDowngrade ? sub.currentPeriodEnd : null;

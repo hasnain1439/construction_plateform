@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { env, isTest } from '../config/env.js';
 import { logger } from '../config/logger.js';
+import { trackJobRun } from './jobRuns.js';
 import { runSubscriptionLifecycle } from './subscriptionLifecycle.js';
 
 /** Karachi is UTC+5 all year (no DST). */
@@ -41,7 +42,7 @@ export async function runExclusive<T>(name: string, fn: () => Promise<T>): Promi
 export async function runSubscriptionJob(): Promise<void> {
   const started = Date.now();
   try {
-    const result = await runExclusive('subscription-lifecycle', () => runSubscriptionLifecycle());
+    const result = await runExclusive('subscription-lifecycle', () => trackJobRun('subscription-lifecycle', () => runSubscriptionLifecycle()));
     if (result) {
       logger.info(
         {

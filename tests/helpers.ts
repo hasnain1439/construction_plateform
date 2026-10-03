@@ -139,3 +139,19 @@ export const pathOf = (url: string) => {
   const u = new URL(url);
   return `${u.pathname}${u.search}`;
 };
+
+/** Platform admin (seed) — mobile-style tokens. */
+export async function loginAdmin(): Promise<{ accessToken: string; refreshToken: string }> {
+  const res = await api()
+    .post('/api/v1/admin/auth/login')
+    .send({ email: SEED.admin.email, password: SEED.admin.password, client: 'mobile' });
+  if (res.status !== 200) throw new Error(`admin login failed: ${res.status} ${JSON.stringify(res.body)}`);
+  return { accessToken: res.body.data.accessToken, refreshToken: res.body.data.refreshToken };
+}
+
+/** Next receipt number expected for this year, given how many the seed already used. */
+export function expectedReceipt(offset: number): string {
+  const year = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi', year: 'numeric' }).format(new Date());
+  const seededMax = year === '2026' ? 381 : 0; // seed: RCPT-2026-0371, 0372, 0381
+  return `RCPT-${year}-${String(seededMax + offset).padStart(4, '0')}`;
+}

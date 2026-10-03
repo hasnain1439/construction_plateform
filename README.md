@@ -275,6 +275,38 @@ A READ_ONLY company can still sign out, use **every** `/subscription` route and 
 
 Every transition is a conditional update + `SYSTEM` audit row, so running it twice (or on two servers) is safe. The server runs it at start-up and daily at **02:00 Asia/Karachi** under `pg_try_advisory_lock` (only one instance runs it); disabled when `NODE_ENV=test`. Run it by hand with `npm run jobs:subscriptions` (production: `node dist/jobs/cli/subscriptions.js`). Note: other running servers cache company status for up to 60 s.
 
+## Platform Admin
+
+`src/modules/platform-admin` — the platform owners' console, mounted at `/api/v1/admin` (login stays at `/api/v1/admin/auth`). Every route: `authenticatePlatform → requirePlatformAdmin` (platform audience + role) → live admin session → `validate` → `asyncHandler`. Company tokens get 401. The module may use `prismaAdmin` (cross-tenant); every write adds an AuditLog row with `actorType PLATFORM_ADMIN`, `actorId` = admin id and `tenantId` = the company affected.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /admin/overview` | Company counts (active / trial / grace / read-only / suspended), `mrrPaisa` (plan prices of ACTIVE + GRACE subscriptions), payments awaiting review, trials ending in 7 days, companies per plan, approved revenue by month (12 months, PKT) |
+| `GET /admin/health` | API, database + latency, SMS / mail / storage provider, version, uptime, last subscription-lifecycle run (`JobRun` table) |
+| `GET /admin/tenants` | Search (name, slug, owner phone), filters (company status, subscription status, plan code, `renewsBefore`), owner, plan, usage vs limits, renewal date |
+| `GET /admin/tenants/:id` | Profile, owner, settings, full subscription, usage, last 10 payments, last 20 audit events |
+| `POST /admin/tenants` | Create a company in one transaction: settings, subscription (TRIAL with `trialDays` 1–60, or PAID = ACTIVE 30 days + an APPROVED payment with a receipt), and a 7-day **THEKEDAR invitation** for the owner (SMS). The owner accepts it with a password; as the company's first user they skip the office-seat check. `409 SLUG_TAKEN / DUPLICATE_TRANSACTION / PHONE_TAKEN`, `400 AMOUNT_MISMATCH` |
+| `PATCH /admin/tenants/:id/status` | `EXTEND_TRIAL` (1–30 days; TRIAL or a lapsed trial → TRIAL + company ACTIVE), `SET_READ_ONLY`, `REACTIVATE` (company status implied by the subscription), `SUSPEND` / `CLOSE` (note required; every session revoked) |
+| `PATCH /admin/tenants/:id/plan` | `IMMEDIATE` or `NEXT_RENEWAL`; same fit checks and error codes as the company-side change-plan (`subscription.rules.ts`) |
+| `GET /admin/payments` · `GET /admin/payments/:id` | Review queue (PENDING_REVIEW, oldest first) with expected amount and `duplicateWarning`; detail with signed slip URL and `duplicateOf` |
+| `POST /admin/payments/:id/approve` · `/reject` | See below. Reject needs a 5–300 character reason (sent by SMS, shown to the company) |
+| `GET/POST /admin/plans`, `PATCH /admin/plans/:id` | All plans with company counts; code unique + immutable; price changes apply to future payments; the last active paid plan can't be deactivated (`409 LAST_ACTIVE_PLAN`) |
+| `GET/POST /admin/holidays`, `PATCH/DELETE /admin/holidays/:id` | Platform holidays: date range, `NON_WORKING` / `PARTIAL`, nationwide or one region; merged into every company calendar |
+| `GET /admin/audit-logs` | Filters `tenantId`, `actorType`, `action` (prefix), `from` / `to`; newest first; secret-looking fields always `[REDACTED]` |
+
+### Payment approval flow
+
+1. The company uploads a slip (`PAYMENT_SLIP`) and submits `POST /subscription/payments` → `PENDING_REVIEW`.
+2. The admin checks it (`GET /admin/payments/:id`: slip, expected amount, possible duplicates) and approves or rejects.
+3. **Approve** (one transaction, under the same per-company lock as the company's subscription routes):
+   - period = 30 days from **today** for TRIAL / GRACE / LAPSED, or from the **current period end** for ACTIVE;
+   - the subscription moves to the paid plan (a matching pending change is cleared; a cheaper plan must fit, extra projects become READ_ONLY);
+   - receipt number, subscription `ACTIVE`, company `ACTIVE` (cache invalidated — a lapsed company can write immediately);
+   - SMS: *"Payment approve ho gayi. Starter 4 Nov 2026 tak active."*
+4. Approving or rejecting a processed payment → `409 ALREADY_PROCESSED`.
+
+**Receipt numbers** — `RCPT-YYYY-NNNN`, one sequence per year (Pakistan time). The next number is `max(existing for the year) + 1`, taken inside the approving transaction under a global advisory lock: sequential, gap-free (a rolled-back approval releases its number) and never shared by parallel approvals. The seed ends at `RCPT-2026-0381`, so the first approval is `RCPT-2026-0382`.
+
 ## Error codes
 
 | HTTP | Codes |
@@ -283,8 +315,8 @@ Every transition is a conditional update + `SYSTEM` audit row, so running it twi
 | 401 | `UNAUTHENTICATED`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `SESSION_REVOKED`, `ACCOUNT_DISABLED`, `INVALID_CREDENTIALS`, `REFRESH_INVALID`, `REFRESH_TOKEN_REUSED`, `DEVICE_REVOKED` |
 | 402 | `PLAN_LIMIT_REACHED` |
 | 403 | `FORBIDDEN`, `COMPANY_SUSPENDED`, `ACCOUNT_READ_ONLY`, `INVALID_SIGNATURE`, `LINK_EXPIRED`, `CANNOT_CHANGE_OWN_ROLE`, `CANNOT_CHANGE_OWNER_ROLE`, `CANNOT_DEACTIVATE_SELF`, `LAST_THEKEDAR` |
-| 404 | `ROUTE_NOT_FOUND`, `NOT_FOUND`, `PHONE_NOT_REGISTERED`, `INVITE_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `HOLIDAY_NOT_FOUND`, `USER_NOT_FOUND`, `DEVICE_NOT_FOUND`, `COMPANY_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`, `NO_PENDING_CHANGE` |
-| 409 | `ALREADY_EXISTS`, `PHONE_TAKEN`, `EMAIL_TAKEN`, `MULTIPLE_COMPANIES`, `INVITE_ALREADY_ACCEPTED`, `INVITE_CANCELLED`, `INVITE_PENDING`, `ALREADY_MEMBER`, `HOLIDAY_EXISTS`, `USER_ALREADY_ACTIVE`, `PAYMENT_PENDING`, `DUPLICATE_TRANSACTION`, `CASH_BALANCE_OPEN` (future) |
+| 404 | `ROUTE_NOT_FOUND`, `NOT_FOUND`, `PHONE_NOT_REGISTERED`, `INVITE_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `HOLIDAY_NOT_FOUND`, `USER_NOT_FOUND`, `DEVICE_NOT_FOUND`, `COMPANY_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`, `NO_PENDING_CHANGE`, `TENANT_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `PLAN_NOT_FOUND` |
+| 409 | `ALREADY_EXISTS`, `PHONE_TAKEN`, `EMAIL_TAKEN`, `MULTIPLE_COMPANIES`, `INVITE_ALREADY_ACCEPTED`, `INVITE_CANCELLED`, `INVITE_PENDING`, `ALREADY_MEMBER`, `HOLIDAY_EXISTS`, `USER_ALREADY_ACTIVE`, `PAYMENT_PENDING`, `DUPLICATE_TRANSACTION`, `SLUG_TAKEN`, `PLAN_CODE_TAKEN`, `LAST_ACTIVE_PLAN`, `ALREADY_PROCESSED`, `CANNOT_EXTEND_TRIAL`, `TENANT_CLOSED`, `CASH_BALANCE_OPEN` (future) |
 | 410 | `OTP_EXPIRED`, `INVITE_EXPIRED`, `INVITE_CANCELLED` |
 | 423 | `ACCOUNT_LOCKED` |
 | 429 | `RATE_LIMITED`, `OTP_RESEND_WAIT`, `OTP_LIMIT_REACHED`, `OTP_TOO_MANY_ATTEMPTS`, `INVITE_RESEND_WAIT` |
@@ -297,6 +329,7 @@ Every transition is a conditional update + `SYSTEM` audit row, so running it twi
 | `20261003120000_company_team` | Attachment `kind` (url dropped — URLs are signed on demand), company profile fields, settings rules, holiday ranges/types, `User.deactivatedAt`, `UserStatus DISABLED → INACTIVE`, `Invitation.lastResentAt` + `(tenantId, phone, status)` index, device sync fields |
 | `20261003130000_tenant_logo_fk` | Logo FK → `Attachment.id` (same-tenant enforced in the service) |
 | `20261003140000_auth_indexes` | `Session(deviceId)` for device revocation, `OtpCode(phone, createdAt)` for the hourly OTP limit |
+| `20261005090000_platform_admin` | `Plan.sortOrder`; PlatformHoliday `date → startDate` (renamed) + `endDate`, `type`, `updatedAt`; payment `reviewedById` (PlatformAdmin) + `reviewNote`; `JobRun` table (platform-level, no RLS; app_user has no access) |
 | `20261004090000_subscription` | SubscriptionStatus `PAST_DUE → GRACE`, `EXPIRED → LAPSED`; PaymentStatus `PENDING/PAID/FAILED → PENDING_REVIEW/APPROVED/REJECTED`; `PaymentMethod` enum; `Plan.maxProjects → maxActiveProjects` + `features`; subscription period/grace/pending-change/reminder fields; payment `transactionId` (globally unique), `paidOn`, slip, `receiptNo`; `AttachmentKind.PAYMENT_SLIP`; `ProjectStatus.READ_ONLY` |
 
 Prisma's `migrate dev` refuses to run non-interactively when a change has warnings (enum value removed). Generate SQL with `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, hand-edit renames (e.g. `ALTER TYPE … RENAME VALUE`, `RENAME COLUMN`) so data is kept, save it as a new migration folder and run `npx prisma migrate deploy`.

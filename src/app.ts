@@ -14,6 +14,7 @@ import { attachmentsRouter } from './modules/attachments/attachments.routes.js';
 import { adminAuthRouter, authRouter, invitationRouter } from './modules/auth/auth.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
+import { platformAdminRouter } from './modules/platform-admin/platformAdmin.routes.js';
 import { subscriptionRouter } from './modules/subscription/subscription.routes.js';
 import { devicesRouter, teamInvitationsRouter, usersRouter } from './modules/team/team.routes.js';
 import { safeUrl } from './core/utils/safeUrl.js';
@@ -63,6 +64,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   api.use('/users', usersRouter);
   api.use('/devices', devicesRouter);
   api.use('/subscription', subscriptionRouter);
+  api.use('/admin', platformAdminRouter); // after /admin/auth (public login)
   options.extraRoutes?.(api);
   app.use('/api/v1', api);
 

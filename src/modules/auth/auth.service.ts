@@ -687,7 +687,10 @@ export async function acceptInvitation(token: string, input: AcceptInvitationInp
     const late = invitationProblem(current, now);
     if (late) throw late;
 
-    if (invitation.role !== 'MUNSHI') {
+    // A THEKEDAR invite created by the platform admin for a brand-new company is that
+    // company's first user: the owner always gets in, whatever the plan.
+    const firstUser = invitation.role === 'THEKEDAR' && !(await repo.tenantHasUsers(tx));
+    if (invitation.role !== 'MUNSHI' && !firstUser) {
       // This invite already reserved its seat; compare against real users only.
       await assertWithinLimit(tx, tenantId, 'officeUsers', 1, { countPendingInvites: false });
     }
