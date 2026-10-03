@@ -1,0 +1,66 @@
+import cookieParser from 'cookie-parser';
+import cors from 'cors';
+import express, { type Express, type Router } from 'express';
+import helmet from 'helmet';
+import { pinoHttp } from 'pino-http';
+import { corsOrigins, docsEnabled, env } from './config/env.js';
+import { logger } from './config/logger.js';
+import { errorHandler, notFoundHandler } from './core/middleware/errorHandler.js';
+import { generalRateLimit } from './core/middleware/rateLimit.js';
+import { requestContext, resolveRequestId } from './core/middleware/requestId.js';
+import { docsRouter } from './core/openapi/docs.js';
+import { jsonReplacer } from './core/utils/json.js';
+import { adminAuthRouter, authRouter, invitationRouter } from './modules/auth/auth.routes.js';
+import { healthRouter } from './modules/health/health.routes.js';
+
+/** Strips secrets that can appear in URLs (invitation tokens) before logging. */
+function safeUrl(url: string | undefined): string | undefined {
+  return url?.replace(/\/invitations\/[^/?#]+/, '/invitations/[REDACTED]');
+}
+
+export interface CreateAppOptions {
+  /** Extra routers mounted under /api/v1 before the 404 handler (used by tests). */
+  extraRoutes?: (api: Router) => void;
+}
+
+export function createApp(options: CreateAppOptions = {}): Express {
+  const app = express();
+
+  app.disable('x-powered-by');
+  app.set('trust proxy', env.TRUST_PROXY);
+  app.set('json replacer', jsonReplacer);
+
+  app.use(
+    pinoHttp({
+      logger,
+      genReqId: resolveRequestId,
+      autoLogging: { ignore: (req) => req.url === '/health' },
+      customLogLevel: (_req, res, err) => (err || res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'info' : 'info'),
+      // Log only what we need — never bodies, cookies or auth headers.
+      serializers: {
+        req: (req: { id: unknown; method: string; url: string }) => ({ id: req.id, method: req.method, url: safeUrl(req.url) }),
+        res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
+      },
+    }),
+  );
+  app.use(helmet());
+  app.use(cors({ origin: corsOrigins, credentials: true }));
+  app.use(express.json({ limit: '1mb' }));
+  app.use(cookieParser());
+  app.use(requestContext);
+
+  app.use(healthRouter);
+  if (docsEnabled) app.use('/api', docsRouter());
+
+  const api = express.Router();
+  api.use(generalRateLimit);
+  api.use('/auth', authRouter);
+  api.use('/invitations', invitationRouter);
+  api.use('/admin/auth', adminAuthRouter);
+  options.extraRoutes?.(api);
+  app.use('/api/v1', api);
+
+  app.use(notFoundHandler);
+  app.use(errorHandler);
+  return app;
+}

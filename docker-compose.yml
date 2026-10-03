@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: construction-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: construction
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Creates app_user / app_admin on first start (dev passwords, see .env.example)
+      - ./prisma/roles.sql:/docker-entrypoint-initdb.d/01-roles.sql:ro
+
+  redis:
+    image: redis:7
+    container_name: construction-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:

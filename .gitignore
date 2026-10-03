@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.test
+/src/generated/prisma
+coverage
+
+# AI agent skill files installed by `prisma init` (local only)
+.agents/
+.claude/
+.windsurf/
+skills-lock.json

@@ -1,0 +1,430 @@
+// Core multi-tenant schema for the Construction Management SaaS.
+//
+// Conventions
+// - IDs are UUID v7 (time-ordered) stored as native `uuid`.
+// - Money is BigInt paisa (1 PKR = 100 paisa). Never use floats for money.
+// - Timestamps are stored in UTC (`timestamptz`).
+// - Every tenant-scoped table carries `tenantId` and is protected by
+//   PostgreSQL row-level security (see prisma/rls.sql). Child rows reference
+//   tenant-scoped parents through composite `(tenantId, id)` keys so a row can
+//   never point at another tenant's data.
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "esm"
+  importFileExtension    = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ──────────────────────────────────────────────────────────────────
+
+enum TenantStatus {
+  ACTIVE
+  READ_ONLY
+  SUSPENDED
+  CLOSED
+}
+
+enum Region {
+  PUNJAB_KP
+  KARACHI_SINDH
+}
+
+enum UserRole {
+  THEKEDAR
+  PM
+  MUNSHI
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum Language {
+  ENGLISH
+  ROMAN_URDU
+  URDU
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  CANCELLED
+}
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+  WEB
+}
+
+enum OtpPurpose {
+  LOGIN
+  PASSWORD_RESET
+}
+
+enum ActorType {
+  USER
+  PLATFORM_ADMIN
+  SYSTEM
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+// ─── Platform (not tenant-scoped) ───────────────────────────────────────────
+
+model PlatformAdmin {
+  id               String                 @id @default(uuid(7)) @db.Uuid
+  email            String                 @unique
+  name             String
+  passwordHash     String
+  isActive         Boolean                @default(true)
+  failedLoginCount Int                    @default(0)
+  lockedUntil      DateTime?              @db.Timestamptz(3)
+  lastLoginAt      DateTime?              @db.Timestamptz(3)
+  createdAt        DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime               @updatedAt @db.Timestamptz(3)
+  sessions         PlatformAdminSession[]
+}
+
+model PlatformAdminSession {
+  id           String        @id @default(uuid(7)) @db.Uuid
+  adminId      String        @db.Uuid
+  tokenHash    String        @unique
+  familyId     String        @db.Uuid
+  expiresAt    DateTime      @db.Timestamptz(3)
+  revokedAt    DateTime?     @db.Timestamptz(3)
+  replacedById String?       @db.Uuid
+  userAgent    String?
+  ip           String?
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  admin        PlatformAdmin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@index([adminId])
+}
+
+model Plan {
+  id                String         @id @default(uuid(7)) @db.Uuid
+  code              String         @unique
+  name              String
+  priceMonthlyPaisa BigInt         @default(0)
+  /// null = unlimited
+  maxProjects       Int?
+  /// Office users = THEKEDAR + PM. Munshis are not counted. null = unlimited.
+  maxOfficeUsers    Int?
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime       @updatedAt @db.Timestamptz(3)
+  subscriptions     Subscription[]
+}
+
+model PlatformHoliday {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  date      DateTime @db.Date
+  name      String
+  region    Region?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([date, name])
+}
+
+/// Accessed only through the admin (BYPASSRLS) client during auth flows.
+model OtpCode {
+  id         String     @id @default(uuid(7)) @db.Uuid
+  phone      String
+  purpose    OtpPurpose
+  codeHash   String
+  expiresAt  DateTime   @db.Timestamptz(3)
+  attempts   Int        @default(0)
+  consumedAt DateTime?  @db.Timestamptz(3)
+  lastSentAt DateTime   @db.Timestamptz(3)
+  /// Set once the OTP has been used to sign in to a specific company.
+  tenantId   String?    @db.Uuid
+  createdAt  DateTime   @default(now()) @db.Timestamptz(3)
+
+  @@index([phone, purpose, createdAt])
+}
+
+// ─── Tenant core ────────────────────────────────────────────────────────────
+
+model Tenant {
+  id                   String                @id @default(uuid(7)) @db.Uuid
+  name                 String
+  slug                 String                @unique
+  status               TenantStatus          @default(ACTIVE)
+  region               Region
+  logoUrl              String?
+  createdAt            DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime              @updatedAt @db.Timestamptz(3)
+  settings             TenantSettings?
+  subscription         Subscription?
+  subscriptionPayments SubscriptionPayment[]
+  users                User[]
+  projects             Project[]
+  userProjectAccess    UserProjectAccess[]
+  invitations          Invitation[]
+  devices              Device[]
+  sessions             Session[]
+  companyHolidays      CompanyHoliday[]
+  attachments          Attachment[]
+  auditLogs            AuditLog[]
+}
+
+model TenantSettings {
+  tenantId          String   @id @db.Uuid
+  /// Square feet per marla: 225 (societies) or 272.25 (revenue marla).
+  marlaStandardSqft Decimal  @default(225) @db.Decimal(6, 2)
+  currency          String   @default("PKR")
+  timezone          String   @default("Asia/Karachi")
+  defaultLanguage   Language @default(ROMAN_URDU)
+  weekStartsOn      Int      @default(1)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id               String                @id @default(uuid(7)) @db.Uuid
+  tenantId         String                @unique @db.Uuid
+  planId           String                @db.Uuid
+  status           SubscriptionStatus
+  trialEndsAt      DateTime?             @db.Timestamptz(3)
+  currentPeriodEnd DateTime?             @db.Timestamptz(3)
+  cancelledAt      DateTime?             @db.Timestamptz(3)
+  createdAt        DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime              @updatedAt @db.Timestamptz(3)
+  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan             Plan                  @relation(fields: [planId], references: [id])
+  payments         SubscriptionPayment[]
+
+  @@unique([tenantId, id])
+}
+
+model SubscriptionPayment {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  tenantId       String        @db.Uuid
+  subscriptionId String        @db.Uuid
+  amountPaisa    BigInt
+  method         String
+  reference      String?
+  status         PaymentStatus @default(PENDING)
+  periodStart    DateTime      @db.Timestamptz(3)
+  periodEnd      DateTime      @db.Timestamptz(3)
+  paidAt         DateTime?     @db.Timestamptz(3)
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscription   Subscription  @relation(fields: [tenantId, subscriptionId], references: [tenantId, id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+}
+
+model User {
+  id                String              @id @default(uuid(7)) @db.Uuid
+  tenantId          String              @db.Uuid
+  name              String
+  /// E.164, e.g. +923001234567
+  phone             String
+  email             String?
+  /// null for OTP-only users (typically MUNSHI)
+  passwordHash      String?
+  role              UserRole
+  status            UserStatus          @default(ACTIVE)
+  language          Language            @default(ROMAN_URDU)
+  photoAttachmentId String?             @db.Uuid
+  canSeeFinancials  Boolean             @default(false)
+  failedLoginCount  Int                 @default(0)
+  lockedUntil       DateTime?           @db.Timestamptz(3)
+  passwordChangedAt DateTime?           @db.Timestamptz(3)
+  lastLoginAt       DateTime?           @db.Timestamptz(3)
+  createdAt         DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime            @updatedAt @db.Timestamptz(3)
+  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  photo             Attachment?         @relation("UserPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  projectAccess     UserProjectAccess[]
+  devices           Device[]
+  sessions          Session[]
+  acceptedInvites   Invitation[]        @relation("InvitationAcceptedUser")
+  sentInvites       Invitation[]        @relation("InvitationInvitedBy")
+  uploads           Attachment[]        @relation("AttachmentUploadedBy")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, phone])
+  @@unique([tenantId, email])
+  @@index([phone])
+  @@index([email])
+}
+
+/// Stub — the Projects module will extend this.
+model Project {
+  id         String              @id @default(uuid(7)) @db.Uuid
+  tenantId   String              @db.Uuid
+  name       String
+  status     ProjectStatus       @default(ACTIVE)
+  createdAt  DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime            @updatedAt @db.Timestamptz(3)
+  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userAccess UserProjectAccess[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status])
+}
+
+model UserProjectAccess {
+  tenantId  String   @db.Uuid
+  userId    String   @db.Uuid
+  projectId String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+  project   Project  @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade)
+
+  @@id([userId, projectId])
+  @@index([tenantId, projectId])
+}
+
+model Invitation {
+  id               String           @id @default(uuid(7)) @db.Uuid
+  tenantId         String           @db.Uuid
+  /// sha256(token + pepper); the raw token only exists in the invite link.
+  tokenHash        String           @unique
+  role             UserRole
+  name             String
+  phone            String
+  email            String?
+  canSeeFinancials Boolean          @default(false)
+  projectIds       String[]         @db.Uuid
+  status           InvitationStatus @default(PENDING)
+  expiresAt        DateTime         @db.Timestamptz(3)
+  invitedById      String?          @db.Uuid
+  acceptedUserId   String?          @db.Uuid
+  acceptedAt       DateTime?        @db.Timestamptz(3)
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invitedBy        User?            @relation("InvitationInvitedBy", fields: [tenantId, invitedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  acceptedUser     User?            @relation("InvitationAcceptedUser", fields: [tenantId, acceptedUserId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, status])
+}
+
+model Device {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  tenantId       String         @db.Uuid
+  userId         String         @db.Uuid
+  /// Stable id generated by the client app/browser.
+  clientDeviceId String
+  platform       DevicePlatform
+  model          String?
+  appVersion     String?
+  lastActiveAt   DateTime       @default(now()) @db.Timestamptz(3)
+  revokedAt      DateTime?      @db.Timestamptz(3)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+  sessions       Session[]
+
+  @@unique([tenantId, id])
+  @@unique([userId, clientDeviceId])
+  @@index([tenantId])
+}
+
+model Session {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  tenantId     String    @db.Uuid
+  userId       String    @db.Uuid
+  deviceId     String    @db.Uuid
+  /// sha256(refreshToken + pepper)
+  tokenHash    String    @unique
+  /// All sessions produced by rotating one login share a family.
+  familyId     String    @db.Uuid
+  expiresAt    DateTime  @db.Timestamptz(3)
+  revokedAt    DateTime? @db.Timestamptz(3)
+  replacedById String?   @db.Uuid
+  lastActiveAt DateTime  @default(now()) @db.Timestamptz(3)
+  userAgent    String?
+  ip           String?
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User      @relation(fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+  device       Device    @relation(fields: [tenantId, deviceId], references: [tenantId, id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
+  @@index([familyId])
+}
+
+model CompanyHoliday {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  tenantId  String   @db.Uuid
+  date      DateTime @db.Date
+  name      String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, date, name])
+}
+
+model Attachment {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  tenantId     String   @db.Uuid
+  storageKey   String
+  url          String
+  fileName     String
+  mimeType     String
+  sizeBytes    Int
+  uploadedById String?  @db.Uuid
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  uploadedBy   User?    @relation("AttachmentUploadedBy", fields: [tenantId, uploadedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  userPhotos   User[]   @relation("UserPhoto")
+
+  @@unique([tenantId, id])
+  @@index([tenantId, createdAt])
+}
+
+model AuditLog {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  /// null for platform-level events (e.g. admin.login)
+  tenantId   String?   @db.Uuid
+  actorType  ActorType
+  actorId    String?   @db.Uuid
+  action     String
+  entityType String?
+  entityId   String?
+  details    Json?
+  ip         String?
+  userAgent  String?
+  requestId  String?
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  tenant     Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([action, createdAt])
+}
