@@ -14,6 +14,8 @@ import {
 } from '../src/modules/auth/auth.schema.js';
 import { updateCompanyBody, updateSettingsBody, createHolidayBody } from '../src/modules/company/company.schema.js';
 import { createInvitationBody, setUserProjectsBody, updateUserBody } from '../src/modules/team/team.schema.js';
+import { changePlanBody, submitPaymentBody } from '../src/modules/subscription/subscription.schema.js';
+import * as admin from '../src/modules/platform-admin/platformAdmin.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
@@ -23,6 +25,17 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'patch /api/v1/users/{id}': updateUserBody,
   'put /api/v1/users/{id}/projects': setUserProjectsBody,
   'post /api/v1/invitations': createInvitationBody,
+  'post /api/v1/subscription/payments': submitPaymentBody,
+  'post /api/v1/subscription/change-plan': changePlanBody,
+  'post /api/v1/admin/tenants': admin.createTenantBody,
+  'patch /api/v1/admin/tenants/{id}/status': admin.tenantStatusBody,
+  'patch /api/v1/admin/tenants/{id}/plan': admin.tenantPlanBody,
+  'post /api/v1/admin/payments/{id}/approve': admin.approvePaymentBody,
+  'post /api/v1/admin/payments/{id}/reject': admin.rejectPaymentBody,
+  'post /api/v1/admin/plans': admin.createPlanBody,
+  'patch /api/v1/admin/plans/{id}': admin.updatePlanBody,
+  'post /api/v1/admin/holidays': admin.createHolidayBody,
+  'patch /api/v1/admin/holidays/{id}': admin.updateHolidayBody,
   'post /api/v1/auth/signup': signupBody,
   'post /api/v1/auth/login': loginBody,
   'post /api/v1/auth/otp/request': otpRequestBody,
@@ -53,10 +66,12 @@ describe('API docs', () => {
       'Auth',
       'Company',
       'Team',
+      'Subscription',
       'Attachments',
       'Platform admin auth',
+      'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(33);
+    expect(Object.keys(res.body.paths)).toHaveLength(52);
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

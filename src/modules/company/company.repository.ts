@@ -32,11 +32,17 @@ export function findAttachment(tx: Db, id: string) {
   return tx.attachment.findUnique({ where: { id }, select: { id: true, kind: true } });
 }
 
-/** Nationwide platform holidays plus those for the company's region, inside [from, to]. */
+/** Nationwide platform holidays plus those for the company's region, overlapping [from, to]. */
 export function listPlatformHolidays(tx: Db, region: Region, from: Date, to: Date) {
   return tx.platformHoliday.findMany({
-    where: { date: { gte: from, lte: to }, OR: [{ region: null }, { region }] },
-    orderBy: { date: 'asc' },
+    where: {
+      startDate: { lte: to },
+      AND: [
+        { OR: [{ region: null }, { region }] },
+        { OR: [{ endDate: null, startDate: { gte: from } }, { endDate: { gte: from } }] },
+      ],
+    },
+    orderBy: { startDate: 'asc' },
   });
 }
 

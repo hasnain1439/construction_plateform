@@ -2,7 +2,8 @@ import { writeAudit } from '../../core/audit/audit.js';
 import { getCtx } from '../../core/context/requestContext.js';
 import { Prisma } from '../../core/db/prisma.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
-import { BadRequest, Conflict, Forbidden, NotFound, PlanLimit } from '../../core/errors/AppError.js';
+import { BadRequest, Conflict, Forbidden, NotFound } from '../../core/errors/AppError.js';
+import { assertWithinLimit, lockPlanUsage } from '../../core/plan/planLimits.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import * as repo from './team.repository.js';
 import type { ListUsersQuery, SetUserProjectsInput, TeamUserDto, UpdateUserInput, UserDetailDto } from './team.schema.js';
@@ -13,27 +14,6 @@ function current() {
 }
 
 const userNotFound = () => new NotFound('USER_NOT_FOUND', 'User not found');
-
-/**
- * Throws 402 when one more office user (THEKEDAR/PM) would exceed the plan.
- * Call inside a transaction after `lockOfficeSeats`.
- */
-export async function assertOfficeSeat(
-  tx: Tx,
-  tenantId: string,
-  options: { countPendingInvites: boolean; excludeInvitationId?: string },
-): Promise<void> {
-  const max = await repo.maxOfficeUsers(tx, tenantId);
-  if (max === null) return;
-  let used = await repo.countActiveOfficeUsers(tx);
-  if (options.countPendingInvites) used += await repo.countPendingPmInvites(tx, new Date(), options.excludeInvitationId);
-  if (used >= max) {
-    throw new PlanLimit('PLAN_LIMIT_REACHED', `Your plan allows ${max} office users (THEKEDAR + PM). Upgrade to add more.`, {
-      limit: max,
-      used,
-    });
-  }
-}
 
 /**
  * Hook for the cash module: a user holding company cash (petty cash / advances) must
@@ -97,7 +77,7 @@ export async function getUser(id: string): Promise<UserDetailDto> {
 export async function updateUser(id: string, input: UpdateUserInput): Promise<UserDetailDto> {
   const me = current();
   return withTenant(me.tenantId, async (tx) => {
-    await repo.lockOfficeSeats(tx, me.tenantId);
+    await lockPlanUsage(tx, me.tenantId);
     const target = await repo.findUser(tx, id);
     if (!target) throw userNotFound();
 
@@ -110,7 +90,7 @@ export async function updateUser(id: string, input: UpdateUserInput): Promise<Us
       throw new BadRequest('FINANCIALS_PM_ONLY', 'canSeeFinancials can only be set for a PM');
     }
     if (target.role === 'MUNSHI' && newRole === 'PM' && target.status === 'ACTIVE') {
-      await assertOfficeSeat(tx, me.tenantId, { countPendingInvites: true });
+      await assertWithinLimit(tx, me.tenantId, 'officeUsers');
     }
     if (input.phone && input.phone !== target.phone && (await repo.phoneTakenByOther(tx, input.phone, id))) {
       throw new Conflict('PHONE_TAKEN', 'Another user in this company already uses this phone number');
@@ -156,7 +136,7 @@ export async function deactivateUser(id: string): Promise<UserDetailDto> {
   if (id === me.userId) throw new Forbidden('CANNOT_DEACTIVATE_SELF', 'You cannot deactivate your own account');
   return withTenant(me.tenantId, async (tx) => {
     // Serialised so two owners deactivating each other at once can't leave zero owners.
-    await repo.lockOfficeSeats(tx, me.tenantId);
+    await lockPlanUsage(tx, me.tenantId);
     const target = await repo.findUser(tx, id);
     if (!target) throw userNotFound();
     if (target.status === 'INACTIVE') return loadDetail(tx, id);
@@ -185,11 +165,11 @@ export async function deactivateUser(id: string): Promise<UserDetailDto> {
 export async function reactivateUser(id: string): Promise<UserDetailDto> {
   const me = current();
   return withTenant(me.tenantId, async (tx) => {
-    await repo.lockOfficeSeats(tx, me.tenantId);
+    await lockPlanUsage(tx, me.tenantId);
     const target = await repo.findUser(tx, id);
     if (!target) throw userNotFound();
     if (target.status === 'ACTIVE') throw new Conflict('USER_ALREADY_ACTIVE', 'This user is already active');
-    if (target.role !== 'MUNSHI') await assertOfficeSeat(tx, me.tenantId, { countPendingInvites: true });
+    if (target.role !== 'MUNSHI') await assertWithinLimit(tx, me.tenantId, 'officeUsers');
 
     await repo.updateUser(tx, id, { status: 'ACTIVE', deactivatedAt: null, failedLoginCount: 0, lockedUntil: null });
     await writeAudit(tx, {

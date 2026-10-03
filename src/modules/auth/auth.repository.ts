@@ -80,10 +80,6 @@ export function attachmentExists(tx: Db, id: string) {
   return tx.attachment.findUnique({ where: { id }, select: { id: true } });
 }
 
-export function countActiveOfficeUsers(tx: Db): Promise<number> {
-  return tx.user.count({ where: { ...ACTIVE_USER, role: { in: ['THEKEDAR', 'PM'] } } });
-}
-
 export function userExistsInTenant(tx: Db, phone: string) {
   return tx.user.findFirst({ where: { phone }, select: { id: true } });
 }
@@ -154,10 +150,6 @@ export function createTenant(
       subscription: { create: { planId: data.planId, status: 'TRIAL', trialEndsAt: data.trialEndsAt } },
     },
   });
-}
-
-export function findTenantPlan(tx: Db, tenantId: string) {
-  return tx.subscription.findUnique({ where: { tenantId }, include: { plan: true } });
 }
 
 export async function existingProjectIds(tx: Db, ids: string[]): Promise<string[]> {
@@ -303,6 +295,11 @@ export function findInvitationByTokenHash(db: Db, tokenHash: string) {
 
 export function findInvitationById(tx: Db, id: string) {
   return tx.invitation.findUnique({ where: { id }, select: { status: true, expiresAt: true, tokenHash: true } });
+}
+
+/** RLS-scoped (called inside withTenant): does the company have any user yet? */
+export async function tenantHasUsers(tx: Db): Promise<boolean> {
+  return (await tx.user.count()) > 0;
 }
 
 export function emailTakenInTenant(tx: Db, email: string) {

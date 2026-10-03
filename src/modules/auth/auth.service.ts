@@ -18,6 +18,7 @@ import {
   PlanLimit,
   Unauthorized,
 } from '../../core/errors/AppError.js';
+import { assertWithinLimit, lockPlanUsage } from '../../core/plan/planLimits.js';
 import { hashSecret } from '../../core/utils/crypto.js';
 import { maskPhone } from '../../core/utils/phone.js';
 import { slugify } from '../../core/utils/slug.js';
@@ -678,7 +679,7 @@ export async function acceptInvitation(token: string, input: AcceptInvitationInp
 
   const result = await withTenant(tenantId, async (tx) => {
     // Serialise seat checks per company so two acceptances can't both take the last seat.
-    await repo.advisoryLock(tx, `office-seats:${tenantId}`);
+    await lockPlanUsage(tx, tenantId);
 
     // Re-read under the lock: it may have been cancelled or resent (new token) meanwhile.
     const current = await repo.findInvitationById(tx, invitation.id);
@@ -686,12 +687,12 @@ export async function acceptInvitation(token: string, input: AcceptInvitationInp
     const late = invitationProblem(current, now);
     if (late) throw late;
 
-    if (invitation.role !== 'MUNSHI') {
-      const subscription = await repo.findTenantPlan(tx, tenantId);
-      const max = subscription?.plan.maxOfficeUsers ?? null;
-      if (max !== null && (await repo.countActiveOfficeUsers(tx)) >= max) {
-        throw new PlanLimit('PLAN_LIMIT_REACHED', `Your plan allows ${max} office users. Upgrade to add more.`, { limit: max });
-      }
+    // A THEKEDAR invite created by the platform admin for a brand-new company is that
+    // company's first user: the owner always gets in, whatever the plan.
+    const firstUser = invitation.role === 'THEKEDAR' && !(await repo.tenantHasUsers(tx));
+    if (invitation.role !== 'MUNSHI' && !firstUser) {
+      // This invite already reserved its seat; compare against real users only.
+      await assertWithinLimit(tx, tenantId, 'officeUsers', 1, { countPendingInvites: false });
     }
     if (await repo.userExistsInTenant(tx, invitation.phone)) {
       throw new Conflict('PHONE_TAKEN', 'A user with this phone number already exists in this company.');

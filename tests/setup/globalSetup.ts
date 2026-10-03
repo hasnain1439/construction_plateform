@@ -1,4 +1,5 @@
 import { execSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
 
 /**
  * Once per `npm test`: make sure the app roles and the test database exist, then
@@ -13,4 +14,10 @@ export default function globalSetup() {
   const run = (cmd: string) => execSync(cmd, { stdio: 'inherit', env: process.env });
   run('npx tsx scripts/db-setup.ts');
   run('npx prisma migrate deploy');
+
+  // Teardown: delete the files uploaded during the run (temp folder set in vitest.config.ts).
+  return () => {
+    const dir = process.env['STORAGE_DIR'];
+    if (dir?.includes('construction-platform-tests')) rmSync(dir, { recursive: true, force: true });
+  };
 }

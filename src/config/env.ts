@@ -7,7 +7,8 @@ const booleanish = z
 
 const durationPattern = /^\d+(ms|s|m|h|d)$/;
 
-const envSchema = z.object({
+export const envSchema = z
+  .object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
   APP_URL: z.url().default('http://localhost:3000'),
@@ -27,11 +28,17 @@ const envSchema = z.object({
   COOKIE_DOMAIN: z.string().optional(),
   /** Base URL clients use to reach this API (absolute signed file URLs). */
   API_PUBLIC_URL: z.url().optional(),
-  STORAGE_PROVIDER: z.enum(['local']).default('local'),
+  /** local = disk (dev/tests); cloudinary = authenticated Cloudinary assets. */
+  STORAGE_PROVIDER: z.enum(['local', 'cloudinary']).default('local'),
+  CLOUDINARY_CLOUD_NAME: z.string().min(1).optional(),
+  CLOUDINARY_API_KEY: z.string().min(1).optional(),
+  CLOUDINARY_API_SECRET: z.string().min(1).optional(),
+  /** Optional: Cloudinary token-based auth key — enables expiring thumbnail URLs. */
+  CLOUDINARY_AUTH_TOKEN_KEY: z.string().regex(/^[0-9a-fA-F]+$/, 'must be the hex key from the Cloudinary console').optional(),
   /** Folder for the local storage provider. */
   STORAGE_DIR: z.string().default('./storage'),
   /** Lifetime of signed attachment URLs. */
-  SIGNED_URL_TTL_SECONDS: z.coerce.number().int().min(30).max(86_400).default(900),
+  SIGNED_URL_TTL_SECONDS: z.coerce.number().int().min(30).max(86_400).default(600),
   SMS_PROVIDER: z.enum(['console']).default('console'),
   MAIL_PROVIDER: z.enum(['console']).default('console'),
   ENABLE_DOCS: booleanish.optional(),
@@ -41,7 +48,13 @@ const envSchema = z.object({
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(10),
   GENERAL_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
-});
+  })
+  .superRefine((value, ctx) => {
+    if (value.STORAGE_PROVIDER !== 'cloudinary') return;
+    for (const key of ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'] as const) {
+      if (!value[key]) ctx.addIssue({ code: 'custom', path: [key], message: `${key} is required when STORAGE_PROVIDER=cloudinary` });
+    }
+  });
 
 export type Env = z.infer<typeof envSchema>;
 

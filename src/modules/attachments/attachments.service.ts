@@ -10,7 +10,7 @@ import type { AttachmentKind } from '../../generated/prisma/enums.js';
 import * as repo from './attachments.repository.js';
 import type { AttachmentDto, FileQuery } from './attachments.schema.js';
 import { contentMatchesMime, EXTENSIONS, KIND_MIME_TYPES, safeFileName } from './fileTypes.js';
-import { storage, verifyFileSignature } from './storage.provider.js';
+import { storage, storageForKey, verifyFileSignature, type SignedUrlOptions } from './storage.provider.js';
 
 export interface UploadedFile {
   buffer: Buffer;
@@ -20,13 +20,16 @@ export interface UploadedFile {
 }
 
 /** Signed URL for any stored attachment (also used for logos and profile photos). */
-export async function signedUrlFor(attachment: { storageKey: string }) {
-  return storage().getSignedUrl(attachment.storageKey, env.SIGNED_URL_TTL_SECONDS);
+export async function signedUrlFor(attachment: { storageKey: string }, options?: SignedUrlOptions) {
+  return storageForKey(attachment.storageKey).getSignedUrl(attachment.storageKey, env.SIGNED_URL_TTL_SECONDS, options);
 }
 
 /** Same as signedUrlFor, or null when there is no attachment. */
-export async function optionalSignedUrl(attachment: { storageKey: string } | null | undefined): Promise<string | null> {
-  return attachment ? (await signedUrlFor(attachment)).url : null;
+export async function optionalSignedUrl(
+  attachment: { storageKey: string } | null | undefined,
+  options?: SignedUrlOptions,
+): Promise<string | null> {
+  return attachment ? (await signedUrlFor(attachment, options)).url : null;
 }
 
 async function toDto(row: {
@@ -68,14 +71,15 @@ export async function upload(file: UploadedFile | undefined, kind: AttachmentKin
   const month = String(now.getUTCMonth() + 1).padStart(2, '0');
   const storageKey = `${tenantId}/${now.getUTCFullYear()}/${month}/${id}.${EXTENSIONS[file.mimetype]}`;
 
-  await storage().put(storageKey, file.buffer, file.mimetype);
+  // The provider may store it under its own key (e.g. cloudinary:image:<public_id>).
+  const storedKey = await storage().put(storageKey, file.buffer, file.mimetype);
   try {
     const row = await withTenant(tenantId, async (tx) => {
       const created = await repo.createAttachment(tx, {
         id,
         tenantId,
         kind,
-        storageKey,
+        storageKey: storedKey,
         fileName: safeFileName(file.originalname, file.mimetype),
         mimeType: file.mimetype,
         sizeBytes: file.size,
@@ -95,7 +99,7 @@ export async function upload(file: UploadedFile | undefined, kind: AttachmentKin
     return toDto(row);
   } catch (err) {
     // Don't leave orphaned bytes behind when the row couldn't be written.
-    await storage().delete(storageKey).catch((cleanupErr: unknown) => logger.error({ err: cleanupErr }, 'orphan cleanup failed'));
+    await storageForKey(storedKey).delete(storedKey).catch((cleanupErr: unknown) => logger.error({ err: cleanupErr }, 'orphan cleanup failed'));
     throw err;
   }
 }
@@ -122,7 +126,7 @@ export async function openSignedFile(
 
   const row = await withTenant(query.tid, (tx) => repo.findAttachment(tx, id));
   if (!row) throw new NotFound('ATTACHMENT_NOT_FOUND', 'Attachment not found');
-  const file = await storage()
+  const file = await storageForKey(row.storageKey)
     .open(row.storageKey)
     .catch(() => {
       throw new NotFound('ATTACHMENT_NOT_FOUND', 'File is missing from storage');

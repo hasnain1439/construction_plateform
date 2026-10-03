@@ -16,7 +16,8 @@
     "db:setup": "tsx scripts/db-setup.ts",
     "db:migrate:deploy": "prisma migrate deploy",
     "typecheck": "tsc -p tsconfig.check.json",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "jobs:subscriptions": "tsx src/jobs/cli/subscriptions.ts"
   },
   "keywords": [],
   "author": "",
@@ -27,6 +28,7 @@
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.11.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^18.0.5",

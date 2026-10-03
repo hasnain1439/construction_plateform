@@ -3,7 +3,7 @@ import multer from 'multer';
 import { BadRequest } from '../../core/errors/AppError.js';
 import { asyncHandler as h } from '../../core/http/asyncHandler.js';
 import { authenticate } from '../../core/middleware/authenticate.js';
-import { readOnlyGuard } from '../../core/middleware/readOnlyGuard.js';
+import { readOnlyGuardExcept } from '../../core/middleware/readOnlyGuard.js';
 import { tenantContext } from '../../core/middleware/tenantContext.js';
 import { validate } from '../../core/middleware/validate.js';
 import * as c from './attachments.controller.js';
@@ -23,13 +23,14 @@ const upload = multer({
 export const attachmentsRouter = Router();
 
 // Any company role may upload (Munshis send site photos, receipts and voice notes).
+// A READ_ONLY company may still upload a PAYMENT_SLIP so it can pay to get back.
 attachmentsRouter.post(
   '/',
   authenticate,
   tenantContext,
-  readOnlyGuard,
   upload.single('file'),
   validate({ body: uploadAttachmentBody }),
+  readOnlyGuardExcept((req) => (req.body as { kind?: string }).kind === 'PAYMENT_SLIP'),
   h(c.upload),
 );
 

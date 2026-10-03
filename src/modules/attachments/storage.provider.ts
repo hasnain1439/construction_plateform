@@ -4,18 +4,26 @@ import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
 import type { Readable } from 'node:stream';
 import { apiPublicUrl, env } from '../../config/env.js';
+import { CloudinaryStorageProvider, isCloudinaryKey } from './cloudinary.provider.js';
+
+export interface SignedUrlOptions {
+  /** Images only: resized preview of this width (providers that can't, return the original). */
+  thumbnailWidth?: number;
+}
 
 /**
- * Where attachment bytes live. Keys look like `tenantId/yyyy/mm/<attachmentId>.<ext>`.
- * Swap LocalStorageProvider for an S3/R2 implementation without touching callers.
+ * Where attachment bytes live. Callers pass a canonical key
+ * `tenantId/yyyy/mm/<attachmentId>.<ext>`; `put` returns the key to store on the
+ * Attachment row (a provider may use its own format, e.g. `cloudinary:image:<public_id>`).
  */
 export interface StorageProvider {
   readonly name: string;
-  put(key: string, buffer: Buffer, mime: string): Promise<void>;
+  /** Stores the bytes and returns the storage key to persist. */
+  put(key: string, buffer: Buffer, mime: string): Promise<string>;
   /** Short-lived URL a client can GET without other credentials. */
-  getSignedUrl(key: string, ttlSec: number): Promise<{ url: string; expiresAt: Date }>;
+  getSignedUrl(key: string, ttlSec: number, options?: SignedUrlOptions): Promise<{ url: string; expiresAt: Date }>;
   delete(key: string): Promise<void>;
-  /** Used by the local provider's file route to stream bytes. */
+  /** Streams bytes through this API (local provider only). */
   open(key: string): Promise<{ stream: Readable; size: number }>;
 }
 
@@ -58,10 +66,11 @@ export class LocalStorageProvider implements StorageProvider {
     return full;
   }
 
-  async put(key: string, buffer: Buffer): Promise<void> {
+  async put(key: string, buffer: Buffer): Promise<string> {
     const path = this.pathFor(key);
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, buffer, { flag: 'wx' });
+    return key;
   }
 
   async getSignedUrl(key: string, ttlSec: number): Promise<{ url: string; expiresAt: Date }> {
@@ -82,15 +91,42 @@ export class LocalStorageProvider implements StorageProvider {
   }
 }
 
-let instance: StorageProvider | undefined;
+let local: LocalStorageProvider | undefined;
+let cloudinary: StorageProvider | undefined;
+let override: StorageProvider | undefined;
 
-export function storage(): StorageProvider {
-  if (!instance) {
-    switch (env.STORAGE_PROVIDER) {
-      case 'local':
-        instance = new LocalStorageProvider(env.STORAGE_DIR);
-        break;
-    }
+function localProvider(): LocalStorageProvider {
+  return (local ??= new LocalStorageProvider(env.STORAGE_DIR));
+}
+
+function cloudinaryProvider(): StorageProvider {
+  if (override) return override;
+  if (!cloudinary) {
+    cloudinary = new CloudinaryStorageProvider({
+      cloudName: env.CLOUDINARY_CLOUD_NAME!,
+      apiKey: env.CLOUDINARY_API_KEY!,
+      apiSecret: env.CLOUDINARY_API_SECRET!,
+      authTokenKey: env.CLOUDINARY_AUTH_TOKEN_KEY,
+    });
   }
-  return instance;
+  return cloudinary;
+}
+
+/** Provider for NEW uploads (STORAGE_PROVIDER). */
+export function storage(): StorageProvider {
+  if (override) return override;
+  return env.STORAGE_PROVIDER === 'cloudinary' ? cloudinaryProvider() : localProvider();
+}
+
+/**
+ * Provider that holds an EXISTING key. Keys say where they live, so switching
+ * STORAGE_PROVIDER keeps older files readable.
+ */
+export function storageForKey(key: string): StorageProvider {
+  return isCloudinaryKey(key) ? cloudinaryProvider() : localProvider();
+}
+
+/** Tests only: route uploads (and cloudinary keys) to a given provider; undefined resets. */
+export function useStorageProviderForTests(provider: StorageProvider | undefined): void {
+  override = provider;
 }

@@ -4,21 +4,10 @@ type Db = Prisma.TransactionClient;
 
 const OFFICE_ROLES: UserRole[] = ['THEKEDAR', 'PM'];
 
-/** Serialises seat checks and invite creation per company (same key as invite acceptance). */
-export async function lockOfficeSeats(tx: Db, tenantId: string): Promise<void> {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`office-seats:${tenantId}`}))`;
-}
-
 // ─── Seats ──────────────────────────────────────────────────────────────────
 
 export function countActiveOfficeUsers(tx: Db): Promise<number> {
   return tx.user.count({ where: { status: 'ACTIVE', role: { in: OFFICE_ROLES } } });
-}
-
-export function countPendingPmInvites(tx: Db, now: Date, excludeId?: string): Promise<number> {
-  return tx.invitation.count({
-    where: { role: 'PM', status: 'PENDING', expiresAt: { gt: now }, ...(excludeId ? { id: { not: excludeId } } : {}) },
-  });
 }
 
 export async function maxOfficeUsers(tx: Db, tenantId: string): Promise<number | null> {

@@ -24,3 +24,8 @@ export function formatDateOnly(date: Date): string {
 export function todayIn(timeZone: string, now = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }
+
+/** "15 Oct 2026" in Pakistan time — for SMS and messages. */
+export function formatDisplayDate(date: Date, timeZone = 'Asia/Karachi'): string {
+  return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone }).format(date);
+}

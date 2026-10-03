@@ -261,7 +261,7 @@ export const tenantDto = z
 export const subscriptionDto = z
   .object({
     plan: z.object({ code: z.string(), name: z.string() }),
-    status: z.enum(['TRIAL', 'ACTIVE', 'PAST_DUE', 'CANCELLED', 'EXPIRED']),
+    status: z.enum(['TRIAL', 'ACTIVE', 'GRACE', 'LAPSED', 'CANCELLED']),
     renewsOn: z.iso.datetime().nullable(),
     trialEndsAt: z.iso.datetime().nullable(),
   })

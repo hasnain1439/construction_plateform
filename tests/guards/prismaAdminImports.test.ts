@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
  * `prismaAdmin` bypasses row-level security. Only auth and platform-admin code may
  * use it; every business module must go through `withTenant()`.
  */
-const ALLOWED = ['src/core/db/prisma.ts', 'src/modules/auth/', 'src/modules/platform-admin/', 'src/generated/'];
+const ALLOWED = ['src/core/db/prisma.ts', 'src/modules/auth/', 'src/modules/platform-admin/', 'src/jobs/', 'src/generated/'];
 
 function walk(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
