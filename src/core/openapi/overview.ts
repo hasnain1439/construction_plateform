@@ -71,12 +71,16 @@ Money is integer **paisa** sent as a string (\`"950000"\` = Rs 9,500) · IDs are
 | **400** | \`USE_OTP_LOGIN\` | This user has no password — use *otp/request* + *otp/verify*. |
 | **401** | \`INVALID_CREDENTIALS\` | Wrong login or password. |
 | **401** | \`UNAUTHENTICATED\` / \`TOKEN_EXPIRED\` | Log in, or call *auth/refresh* and retry. |
-| **401** | \`REFRESH_TOKEN_REUSED\` / \`DEVICE_REVOKED\` | Session ended for security — log in again. |
-| **402** | \`PLAN_LIMIT_REACHED\` | The company's plan is full — upgrade the plan. |
+| **401** | \`SESSION_REVOKED\` / \`ACCOUNT_DISABLED\` / \`DEVICE_REVOKED\` / \`REFRESH_TOKEN_REUSED\` | Signed out (logout, deactivated, phone revoked or token copied) — log in again. |
+| **400** | \`FILE_TOO_LARGE\` / \`INVALID_FILE_TYPE\` | Upload ≤ 10 MB in a type allowed for that \`kind\`. |
+| **402** | \`PLAN_LIMIT_REACHED\` | The company's plan is full — upgrade the plan or deactivate an office user. |
+| **403** | \`FORBIDDEN\` | Your role can't do this (e.g. only a THEKEDAR edits the company). |
 | **403** | \`COMPANY_SUSPENDED\` | Company account is suspended — contact support. |
 | **403** | \`ACCOUNT_READ_ONLY\` | Company is read-only — renew the subscription to make changes. |
+| **403** | \`LINK_EXPIRED\` / \`INVALID_SIGNATURE\` | File link is old or edited — fetch the attachment again for a fresh \`url\`. |
+| **404** | \`*_NOT_FOUND\` | Doesn't exist **in your company** (other companies' data is invisible). |
 | **409** | \`MULTIPLE_COMPANIES\` | Ask which company, resend with \`tenantId\`. |
-| **409** | \`PHONE_TAKEN\` | Phone already used — log in instead. |
+| **409** | \`PHONE_TAKEN\` / \`EMAIL_TAKEN\` / \`ALREADY_MEMBER\` / \`INVITE_PENDING\` | Person already exists or is invited — edit or resend instead. |
 | **410** | \`OTP_EXPIRED\` / \`INVITE_EXPIRED\` | Request a new code / invitation. |
 | **423** | \`ACCOUNT_LOCKED\` | 5 wrong passwords — wait \`details.retryAfterSeconds\`. |
 | **429** | \`RATE_LIMITED\` / \`OTP_RESEND_WAIT\` | Too many requests — wait and retry. |
@@ -89,5 +93,8 @@ export const TAGS = [
     name: 'Auth',
     description: 'Sign-up, password & SMS-code login, token refresh, profile, sessions, password reset and invitations',
   },
+  { name: 'Company', description: 'Company profile, business rules (settings) and the holiday calendar' },
+  { name: 'Team', description: 'Team members, invitations and signed-in devices (THEKEDAR manages, PM can view the list)' },
+  { name: 'Attachments', description: 'File uploads (logos, photos, receipts, documents, voice notes) with signed download links' },
   { name: 'Platform admin auth', description: 'Platform owners only — separate accounts and tokens' },
 ];

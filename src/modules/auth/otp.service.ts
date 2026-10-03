@@ -78,19 +78,31 @@ export async function issueOtp(phone: string, purpose: OtpPurpose): Promise<{ co
  */
 export async function checkOtp(phone: string, purpose: OtpPurpose, code: string): Promise<{ id: string }> {
   const now = new Date();
-  const otp = await repo.latestUnconsumedOtp(prismaAdmin, phone, purpose);
-  if (!otp) throw new BadRequest('OTP_INVALID', 'The code is incorrect. Request a new code.');
-  if (otp.expiresAt <= now) throw new Gone('OTP_EXPIRED', 'The code has expired. Request a new code.');
+  // Serialised per phone (same lock as issueOtp), so parallel guesses are counted one by
+  // one and can never exceed OTP_MAX_ATTEMPTS comparisons against a code.
+  const outcome = await prismaAdmin.$transaction(async (tx) => {
+    await repo.advisoryLock(tx, `otp:${phone}`);
+    const otp = await repo.latestUnconsumedOtp(tx, phone, purpose);
+    if (!otp) return { error: new BadRequest('OTP_INVALID', 'The code is incorrect. Request a new code.') };
+    if (otp.expiresAt <= now) return { error: new Gone('OTP_EXPIRED', 'The code has expired. Request a new code.') };
+    if (safeEqual(otp.codeHash, hashOtp(phone, purpose, code))) return { id: otp.id };
 
-  if (!safeEqual(otp.codeHash, hashOtp(phone, purpose, code))) {
-    const { attempts } = await repo.incrementOtpAttempts(prismaAdmin, otp.id);
+    const { attempts } = await repo.incrementOtpAttempts(tx, otp.id);
     if (attempts >= OTP_MAX_ATTEMPTS) {
-      await repo.consumeOtp(prismaAdmin, otp.id, now);
-      throw new TooManyRequests('OTP_TOO_MANY_ATTEMPTS', 'Too many wrong attempts. Request a new code.');
+      await repo.consumeOtp(tx, otp.id, now);
+      return { error: new TooManyRequests('OTP_TOO_MANY_ATTEMPTS', 'Too many wrong attempts. Request a new code.') };
     }
-    throw new BadRequest('OTP_INVALID', 'The code is incorrect.', { attemptsLeft: OTP_MAX_ATTEMPTS - attempts });
-  }
-  return { id: otp.id };
+    return { error: new BadRequest('OTP_INVALID', 'The code is incorrect.', { attemptsLeft: OTP_MAX_ATTEMPTS - attempts }) };
+  });
+  // Errors are returned (not thrown) so the attempt counter commits.
+  if ('error' in outcome && outcome.error) throw outcome.error;
+  return { id: outcome.id! };
+}
+
+/** True when `code` is the open, unexpired code for this phone. Does not count an attempt. */
+export async function otpMatches(phone: string, purpose: OtpPurpose, code: string): Promise<boolean> {
+  const otp = await repo.latestUnconsumedOtp(prismaAdmin, phone, purpose);
+  return Boolean(otp && otp.expiresAt > new Date() && safeEqual(otp.codeHash, hashOtp(phone, purpose, code)));
 }
 
 /** Consumes a checked OTP. Fails if another request consumed it in the meantime. */

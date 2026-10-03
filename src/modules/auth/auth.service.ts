@@ -22,6 +22,7 @@ import { hashSecret } from '../../core/utils/crypto.js';
 import { maskPhone } from '../../core/utils/phone.js';
 import { slugify } from '../../core/utils/slug.js';
 import type { TenantStatus } from '../../generated/prisma/enums.js';
+import { optionalSignedUrl } from '../attachments/attachments.service.js';
 import * as repo from './auth.repository.js';
 import type {
   AcceptInvitationInput,
@@ -40,7 +41,7 @@ import type {
   UserDto,
 } from './auth.schema.js';
 import { mailProvider } from './mail.provider.js';
-import { checkOtp, consumeCheckedOtp, issueOtp, OTP_RESEND_SECONDS } from './otp.service.js';
+import { checkOtp, consumeCheckedOtp, issueOtp, OTP_RESEND_SECONDS, otpMatches } from './otp.service.js';
 import {
   accessTokenTtlSeconds,
   companyAccessToken,
@@ -58,7 +59,7 @@ const TRIAL_DAYS = 14;
 const DEFAULT_MARLA_SQFT = 225;
 
 /** Compared against when no user matches, so response time doesn't reveal accounts. */
-const DUMMY_HASH = bcrypt.hashSync('timing-equaliser-not-a-password', 10);
+const DUMMY_HASH = bcrypt.hashSync('timing-equaliser-not-a-password', env.BCRYPT_ROUNDS);
 
 export interface AuthResult {
   tokens: IssuedTokens;
@@ -99,7 +100,7 @@ export function hashPassword(password: string): Promise<string> {
 
 // ─── DTO mapping ────────────────────────────────────────────────────────────
 
-function toUserDto(user: repo.ProfileUser): UserDto {
+async function toUserDto(user: repo.ProfileUser): Promise<UserDto> {
   return {
     id: user.id,
     name: user.name,
@@ -107,17 +108,17 @@ function toUserDto(user: repo.ProfileUser): UserDto {
     email: user.email,
     role: user.role,
     language: user.language,
-    photoUrl: user.photo?.url ?? null,
+    photoUrl: await optionalSignedUrl(user.photo),
     canSeeFinancials: user.canSeeFinancials,
   };
 }
 
-function toTenantDto(tenant: repo.ProfileTenant): TenantDto {
+async function toTenantDto(tenant: repo.ProfileTenant): Promise<TenantDto> {
   return {
     id: tenant.id,
     name: tenant.name,
     slug: tenant.slug,
-    logoUrl: tenant.logoUrl,
+    logoUrl: await optionalSignedUrl(tenant.logo),
     status: tenant.status,
     readOnly: tenant.status === 'READ_ONLY',
     region: tenant.region,
@@ -139,7 +140,11 @@ function toSubscriptionDto(tenant: repo.ProfileTenant): SubscriptionDto | null {
 async function loadProfileDtos(tx: Tx, userId: string, tenantId: string) {
   const [user, tenant] = await repo.loadProfile(tx, userId, tenantId);
   if (!user || !tenant) throw new Unauthorized('TOKEN_INVALID', 'Account no longer exists');
-  return { user, tenant, dto: { user: toUserDto(user), tenant: toTenantDto(tenant), subscription: toSubscriptionDto(tenant) } };
+  return {
+    user,
+    tenant,
+    dto: { user: await toUserDto(user), tenant: await toTenantDto(tenant), subscription: toSubscriptionDto(tenant) },
+  };
 }
 
 // ─── Session issuing (shared by signup / login / otp / invite) ─────────────
@@ -199,6 +204,23 @@ async function completeLogin(
 ): Promise<AuthResult> {
   const now = new Date();
   return withTenant(user.tenantId, async (tx) => {
+    if (method === 'password') {
+      // Re-read the lock: parallel wrong guesses may have locked the account while this
+      // request was comparing its (correct) password against a stale row.
+      const fresh = await repo.findUserById(tx, user.id);
+      assertNotLocked(fresh?.lockedUntil ?? null, now);
+    }
+    if (method === 'otp') {
+      await writeAudit(tx, {
+        tenantId: user.tenantId,
+        actorType: 'USER',
+        actorId: user.id,
+        action: 'auth.otp_verified',
+        entityType: 'User',
+        entityId: user.id,
+        details: { purpose: 'LOGIN' },
+      });
+    }
     await repo.markLoginSuccess(tx, user.id, now);
     const session = await openSession(tx, user, device, now);
     await writeAudit(tx, {
@@ -364,19 +386,9 @@ export async function verifyLoginOtp(input: OtpVerifyInput): Promise<AuthResult>
 
   const user = users[0]!;
   assertTenantUsable(user.tenant.status);
+  // Consumed first so the same code can't open two sessions; the audit row is written
+  // in the same transaction as the session (completeLogin).
   await consumeCheckedOtp(otp.id, user.tenantId);
-
-  await withTenant(user.tenantId, (tx) =>
-    writeAudit(tx, {
-      tenantId: user.tenantId,
-      actorType: 'USER',
-      actorId: user.id,
-      action: 'auth.otp_verified',
-      entityType: 'User',
-      entityId: user.id,
-      details: { purpose: 'LOGIN' },
-    }),
-  );
   return completeLogin(user, input.device, 'otp');
 }
 
@@ -411,16 +423,18 @@ export async function refresh(refreshToken: string | undefined): Promise<Refresh
     return new Unauthorized('REFRESH_TOKEN_REUSED', 'This session was used elsewhere and has been signed out. Please log in again.');
   };
 
+  // Checked first: revoking a device also revokes its sessions, and the client should
+  // learn *why* it was signed out.
+  if (session.device.revokedAt) {
+    if (!session.revokedAt) await withTenant(session.tenantId, (tx) => repo.revokeSession(tx, session.id, now));
+    throw new Unauthorized('DEVICE_REVOKED', 'This device has been signed out. Please log in again.');
+  }
   if (session.revokedAt) {
     // A rotated-away token coming back means it was copied: kill the whole family.
     if (session.replacedById) throw await reuseDetected();
     throw new Unauthorized('REFRESH_INVALID', 'Session expired. Please log in again.');
   }
   if (session.expiresAt <= now) throw new Unauthorized('REFRESH_INVALID', 'Session expired. Please log in again.');
-  if (session.device.revokedAt) {
-    await withTenant(session.tenantId, (tx) => repo.revokeSession(tx, session.id, now));
-    throw new Unauthorized('DEVICE_REVOKED', 'This device has been signed out. Please log in again.');
-  }
   if (session.user.status !== 'ACTIVE') throw new Unauthorized('REFRESH_INVALID', 'Session expired. Please log in again.');
   assertTenantUsable(session.user.tenant.status);
 
@@ -509,7 +523,7 @@ export async function forgotPassword(input: ForgotPasswordInput): Promise<{ sent
       }
     } catch (err) {
       // Never reveal rate limits or delivery failures here (account enumeration).
-      if (err instanceof AppError) logger.info({ phone: maskPhone(phone), code: err.code }, 'password reset code not sent');
+      if (err instanceof AppError) logger.info({ phone: maskPhone(phone), errorCode: err.code }, 'password reset code not sent');
       else logger.error({ err }, 'password reset delivery failed');
     }
   }
@@ -520,12 +534,24 @@ export async function resetPassword(input: ResetPasswordInput): Promise<{ reset:
   const users = await repo.findActiveUsersByLogin(prismaAdmin, input.login, input.tenantId);
   if (!users.length) throw new BadRequest('OTP_INVALID', 'The code is incorrect. Request a new code.');
 
+  // An email can belong to users with different phones; each phone got its own code.
+  // Find the phone whose code this is before revealing anything about the accounts.
   const phones = [...new Set(users.map((u) => u.phone))];
-  if (phones.length > 1) throw multipleCompanies(users);
-  const otp = await checkOtp(phones[0]!, 'PASSWORD_RESET', input.code);
-  if (users.length > 1) throw multipleCompanies(users);
+  let phone = phones[0]!;
+  if (phones.length > 1) {
+    for (const candidate of phones) {
+      if (await otpMatches(candidate, 'PASSWORD_RESET', input.code)) {
+        phone = candidate;
+        break;
+      }
+    }
+  }
+  const otp = await checkOtp(phone, 'PASSWORD_RESET', input.code);
+  const owners = users.filter((u) => u.phone === phone);
+  // The code proved control of the phone, so listing its companies is safe now.
+  if (owners.length > 1) throw multipleCompanies(owners);
 
-  const user = users[0]!;
+  const user = owners[0]!;
   const passwordHash = await hashPassword(input.newPassword);
   await consumeCheckedOtp(otp.id, user.tenantId);
 
@@ -622,15 +648,23 @@ export async function listSessions(): Promise<SessionDto[]> {
 
 // ─── Invitations ────────────────────────────────────────────────────────────
 
+/** Maps an invitation's state to the right error (null = usable). */
+function invitationProblem(inv: { status: string; expiresAt: Date }, now: Date): AppError | null {
+  if (inv.status === 'CANCELLED') return new Gone('INVITE_CANCELLED', 'This invitation was cancelled.');
+  if (inv.status === 'ACCEPTED') return new Conflict('INVITE_ALREADY_ACCEPTED', 'This invitation has already been used. Log in instead.');
+  if (inv.status === 'EXPIRED' || inv.expiresAt <= now) return new Gone('INVITE_EXPIRED', 'This invitation has expired. Ask for a new one.');
+  return null;
+}
+
 export async function acceptInvitation(token: string, input: AcceptInvitationInput): Promise<AuthResult> {
   const now = new Date();
-  const invitation = await repo.findInvitationByTokenHash(prismaAdmin, hashSecret(token));
+  const tokenHash = hashSecret(token);
+  const invitation = await repo.findInvitationByTokenHash(prismaAdmin, tokenHash);
   if (!invitation) throw new NotFound('INVITE_NOT_FOUND', 'This invitation link is not valid.');
-  if (invitation.status === 'CANCELLED') throw new Gone('INVITE_CANCELLED', 'This invitation was cancelled.');
-  if (invitation.status === 'ACCEPTED') throw new Conflict('INVITE_ALREADY_ACCEPTED', 'This invitation has already been used. Log in instead.');
-  if (invitation.status === 'EXPIRED' || invitation.expiresAt <= now) {
-    await repo.markInvitationExpired(prismaAdmin, invitation.id);
-    throw new Gone('INVITE_EXPIRED', 'This invitation has expired. Ask for a new one.');
+  const problem = invitationProblem(invitation, now);
+  if (problem) {
+    if (problem.code === 'INVITE_EXPIRED') await repo.markInvitationExpired(prismaAdmin, invitation.id);
+    throw problem;
   }
   assertTenantUsable(invitation.tenant.status);
   if (invitation.role !== 'MUNSHI' && !input.password) {
@@ -646,6 +680,12 @@ export async function acceptInvitation(token: string, input: AcceptInvitationInp
     // Serialise seat checks per company so two acceptances can't both take the last seat.
     await repo.advisoryLock(tx, `office-seats:${tenantId}`);
 
+    // Re-read under the lock: it may have been cancelled or resent (new token) meanwhile.
+    const current = await repo.findInvitationById(tx, invitation.id);
+    if (!current || current.tokenHash !== tokenHash) throw new NotFound('INVITE_NOT_FOUND', 'This invitation link is not valid.');
+    const late = invitationProblem(current, now);
+    if (late) throw late;
+
     if (invitation.role !== 'MUNSHI') {
       const subscription = await repo.findTenantPlan(tx, tenantId);
       const max = subscription?.plan.maxOfficeUsers ?? null;
@@ -655,6 +695,9 @@ export async function acceptInvitation(token: string, input: AcceptInvitationInp
     }
     if (await repo.userExistsInTenant(tx, invitation.phone)) {
       throw new Conflict('PHONE_TAKEN', 'A user with this phone number already exists in this company.');
+    }
+    if (invitation.email && (await repo.emailTakenInTenant(tx, invitation.email))) {
+      throw new Conflict('EMAIL_TAKEN', 'A user with this email already exists in this company. Ask for a new invitation.');
     }
 
     const user = await repo.createUser(tx, {

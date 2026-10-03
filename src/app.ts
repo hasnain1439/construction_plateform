@@ -10,13 +10,12 @@ import { generalRateLimit } from './core/middleware/rateLimit.js';
 import { requestContext, resolveRequestId } from './core/middleware/requestId.js';
 import { docsRouter } from './core/openapi/docs.js';
 import { jsonReplacer } from './core/utils/json.js';
+import { attachmentsRouter } from './modules/attachments/attachments.routes.js';
 import { adminAuthRouter, authRouter, invitationRouter } from './modules/auth/auth.routes.js';
+import { companyRouter } from './modules/company/company.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
-
-/** Strips secrets that can appear in URLs (invitation tokens) before logging. */
-function safeUrl(url: string | undefined): string | undefined {
-  return url?.replace(/\/invitations\/[^/?#]+/, '/invitations/[REDACTED]');
-}
+import { devicesRouter, teamInvitationsRouter, usersRouter } from './modules/team/team.routes.js';
+import { safeUrl } from './core/utils/safeUrl.js';
 
 export interface CreateAppOptions {
   /** Extra routers mounted under /api/v1 before the 404 handler (used by tests). */
@@ -55,8 +54,13 @@ export function createApp(options: CreateAppOptions = {}): Express {
   const api = express.Router();
   api.use(generalRateLimit);
   api.use('/auth', authRouter);
-  api.use('/invitations', invitationRouter);
+  api.use('/invitations', invitationRouter); // public: POST /:token/accept
+  api.use('/invitations', teamInvitationsRouter); // THEKEDAR: list / create / resend / cancel
   api.use('/admin/auth', adminAuthRouter);
+  api.use('/attachments', attachmentsRouter);
+  api.use('/company', companyRouter);
+  api.use('/users', usersRouter);
+  api.use('/devices', devicesRouter);
   options.extraRoutes?.(api);
   app.use('/api/v1', api);
 

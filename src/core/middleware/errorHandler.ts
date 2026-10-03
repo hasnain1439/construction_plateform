@@ -1,11 +1,13 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
+import multer from 'multer';
 import { ZodError } from 'zod';
 import { isProduction } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import { tryGetCtx } from '../context/requestContext.js';
 import { Prisma } from '../db/prisma.js';
 import { AppError, NotFound } from '../errors/AppError.js';
+import { safeUrl } from '../utils/safeUrl.js';
 
 interface ErrorBody {
   success: false;
@@ -39,6 +41,11 @@ function toAppError(err: unknown): AppError | null {
     if (err.code === 'P2003') return new AppError(400, 'INVALID_REFERENCE', 'A referenced record does not exist');
   }
 
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') return new AppError(400, 'FILE_TOO_LARGE', 'File is larger than 10 MB');
+    return new AppError(400, 'INVALID_UPLOAD', `Upload rejected: ${err.message}`, { reason: err.code });
+  }
+
   if (err instanceof jwt.TokenExpiredError) return new AppError(401, 'TOKEN_EXPIRED', 'Token expired');
   if (err instanceof jwt.JsonWebTokenError) return new AppError(401, 'TOKEN_INVALID', 'Invalid token');
 
@@ -51,7 +58,7 @@ function toAppError(err: unknown): AppError | null {
 }
 
 export const notFoundHandler: RequestHandler = (req) => {
-  throw new NotFound('ROUTE_NOT_FOUND', `Route ${req.method} ${req.path} not found`);
+  throw new NotFound('ROUTE_NOT_FOUND', `Route ${req.method} ${safeUrl(req.path)} not found`);
 };
 
 /** Converts every error into `{ success: false, error: { code, message, details? } }`. */
@@ -62,9 +69,10 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, _next)
 
   if (known) {
     if (known.status >= 500) logger.error({ err, requestId }, known.message);
-    else logger.info({ requestId, code: known.code, status: known.status }, 'request rejected');
+    // `errorCode`, not `code`: the logger redacts `code` (OTP codes).
+    else logger.info({ requestId, errorCode: known.code, status: known.status }, 'request rejected');
   } else {
-    logger.error({ err, requestId, method: req.method, path: req.path }, 'unhandled error');
+    logger.error({ err, requestId, method: req.method, path: safeUrl(req.path) }, 'unhandled error');
   }
 
   const appError = known ?? new AppError(500, 'INTERNAL_ERROR', 'Something went wrong');
@@ -75,6 +83,11 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, _next)
   if (appError.details !== undefined) body.error.details = appError.details;
   if (!isProduction && !known && err instanceof Error && err.stack) body.error.stack = err.stack;
 
-  if (res.headersSent) return;
+  // Mid-stream failure (e.g. a file download): we can't send JSON any more, so end the
+  // connection instead of leaving the client hanging.
+  if (res.headersSent) {
+    res.destroy();
+    return;
+  }
   res.status(appError.status).json(body);
 };

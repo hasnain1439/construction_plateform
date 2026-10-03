@@ -109,10 +109,14 @@ export function createUser(
 
 /** Sequential on purpose: a transaction is one connection, so queries can't run in parallel. */
 export async function loadProfile(tx: Db, userId: string, tenantId: string) {
-  const user = await tx.user.findUnique({ where: { id: userId }, include: { photo: { select: { url: true } } } });
+  const user = await tx.user.findUnique({ where: { id: userId }, include: { photo: { select: { storageKey: true } } } });
   const tenant = await tx.tenant.findUnique({
     where: { id: tenantId },
-    include: { settings: true, subscription: { include: { plan: { select: { code: true, name: true } } } } },
+    include: {
+      logo: { select: { storageKey: true } },
+      settings: true,
+      subscription: { include: { plan: { select: { code: true, name: true } } } },
+    },
   });
   return [user, tenant] as const;
 }
@@ -295,6 +299,14 @@ export function findInvitationByTokenHash(db: Db, tokenHash: string) {
     where: { tokenHash },
     include: { tenant: { select: { id: true, name: true, status: true } } },
   });
+}
+
+export function findInvitationById(tx: Db, id: string) {
+  return tx.invitation.findUnique({ where: { id }, select: { status: true, expiresAt: true, tokenHash: true } });
+}
+
+export function emailTakenInTenant(tx: Db, email: string) {
+  return tx.user.findFirst({ where: { email }, select: { id: true } });
 }
 
 export function markInvitationExpired(db: Db, id: string) {
