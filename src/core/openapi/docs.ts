@@ -38,7 +38,8 @@ export function docsRouter(): Router {
         defaultModelsExpandDepth: 0,
         defaultModelExpandDepth: 3,
         filter: true,
-        syntaxHighlight: { activated: true, theme: 'monokai' },
+        deepLinking: true, // /api/docs/#/Auth/post_api_v1_auth_login opens that endpoint
+        syntaxHighlight: { activated: true, theme: 'idea' },
       },
     })
     // swagger-ui-express ships no viewport tag, so phones would render a shrunken desktop page.
