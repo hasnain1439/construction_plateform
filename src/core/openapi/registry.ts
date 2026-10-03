@@ -51,10 +51,20 @@ export function errors(map: Record<number, string[]>): Responses {
   return out;
 }
 
-export function jsonBody<T extends z.ZodType>(schema: T, example?: unknown) {
+export interface NamedExample {
+  summary: string;
+  description?: string;
+  value: unknown;
+}
+
+/**
+ * Request body with ready-to-run examples. Swagger UI shows them in an "Examples"
+ * dropdown and pre-fills "Try it out", so every endpoint can be tested with one click.
+ */
+export function jsonBody<T extends z.ZodType>(schema: T, examples?: Record<string, NamedExample>) {
   return {
     required: true,
-    content: { 'application/json': { schema, ...(example === undefined ? {} : { example }) } },
+    content: { 'application/json': { schema, ...(examples ? { examples } : {}) } },
   };
 }
 

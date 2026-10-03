@@ -2,99 +2,92 @@ import { isProduction } from '../../config/env.js';
 
 /**
  * Markdown shown at the top of /api/docs (OpenAPI `info.description`).
- * Developer-facing guide to the API: clients, auth flow, roles, errors.
+ * Kept short: how to start testing, roles, response format, error codes.
  */
-const seedAccounts = `
-## 🧪 Dev accounts (seed)
+const testAccounts = `
+### Test accounts
 
-Run \`npm run db:seed\`. Not shown in production.
+Created by \`npm run db:seed\` (re-run it any time to reset passwords, locks and the invite). Every request body has ready-made **Examples** in its dropdown.
 
-| Who | Login | Password |
+| Account | Login | Password |
 |---|---|---|
-| Platform admin | \`admin@platform.local\` → *Platform admin auth* | \`Admin#2026\` |
-| Khalid Malik — THEKEDAR, Malik & Sons Builders | \`03001234567\` | \`Thekedar#2026\` |
-| Bilal Ahmed — PM (no financials), Malik & Sons | \`03331112233\` | \`Bilal#2026\` |
-| Rafaqat Ali — MUNSHI in **both** companies | \`03211234567\` (OTP → \`MULTIPLE_COMPANIES\`) | — |
-| Ahmed Raza — THEKEDAR, Ahmed Constructions | \`03331234567\` | \`Ahmed#2026\` |
-| Kamran Shah — pending PM invite | token \`dev-invite-kamran-shah-2026-0001\` | chosen on accept |
+| Khalid Malik — THEKEDAR, *Malik & Sons Builders* | \`03001234567\` · \`khalid@maliksons.pk\` | \`Thekedar#2026\` |
+| Bilal Ahmed — PM (no financials), *Malik & Sons* | \`03331112233\` | \`Bilal#2026\` |
+| Rafaqat Ali — MUNSHI in **two** companies | \`03211234567\` | SMS code only |
+| Ahmed Raza — THEKEDAR, *Ahmed Constructions* | \`03331234567\` | \`Ahmed#2026\` |
+| Platform admin | \`admin@platform.local\` | \`Admin#2026\` |
+| Kamran Shah — pending PM invite | token \`dev-invite-kamran-shah-2026-0001\` | set on accept |
 
-OTP codes are printed in the **server console** (\`SMS_PROVIDER=console\`).
+SMS / email codes are printed in the **server console**.
 `;
 
 export function apiOverview(): string {
   return `
-Backend for a **multi-tenant Construction Management SaaS**. Each tenant is a construction company with its own users, projects and data, isolated by PostgreSQL row-level security.
+Multi-tenant backend for a **Construction Management SaaS**. Each tenant is a construction company (*thekedar*) with its own users, projects and data, isolated by PostgreSQL row-level security. One API serves the **Next.js** web app and the **React Native** mobile app.
 
-## 🚀 Try it in 30 seconds
+### Getting started
 
-1. Open **Auth → POST /api/v1/auth/login** → *Try it out*.
-2. Send \`{ "login": "03001234567", "password": "Thekedar#2026", "client": "mobile" }\`.
-3. Copy \`data.accessToken\` → click **Authorize** (top right) → paste into **bearerAuth**.
-4. Call **GET /api/v1/auth/me**.
+1. Open **Auth → \`POST /api/v1/auth/login\`**, pick the example **"Khalid — THEKEDAR (web, cookies)"** and click **Execute**.
+2. The server sets httpOnly \`access_token\` / \`refresh_token\` cookies — every other *Try it out* call (e.g. \`GET /api/v1/auth/me\`) is now logged in automatically.
+3. To test like the mobile app instead, pick a **(mobile, tokens)** example, copy \`data.accessToken\`, click **Authorize** and paste it into **bearerAuth**.
+${isProduction ? '' : testAccounts}
+### Roles
 
-> With \`"client": "web"\` the server sets httpOnly cookies instead, and the browser sends them on every *Try it out* call automatically.
+| Role | Scope | Created by | Can do |
+|---|---|---|---|
+| **THEKEDAR** | One company | Self sign-up | Everything in the company |
+| **PM** | One company | Invitation | Projects & rates; billing/profit only if *canSeeFinancials* |
+| **MUNSHI** | One or more companies | Invitation | Site entries only — logs in with an SMS code on mobile |
+| **PLATFORM_ADMIN** | Whole platform | Database seed | Platform routes only (separate login) |
 
-## 👷 Roles & permissions
+> **Note:** the company is always taken from the signed token — never from headers, query or URL. If one phone belongs to several companies, login answers \`409 MULTIPLE_COMPANIES\` with the list; send the request again with \`tenantId\`.
 
-| Role | Who | Permissions |
+### Response format
+
+**Success**
+\`\`\`json
+{
+  "success": true,
+  "data": { },
+  "meta": { }
+}
+\`\`\`
+
+**Error**
+\`\`\`json
+{
+  "success": false,
+  "error": { "code": "VALIDATION_ERROR", "message": "Some fields are invalid", "details": { } }
+}
+\`\`\`
+
+Money is integer **paisa** sent as a string (\`"950000"\` = Rs 9,500) · IDs are UUID v7 · times are UTC · phones are returned as \`+923001234567\`.
+
+### Common error codes
+
+| HTTP | Code | What to do |
 |---|---|---|
-| **THEKEDAR** | Company owner / admin | everything: \`company.update\` \`users.manage\` \`billing.view\` \`profit.view\` \`rates.view\` \`store.manage\` \`projects.manage\` \`site.entry\` |
-| **PM** | Project manager | \`projects.manage\` \`rates.view\` \`site.entry\` (+ \`billing.view\` \`profit.view\` when *canSeeFinancials*) |
-| **MUNSHI** | Site supervisor (mobile, SMS code login) | \`site.entry\` only — never rates or financials |
-| **PLATFORM_ADMIN** | Platform owners (separate login) | platform routes only; cannot call company routes |
-
-The company is **always taken from the signed token**, never from headers, query or URL.
-
-## 🔐 Web vs mobile
-
-Every sign-in endpoint accepts \`client: "web" | "mobile"\` (default **web**).
-
-| | Web (Next.js) | Mobile (React Native) |
-|---|---|---|
-| Access token (15 min) | \`access_token\` httpOnly cookie | \`accessToken\` in body → \`Authorization: Bearer …\` |
-| Refresh token (30 days) | \`refresh_token\` httpOnly cookie (path \`/api/v1/auth\`) | \`refreshToken\` in body → secure storage |
-| Refresh | \`POST /auth/refresh\` with \`{}\` | \`POST /auth/refresh\` with \`{ "client": "mobile", "refreshToken" }\` |
-| Device | optional | \`device: { deviceId, platform, model?, appVersion? }\` **required** |
-
-## 🔄 Refresh rotation
-
-Every refresh returns a **new** refresh token and kills the old one. If an old (already rotated) token comes back, it was copied: the **whole session family is signed out** → \`401 REFRESH_TOKEN_REUSED\`. Clients should run one refresh at a time and queue other 401s behind it.
-
-## 🏢 One phone, several companies
-
-A Munshi can work for more than one company. Login / OTP verify then answer **\`409 MULTIPLE_COMPANIES\`** with \`details.companies: [{ tenantId, name, role }]\`. Ask the user and resend the same request with \`tenantId\` (the OTP stays valid).
-
-## 📦 Conventions
-
-- **Success:** \`{ "success": true, "data": …, "meta"?: … }\`
-- **Error:** \`{ "success": false, "error": { "code": "…", "message": "…", "details"?: … } }\` — switch on \`code\`, show \`message\`.
-- **Money** is integer **paisa** sent as a string (\`"950000"\` = Rs 9,500). **IDs** are UUID v7. **Times** are UTC ISO-8601.
-- **Phones** accept \`03001234567\`, \`+92 300 1234567\`, \`923001234567\` and are returned as \`+923001234567\`.
-
-## ⚠️ Common error codes
-
-| Status | Codes |
-|---|---|
-| 400 | \`VALIDATION_ERROR\` (see \`details.fields\`), \`USE_OTP_LOGIN\`, \`OTP_INVALID\`, \`CURRENT_PASSWORD_WRONG\` |
-| 401 | \`UNAUTHENTICATED\`, \`TOKEN_INVALID\`, \`TOKEN_EXPIRED\`, \`INVALID_CREDENTIALS\`, \`REFRESH_INVALID\`, \`REFRESH_TOKEN_REUSED\`, \`DEVICE_REVOKED\` |
-| 402 | \`PLAN_LIMIT_REACHED\` |
-| 403 | \`COMPANY_SUSPENDED\`, \`ACCOUNT_READ_ONLY\`, \`FORBIDDEN\` |
-| 404 / 409 / 410 | \`PHONE_NOT_REGISTERED\`, \`INVITE_NOT_FOUND\` · \`PHONE_TAKEN\`, \`MULTIPLE_COMPANIES\` · \`OTP_EXPIRED\`, \`INVITE_EXPIRED\` |
-| 423 / 429 | \`ACCOUNT_LOCKED\` (\`details.retryAfterSeconds\`) · \`RATE_LIMITED\`, \`OTP_RESEND_WAIT\`, \`OTP_TOO_MANY_ATTEMPTS\` |
-
-**Limits:** 5 wrong passwords → locked 15 min · OTP valid 5 min, resend after 60 s, max 5/hour, 3 wrong tries · auth endpoints 10 req/min per IP + login.
-${isProduction ? '' : seedAccounts}`;
+| **400** | \`VALIDATION_ERROR\` | Fix the fields listed in \`error.details.fields\`. |
+| **400** | \`USE_OTP_LOGIN\` | This user has no password — use *otp/request* + *otp/verify*. |
+| **401** | \`INVALID_CREDENTIALS\` | Wrong login or password. |
+| **401** | \`UNAUTHENTICATED\` / \`TOKEN_EXPIRED\` | Log in, or call *auth/refresh* and retry. |
+| **401** | \`REFRESH_TOKEN_REUSED\` / \`DEVICE_REVOKED\` | Session ended for security — log in again. |
+| **402** | \`PLAN_LIMIT_REACHED\` | The company's plan is full — upgrade the plan. |
+| **403** | \`COMPANY_SUSPENDED\` | Company account is suspended — contact support. |
+| **403** | \`ACCOUNT_READ_ONLY\` | Company is read-only — renew the subscription to make changes. |
+| **409** | \`MULTIPLE_COMPANIES\` | Ask which company, resend with \`tenantId\`. |
+| **409** | \`PHONE_TAKEN\` | Phone already used — log in instead. |
+| **410** | \`OTP_EXPIRED\` / \`INVITE_EXPIRED\` | Request a new code / invitation. |
+| **423** | \`ACCOUNT_LOCKED\` | 5 wrong passwords — wait \`details.retryAfterSeconds\`. |
+| **429** | \`RATE_LIMITED\` / \`OTP_RESEND_WAIT\` | Too many requests — wait and retry. |
+`;
 }
 
 export const TAGS = [
-  { name: 'Health', description: 'Liveness check.' },
+  { name: 'Health', description: 'Liveness check' },
   {
     name: 'Auth',
-    description:
-      'Company users (THEKEDAR, PM, MUNSHI): signup, password & SMS-code login, token refresh, profile, sessions, password reset and invitations.',
+    description: 'Sign-up, password & SMS-code login, token refresh, profile, sessions, password reset and invitations',
   },
-  {
-    name: 'Platform admin auth',
-    description: 'Platform owners only. Separate accounts, sessions and `platform`-audience tokens.',
-  },
+  { name: 'Platform admin auth', description: 'Platform owners only — separate accounts and tokens' },
 ];
