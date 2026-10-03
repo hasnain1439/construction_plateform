@@ -10,10 +10,10 @@
 //   never point at another tenant's data.
 
 generator client {
-  provider               = "prisma-client"
-  output                 = "../src/generated/prisma"
-  moduleFormat           = "esm"
-  importFileExtension    = "js"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
 }
 
 datasource db {
@@ -52,6 +52,7 @@ enum AttachmentKind {
   RECEIPT
   DOCUMENT
   VOICE_NOTE
+  PAYMENT_SLIP
 }
 
 enum HolidayType {
@@ -65,18 +66,27 @@ enum Language {
   URDU
 }
 
+/// TRIAL / ACTIVE / GRACE keep the company ACTIVE; LAPSED makes it READ_ONLY.
 enum SubscriptionStatus {
   TRIAL
   ACTIVE
-  PAST_DUE
+  /// Period ended; 3 days to pay before LAPSED.
+  GRACE
+  LAPSED
   CANCELLED
-  EXPIRED
+}
+
+enum PaymentMethod {
+  JAZZCASH
+  EASYPAISA
+  RAAST
+  IBFT
 }
 
 enum PaymentStatus {
-  PENDING
-  PAID
-  FAILED
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
   REFUNDED
 }
 
@@ -109,6 +119,8 @@ enum ProjectStatus {
   ON_HOLD
   COMPLETED
   ARCHIVED
+  /// Over the plan's active-project limit after a downgrade: viewable, not editable.
+  READ_ONLY
 }
 
 // ─── Platform (not tenant-scoped) ───────────────────────────────────────────
@@ -145,18 +157,22 @@ model PlatformAdminSession {
 }
 
 model Plan {
-  id                String         @id @default(uuid(7)) @db.Uuid
-  code              String         @unique
+  id                String                @id @default(uuid(7)) @db.Uuid
+  code              String                @unique
   name              String
-  priceMonthlyPaisa BigInt         @default(0)
+  priceMonthlyPaisa BigInt                @default(0)
   /// null = unlimited
-  maxProjects       Int?
-  /// Office users = THEKEDAR + PM. Munshis are not counted. null = unlimited.
+  maxActiveProjects Int?
+  /// Office users = THEKEDAR + PM (+ pending PM invites). Munshis are not counted. null = unlimited.
   maxOfficeUsers    Int?
-  isActive          Boolean        @default(true)
-  createdAt         DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime       @updatedAt @db.Timestamptz(3)
-  subscriptions     Subscription[]
+  /// Marketing bullet points shown on the plans screen.
+  features          String[]              @default([])
+  isActive          Boolean               @default(true)
+  createdAt         DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime              @updatedAt @db.Timestamptz(3)
+  subscriptions     Subscription[]        @relation("SubscriptionPlan")
+  pendingFor        Subscription[]        @relation("SubscriptionPendingPlan")
+  payments          SubscriptionPayment[]
 }
 
 model PlatformHoliday {
@@ -223,66 +239,93 @@ model Tenant {
 }
 
 model TenantSettings {
-  tenantId          String   @id @db.Uuid
+  tenantId                  String   @id @db.Uuid
   /// Square feet per marla: 225 (societies) or 272.25 (revenue marla).
-  marlaStandardSqft Decimal  @default(225) @db.Decimal(6, 2)
-  currency          String   @default("PKR")
-  timezone          String   @default("Asia/Karachi")
-  defaultLanguage   Language @default(ROMAN_URDU)
-  weekStartsOn      Int      @default(1)
+  marlaStandardSqft         Decimal  @default(225) @db.Decimal(6, 2)
+  currency                  String   @default("PKR")
+  timezone                  String   @default("Asia/Karachi")
+  defaultLanguage           Language @default(ROMAN_URDU)
+  weekStartsOn              Int      @default(1)
   /// Kharcha (site expense) above this needs THEKEDAR approval. Paisa. Default Rs 25,000.
-  kharchaApprovalLimitPaisa BigInt  @default(2500000)
+  kharchaApprovalLimitPaisa BigInt   @default(2500000)
   /// Alert when material use exceeds the estimate by this percent (1–20).
-  overuseAlertPercent       Int     @default(10)
+  overuseAlertPercent       Int      @default(10)
   /// Local time (HH:MM, tenant timezone) after which a missing daily site log raises an alert.
-  missingLogAlertTime       String  @default("18:00")
-  quoteValidityDays         Int     @default(15)
-  taxEnabled                Boolean @default(false)
+  missingLogAlertTime       String   @default("18:00")
+  quoteValidityDays         Int      @default(15)
+  taxEnabled                Boolean  @default(false)
   /// Default for `canSeeFinancials` on new PM invitations.
-  pmCanSeeFinancials        Boolean @default(false)
-  createdAt         DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
-  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  pmCanSeeFinancials        Boolean  @default(false)
+  createdAt                 DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime @updatedAt @db.Timestamptz(3)
+  tenant                    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
 model Subscription {
-  id               String                @id @default(uuid(7)) @db.Uuid
-  tenantId         String                @unique @db.Uuid
-  planId           String                @db.Uuid
-  status           SubscriptionStatus
-  trialEndsAt      DateTime?             @db.Timestamptz(3)
-  currentPeriodEnd DateTime?             @db.Timestamptz(3)
-  cancelledAt      DateTime?             @db.Timestamptz(3)
-  createdAt        DateTime              @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime              @updatedAt @db.Timestamptz(3)
-  tenant           Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  plan             Plan                  @relation(fields: [planId], references: [id])
-  payments         SubscriptionPayment[]
+  id                   String                @id @default(uuid(7)) @db.Uuid
+  tenantId             String                @unique @db.Uuid
+  planId               String                @db.Uuid
+  status               SubscriptionStatus
+  trialEndsAt          DateTime?             @db.Timestamptz(3)
+  currentPeriodStart   DateTime?             @db.Timestamptz(3)
+  currentPeriodEnd     DateTime?             @db.Timestamptz(3)
+  /// currentPeriodEnd + 3 days while in GRACE.
+  graceEndsAt          DateTime?             @db.Timestamptz(3)
+  /// Requested plan change. Upgrades apply when their payment is approved (pendingEffectiveOn null);
+  /// downgrades apply at pendingEffectiveOn (= currentPeriodEnd).
+  pendingPlanId        String?               @db.Uuid
+  pendingEffectiveOn   DateTime?             @db.Timestamptz(3)
+  /// Projects that stay ACTIVE when a downgrade lowers the active-project limit.
+  keepActiveProjectIds String[]              @default([]) @db.Uuid
+  lastReminderSentAt   DateTime?             @db.Timestamptz(3)
+  cancelledAt          DateTime?             @db.Timestamptz(3)
+  createdAt            DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime              @updatedAt @db.Timestamptz(3)
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan                 Plan                  @relation("SubscriptionPlan", fields: [planId], references: [id])
+  pendingPlan          Plan?                 @relation("SubscriptionPendingPlan", fields: [pendingPlanId], references: [id])
+  payments             SubscriptionPayment[]
 
   @@unique([tenantId, id])
+  @@index([status])
 }
 
+/// Manual payment (JazzCash / Easypaisa / Raast / bank transfer) with an uploaded slip,
+/// reviewed by a platform admin (Phase 1 · Step 3B).
 model SubscriptionPayment {
   id             String        @id @default(uuid(7)) @db.Uuid
   tenantId       String        @db.Uuid
   subscriptionId String        @db.Uuid
+  planId         String        @db.Uuid
   amountPaisa    BigInt
-  method         String
-  reference      String?
-  status         PaymentStatus @default(PENDING)
-  periodStart    DateTime      @db.Timestamptz(3)
-  periodEnd      DateTime      @db.Timestamptz(3)
-  paidAt         DateTime?     @db.Timestamptz(3)
+  method         PaymentMethod
+  /// Upper-cased; unique across ALL tenants (a slip can only be used once).
+  transactionId  String        @unique
+  paidOn         DateTime      @db.Date
+  status         PaymentStatus @default(PENDING_REVIEW)
+  rejectReason   String?
+  /// Slip image/PDF (kind PAYMENT_SLIP). Null only for historical/admin-entered payments.
+  attachmentId   String?       @db.Uuid
+  submittedById  String?       @db.Uuid
+  /// Set when approved.
+  periodStart    DateTime?     @db.Timestamptz(3)
+  periodEnd      DateTime?     @db.Timestamptz(3)
+  receiptNo      String?       @unique
+  reviewedAt     DateTime?     @db.Timestamptz(3)
   createdAt      DateTime      @default(now()) @db.Timestamptz(3)
   tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   subscription   Subscription  @relation(fields: [tenantId, subscriptionId], references: [tenantId, id], onDelete: Cascade)
+  plan           Plan          @relation(fields: [planId], references: [id])
+  slip           Attachment?   @relation("PaymentSlip", fields: [tenantId, attachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  submittedBy    User?         @relation("PaymentSubmittedBy", fields: [tenantId, submittedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([tenantId, createdAt])
+  @@index([status])
 }
 
 model User {
-  id                String              @id @default(uuid(7)) @db.Uuid
-  tenantId          String              @db.Uuid
+  id                String                @id @default(uuid(7)) @db.Uuid
+  tenantId          String                @db.Uuid
   name              String
   /// E.164, e.g. +923001234567
   phone             String
@@ -290,25 +333,26 @@ model User {
   /// null for OTP-only users (typically MUNSHI)
   passwordHash      String?
   role              UserRole
-  status            UserStatus          @default(ACTIVE)
-  language          Language            @default(ROMAN_URDU)
-  photoAttachmentId String?             @db.Uuid
-  canSeeFinancials  Boolean             @default(false)
-  failedLoginCount  Int                 @default(0)
-  lockedUntil       DateTime?           @db.Timestamptz(3)
-  passwordChangedAt DateTime?           @db.Timestamptz(3)
-  lastLoginAt       DateTime?           @db.Timestamptz(3)
-  deactivatedAt     DateTime?           @db.Timestamptz(3)
-  createdAt         DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime            @updatedAt @db.Timestamptz(3)
-  tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  photo           Attachment?         @relation("UserPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  status            UserStatus            @default(ACTIVE)
+  language          Language              @default(ROMAN_URDU)
+  photoAttachmentId String?               @db.Uuid
+  canSeeFinancials  Boolean               @default(false)
+  failedLoginCount  Int                   @default(0)
+  lockedUntil       DateTime?             @db.Timestamptz(3)
+  passwordChangedAt DateTime?             @db.Timestamptz(3)
+  lastLoginAt       DateTime?             @db.Timestamptz(3)
+  deactivatedAt     DateTime?             @db.Timestamptz(3)
+  createdAt         DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime              @updatedAt @db.Timestamptz(3)
+  tenant            Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  photo             Attachment?           @relation("UserPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
   projectAccess     UserProjectAccess[]
   devices           Device[]
   sessions          Session[]
-  acceptedInvites   Invitation[]        @relation("InvitationAcceptedUser")
-  sentInvites       Invitation[]        @relation("InvitationInvitedBy")
-  uploads           Attachment[]        @relation("AttachmentUploadedBy")
+  acceptedInvites   Invitation[]          @relation("InvitationAcceptedUser")
+  sentInvites       Invitation[]          @relation("InvitationInvitedBy")
+  uploads           Attachment[]          @relation("AttachmentUploadedBy")
+  submittedPayments SubscriptionPayment[] @relation("PaymentSubmittedBy")
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -439,20 +483,21 @@ model CompanyHoliday {
 }
 
 model Attachment {
-  id           String         @id @default(uuid(7)) @db.Uuid
-  tenantId     String         @db.Uuid
+  id           String                @id @default(uuid(7)) @db.Uuid
+  tenantId     String                @db.Uuid
   kind         AttachmentKind
   /// tenantId/yyyy/mm/<id>.<ext> inside the storage provider
   storageKey   String
   fileName     String
   mimeType     String
   sizeBytes    Int
-  uploadedById String?        @db.Uuid
-  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
-  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  uploadedBy   User?          @relation("AttachmentUploadedBy", fields: [tenantId, uploadedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
-  userPhotos   User[]         @relation("UserPhoto")
-  tenantLogos  Tenant[]       @relation("TenantLogo")
+  uploadedById String?               @db.Uuid
+  createdAt    DateTime              @default(now()) @db.Timestamptz(3)
+  tenant       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  uploadedBy   User?                 @relation("AttachmentUploadedBy", fields: [tenantId, uploadedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  userPhotos   User[]                @relation("UserPhoto")
+  tenantLogos  Tenant[]              @relation("TenantLogo")
+  paymentSlips SubscriptionPayment[] @relation("PaymentSlip")
 
   @@unique([tenantId, id])
   @@index([tenantId, createdAt])

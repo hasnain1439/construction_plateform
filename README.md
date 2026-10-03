@@ -23,6 +23,7 @@ npm run dev                     # http://localhost:4000  ·  docs at /api/docs
 | `db:generate` / `db:seed` / `db:studio` | Prisma client · seed · Studio |
 | `test` / `test:watch` | Vitest against the `construction_test` database (`.env.test`) |
 | `typecheck` | Type-checks src, tests, prisma and scripts |
+| `jobs:subscriptions` | Run the subscription lifecycle once (also runs in the server at start-up and daily 02:00 PKT) |
 | `docker:up` / `docker:down` | Postgres 16 + Redis 7 (optional; local Postgres works too) |
 
 ### Database roles
@@ -170,8 +171,27 @@ All under `/api/v1`, documented with examples at **`/api/docs`** (raw spec: `/ap
   | `VOICE_NOTE` | MP3, M4A (audio/mp4), OGG |
 
   The first bytes of the file are checked against the declared type (a renamed HTML file is rejected).
-- Stored at `tenantId/yyyy/mm/<attachmentId>.<ext>` through a `StorageProvider` (`put`, `getSignedUrl`, `delete`, `open`). `STORAGE_PROVIDER=local` writes to `STORAGE_DIR` (default `./storage`, git-ignored); an S3/R2 provider can replace it without touching callers.
-- The database never stores URLs. Responses carry a **signed URL** valid `SIGNED_URL_TTL_SECONDS` (default 900): `/api/v1/attachments/:id/file?tid=&exp=&sig=` where `sig = HMAC-SHA256(JWT_REFRESH_PEPPER, id:tid:exp)`. The link needs no login, works only for that file and company, and answers `403 INVALID_SIGNATURE` / `403 LINK_EXPIRED` when edited or old. Set `API_PUBLIC_URL` so the absolute URLs point at the public API host.
+- Stored through a `StorageProvider` (`put`, `getSignedUrl`, `delete`, `open`). The database never stores URLs; responses carry a **signed URL** valid `SIGNED_URL_TTL_SECONDS` (default 600 = 10 minutes).
+
+### Storage providers
+
+| `STORAGE_PROVIDER` | Where files go | Signed URL |
+|---|---|---|
+| `local` (default — dev and tests) | `STORAGE_DIR` (default `./storage`, git-ignored), key `tenantId/yyyy/mm/<id>.<ext>` | `/api/v1/attachments/:id/file?tid=&exp=&sig=`, `sig = HMAC-SHA256(JWT_REFRESH_PEPPER, id:tid:exp)`, served by this API (`403 INVALID_SIGNATURE` / `LINK_EXPIRED`). Set `API_PUBLIC_URL` for the public host. |
+| `cloudinary` | Cloudinary **authenticated** assets (never public), folder `construction/{tenantId}/{yyyy}/{mm}`, `public_id` = attachment id; `resource_type` image (images), video (audio), raw (PDF). Key stored: `cloudinary:<resource_type>:<public_id>` | `private_download_url` with `expires_at` — signed by Cloudinary, expires after the TTL. Image thumbnails (`signedUrlFor(att, { thumbnailWidth: 400 })` → `w_400`, auto quality/format) are expiring only if `CLOUDINARY_AUTH_TOKEN_KEY` (token-based auth, a paid Cloudinary feature) is set; otherwise the expiring original is returned. |
+
+**Switch to Cloudinary:**
+
+```env
+STORAGE_PROVIDER=cloudinary
+CLOUDINARY_CLOUD_NAME=your-cloud
+CLOUDINARY_API_KEY=123456789012345
+CLOUDINARY_API_SECRET=…
+# optional, for expiring thumbnails:
+# CLOUDINARY_AUTH_TOKEN_KEY=…
+```
+
+The three `CLOUDINARY_*` credentials are validated at start-up only when `STORAGE_PROVIDER=cloudinary`. Switching is safe in both directions: each stored key says which provider holds it (`storageForKey`), so existing local files stay readable after moving to Cloudinary (keep `STORAGE_DIR` until you migrate them). Tests always use the local provider; the Cloudinary provider is tested with a mocked SDK (`tests/cloudinaryProvider.test.ts`) and never calls Cloudinary.
 - `GET /api/v1/attachments/:id` returns metadata + a fresh URL (RLS: other companies get 404).
 
 Other modules call `signedUrlFor()` / `optionalSignedUrl()` from `attachments.service.ts` (company logo, user photo in `/auth/me`).
@@ -210,16 +230,61 @@ The seed adds the fixed-date national holidays (Kashmir Day, Pakistan Day, Labou
 
 Audit actions added: `attachment.upload`, `company.update`, `settings.update`, `holiday.create`, `holiday.delete`, `user.update`, `user.deactivate`, `user.reactivate`, `user.projects_update`, `invite.create`, `invite.resend`, `invite.cancel`, `device.revoke`.
 
+## Subscription
+
+`src/modules/subscription` (company side; platform-admin review of payments is Phase 1 · Step 3B). All routes: **THEKEDAR only**, mounted at `/api/v1/subscription`.
+
+### Statuses
+
+| Subscription | Company (`Tenant.status`) | Meaning |
+|---|---|---|
+| `TRIAL` | ACTIVE | 14 days from sign-up (TRIAL plan = Starter limits) |
+| `ACTIVE` | ACTIVE | Paid period running (`currentPeriodStart` → `currentPeriodEnd`) |
+| `GRACE` | ACTIVE | Period ended; `graceEndsAt` = period end + 3 days to pay |
+| `LAPSED` | **READ_ONLY** | Trial or grace ran out |
+| `CANCELLED` | READ_ONLY | Reserved for platform admins |
+
+SUSPENDED / CLOSED companies are platform-admin decisions and are never changed by the subscription code. Every change calls `invalidateTenantStatus(tenantId)`.
+
+A READ_ONLY company can still sign out, use **every** `/subscription` route and upload an attachment of kind `PAYMENT_SLIP` — that is how it pays its way back. All other writes get `403 ACCOUNT_READ_ONLY`.
+
+### Endpoints
+
+| Endpoint | Notes |
+|---|---|
+| `GET /subscription` | plan (price in paisa, limits, features), status, dates, `daysLeft`, `usage { activeProjects, officeUsers }` with limits, `pendingChange`, `readOnly` |
+| `GET /subscription/plans` | Active plans except TRIAL, `current: true` on yours |
+| `POST /subscription/payments` | `planId?` (default: pending change, else current), `method` JAZZCASH/EASYPAISA/RAAST/IBFT, `transactionId` (trimmed, upper-cased), `amountPaisa` (= plan price, else `400 AMOUNT_MISMATCH` with `expectedPaisa`), `paidOn` (not future, ≤ 30 days old), `attachmentId` (this company's `PAYMENT_SLIP`, else 404). One `PENDING_REVIEW` at a time (`409 PAYMENT_PENDING`). Transaction ids are unique across **all** companies (`409 DUPLICATE_TRANSACTION` — the same answer whether the clash is yours or another company's; enforced by a global unique index, so no cross-tenant read is needed). |
+| `GET /subscription/payments` | Paginated history with `status`, `rejectReason`, period and `receiptNo` (set on approval) |
+| `POST /subscription/change-plan` | **Upgrade** (or any change while no paid period is running) → pending until its payment is approved; response has `amountDuePaisa`. **Downgrade** during a paid period → effective at `currentPeriodEnd`. Either way the company must fit the target: office users over the limit → `400 DOWNGRADE_USERS_OVER_LIMIT`; active projects over the limit → `keepActiveProjectIds` required (`KEEP_PROJECTS_REQUIRED`, `TOO_MANY_PROJECTS`, `INVALID_PROJECT`). Same plan → `400 SAME_PLAN`. |
+| `DELETE /subscription/change-plan` | Cancels the pending change (`404 NO_PENDING_CHANGE`) |
+
+### Plan limits
+
+`src/core/plan/planLimits.ts` — `getUsage`, `getLimits`, `assertWithinLimit(tx, tenantId, 'activeProjects' | 'officeUsers', adding = 1)` → `402 PLAN_LIMIT_REACHED { resource, limit, used }`; `null` limit = unlimited. Office users = active THEKEDAR + PM **+ pending PM invitations** (they reserve a seat); Munshis never count. Accepting an invitation uses `countPendingInvites: false` because that invite already holds its seat. Hold `lockPlanUsage(tx, tenantId)` around check-then-create. Team (invites, promote, reactivate) and invitation accept use it; the Projects module must call it for `activeProjects`.
+
+### Lifecycle job
+
+`src/jobs/subscriptionLifecycle.ts` → `runSubscriptionLifecycle(now)` (cross-tenant, so it uses `prismaAdmin`; `src/jobs/**` is on the allowlist):
+
+1. Scheduled downgrade due → switch plan; active projects not in `keepActiveProjectIds` → `READ_ONLY`.
+2. `TRIAL` past `trialEndsAt` → `LAPSED` (company READ_ONLY).
+3. `ACTIVE` past `currentPeriodEnd` → `GRACE` (`graceEndsAt` = end + 3 days).
+4. `GRACE` past `graceEndsAt` → `LAPSED`.
+5. SMS to active THEKEDARs 3 days and 1 day before a trial/period ends, once each: *"Aap ka Professional plan 15 Oct 2026 ko khatam ho raha hai. Payment slip upload karein."*
+
+Every transition is a conditional update + `SYSTEM` audit row, so running it twice (or on two servers) is safe. The server runs it at start-up and daily at **02:00 Asia/Karachi** under `pg_try_advisory_lock` (only one instance runs it); disabled when `NODE_ENV=test`. Run it by hand with `npm run jobs:subscriptions` (production: `node dist/jobs/cli/subscriptions.js`). Note: other running servers cache company status for up to 60 s.
+
 ## Error codes
 
 | HTTP | Codes |
 |---|---|
-| 400 | `VALIDATION_ERROR`, `INVALID_JSON`, `USE_OTP_LOGIN`, `OTP_INVALID`, `CURRENT_PASSWORD_WRONG`, `FILE_REQUIRED`, `FILE_TOO_LARGE`, `INVALID_FILE_TYPE`, `INVALID_UPLOAD`, `HOLIDAY_IN_PAST`, `FINANCIALS_PM_ONLY`, `INVALID_PROJECT`, `THEKEDAR_HAS_ALL_PROJECTS`, `CANNOT_REVOKE_CURRENT_DEVICE` |
+| 400 | `VALIDATION_ERROR`, `INVALID_JSON`, `USE_OTP_LOGIN`, `OTP_INVALID`, `CURRENT_PASSWORD_WRONG`, `FILE_REQUIRED`, `FILE_TOO_LARGE`, `INVALID_FILE_TYPE`, `INVALID_UPLOAD`, `HOLIDAY_IN_PAST`, `FINANCIALS_PM_ONLY`, `INVALID_PROJECT`, `THEKEDAR_HAS_ALL_PROJECTS`, `CANNOT_REVOKE_CURRENT_DEVICE`, `AMOUNT_MISMATCH`, `INVALID_PLAN`, `PLAN_REQUIRED`, `PAID_ON_IN_FUTURE`, `PAID_ON_TOO_OLD`, `SAME_PLAN`, `DOWNGRADE_USERS_OVER_LIMIT`, `KEEP_PROJECTS_REQUIRED`, `TOO_MANY_PROJECTS` |
 | 401 | `UNAUTHENTICATED`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `SESSION_REVOKED`, `ACCOUNT_DISABLED`, `INVALID_CREDENTIALS`, `REFRESH_INVALID`, `REFRESH_TOKEN_REUSED`, `DEVICE_REVOKED` |
 | 402 | `PLAN_LIMIT_REACHED` |
 | 403 | `FORBIDDEN`, `COMPANY_SUSPENDED`, `ACCOUNT_READ_ONLY`, `INVALID_SIGNATURE`, `LINK_EXPIRED`, `CANNOT_CHANGE_OWN_ROLE`, `CANNOT_CHANGE_OWNER_ROLE`, `CANNOT_DEACTIVATE_SELF`, `LAST_THEKEDAR` |
-| 404 | `ROUTE_NOT_FOUND`, `NOT_FOUND`, `PHONE_NOT_REGISTERED`, `INVITE_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `HOLIDAY_NOT_FOUND`, `USER_NOT_FOUND`, `DEVICE_NOT_FOUND`, `COMPANY_NOT_FOUND` |
-| 409 | `ALREADY_EXISTS`, `PHONE_TAKEN`, `EMAIL_TAKEN`, `MULTIPLE_COMPANIES`, `INVITE_ALREADY_ACCEPTED`, `INVITE_CANCELLED`, `INVITE_PENDING`, `ALREADY_MEMBER`, `HOLIDAY_EXISTS`, `USER_ALREADY_ACTIVE`, `CASH_BALANCE_OPEN` (future) |
+| 404 | `ROUTE_NOT_FOUND`, `NOT_FOUND`, `PHONE_NOT_REGISTERED`, `INVITE_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `HOLIDAY_NOT_FOUND`, `USER_NOT_FOUND`, `DEVICE_NOT_FOUND`, `COMPANY_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`, `NO_PENDING_CHANGE` |
+| 409 | `ALREADY_EXISTS`, `PHONE_TAKEN`, `EMAIL_TAKEN`, `MULTIPLE_COMPANIES`, `INVITE_ALREADY_ACCEPTED`, `INVITE_CANCELLED`, `INVITE_PENDING`, `ALREADY_MEMBER`, `HOLIDAY_EXISTS`, `USER_ALREADY_ACTIVE`, `PAYMENT_PENDING`, `DUPLICATE_TRANSACTION`, `CASH_BALANCE_OPEN` (future) |
 | 410 | `OTP_EXPIRED`, `INVITE_EXPIRED`, `INVITE_CANCELLED` |
 | 423 | `ACCOUNT_LOCKED` |
 | 429 | `RATE_LIMITED`, `OTP_RESEND_WAIT`, `OTP_LIMIT_REACHED`, `OTP_TOO_MANY_ATTEMPTS`, `INVITE_RESEND_WAIT` |
@@ -232,6 +297,7 @@ Audit actions added: `attachment.upload`, `company.update`, `settings.update`, `
 | `20261003120000_company_team` | Attachment `kind` (url dropped — URLs are signed on demand), company profile fields, settings rules, holiday ranges/types, `User.deactivatedAt`, `UserStatus DISABLED → INACTIVE`, `Invitation.lastResentAt` + `(tenantId, phone, status)` index, device sync fields |
 | `20261003130000_tenant_logo_fk` | Logo FK → `Attachment.id` (same-tenant enforced in the service) |
 | `20261003140000_auth_indexes` | `Session(deviceId)` for device revocation, `OtpCode(phone, createdAt)` for the hourly OTP limit |
+| `20261004090000_subscription` | SubscriptionStatus `PAST_DUE → GRACE`, `EXPIRED → LAPSED`; PaymentStatus `PENDING/PAID/FAILED → PENDING_REVIEW/APPROVED/REJECTED`; `PaymentMethod` enum; `Plan.maxProjects → maxActiveProjects` + `features`; subscription period/grace/pending-change/reminder fields; payment `transactionId` (globally unique), `paidOn`, slip, `receiptNo`; `AttachmentKind.PAYMENT_SLIP`; `ProjectStatus.READ_ONLY` |
 
 Prisma's `migrate dev` refuses to run non-interactively when a change has warnings (enum value removed). Generate SQL with `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, hand-edit renames (e.g. `ALTER TYPE … RENAME VALUE`, `RENAME COLUMN`) so data is kept, save it as a new migration folder and run `npx prisma migrate deploy`.
 

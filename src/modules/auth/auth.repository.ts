@@ -80,10 +80,6 @@ export function attachmentExists(tx: Db, id: string) {
   return tx.attachment.findUnique({ where: { id }, select: { id: true } });
 }
 
-export function countActiveOfficeUsers(tx: Db): Promise<number> {
-  return tx.user.count({ where: { ...ACTIVE_USER, role: { in: ['THEKEDAR', 'PM'] } } });
-}
-
 export function userExistsInTenant(tx: Db, phone: string) {
   return tx.user.findFirst({ where: { phone }, select: { id: true } });
 }
@@ -154,10 +150,6 @@ export function createTenant(
       subscription: { create: { planId: data.planId, status: 'TRIAL', trialEndsAt: data.trialEndsAt } },
     },
   });
-}
-
-export function findTenantPlan(tx: Db, tenantId: string) {
-  return tx.subscription.findUnique({ where: { tenantId }, include: { plan: true } });
 }
 
 export async function existingProjectIds(tx: Db, ids: string[]): Promise<string[]> {

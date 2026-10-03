@@ -14,6 +14,7 @@ import {
 } from '../src/modules/auth/auth.schema.js';
 import { updateCompanyBody, updateSettingsBody, createHolidayBody } from '../src/modules/company/company.schema.js';
 import { createInvitationBody, setUserProjectsBody, updateUserBody } from '../src/modules/team/team.schema.js';
+import { changePlanBody, submitPaymentBody } from '../src/modules/subscription/subscription.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
@@ -23,6 +24,8 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'patch /api/v1/users/{id}': updateUserBody,
   'put /api/v1/users/{id}/projects': setUserProjectsBody,
   'post /api/v1/invitations': createInvitationBody,
+  'post /api/v1/subscription/payments': submitPaymentBody,
+  'post /api/v1/subscription/change-plan': changePlanBody,
   'post /api/v1/auth/signup': signupBody,
   'post /api/v1/auth/login': loginBody,
   'post /api/v1/auth/otp/request': otpRequestBody,
@@ -53,10 +56,11 @@ describe('API docs', () => {
       'Auth',
       'Company',
       'Team',
+      'Subscription',
       'Attachments',
       'Platform admin auth',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(33);
+    expect(Object.keys(res.body.paths)).toHaveLength(37);
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

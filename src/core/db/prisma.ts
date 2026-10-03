@@ -21,6 +21,7 @@ export const prisma = createClient(env.DATABASE_URL);
  * Allowed ONLY in:
  *   - src/modules/auth/**           (cross-tenant lookups: login by phone/email, OTP, invitations by token)
  *   - src/modules/platform-admin/** (platform owners)
+ *   - src/jobs/**                   (cross-tenant background jobs, e.g. subscription lifecycle)
  *   - prisma/seed.ts, scripts/**, tests/**
  *
  * Enforced by tests/guards/prismaAdminImports.test.ts. Business modules must use

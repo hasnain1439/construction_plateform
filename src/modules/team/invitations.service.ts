@@ -5,13 +5,13 @@ import { getCtx } from '../../core/context/requestContext.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict, NotFound, TooManyRequests } from '../../core/errors/AppError.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
+import { assertWithinLimit, lockPlanUsage } from '../../core/plan/planLimits.js';
 import { hashSecret, randomToken } from '../../core/utils/crypto.js';
 import { maskPhone } from '../../core/utils/phone.js';
 import type { UserRole } from '../../generated/prisma/enums.js';
 import { smsProvider } from '../auth/sms.provider.js';
 import * as repo from './team.repository.js';
 import type { CreateInvitationInput, InvitationDto, InvitationSentDto, ListInvitationsQuery } from './team.schema.js';
-import { assertOfficeSeat } from './users.service.js';
 
 export const INVITE_TTL_DAYS = 7;
 export const INVITE_RESEND_SECONDS = 60;
@@ -102,7 +102,7 @@ export async function createInvitation(input: CreateInvitationInput): Promise<In
   const { token, tokenHash, expiresAt } = newToken();
 
   const { invitation, companyName } = await withTenant(tenantId, async (tx) => {
-    await repo.lockOfficeSeats(tx, tenantId);
+    await lockPlanUsage(tx, tenantId);
     const now = new Date();
     if (await repo.findUserByPhone(tx, input.phone)) {
       throw new Conflict('ALREADY_MEMBER', 'This phone number already belongs to a member of your company');
@@ -114,7 +114,7 @@ export async function createInvitation(input: CreateInvitationInput): Promise<In
       throw new Conflict('EMAIL_TAKEN', 'This email already belongs to a member of your company');
     }
     const projectIds = await validProjectIds(tx, input.projectIds);
-    if (input.role === 'PM') await assertOfficeSeat(tx, tenantId, { countPendingInvites: true });
+    if (input.role === 'PM') await assertWithinLimit(tx, tenantId, 'officeUsers');
 
     const settings = await repo.findSettings(tx, tenantId);
     const canSeeFinancials = input.role === 'PM' ? (input.canSeeFinancials ?? settings?.pmCanSeeFinancials ?? false) : false;
@@ -154,7 +154,7 @@ export async function resendInvitation(id: string): Promise<InvitationSentDto> {
   const { token, tokenHash, expiresAt } = newToken();
 
   const { invitation, companyName } = await withTenant(tenantId, async (tx) => {
-    await repo.lockOfficeSeats(tx, tenantId);
+    await lockPlanUsage(tx, tenantId);
     const existing = await repo.findInvitation(tx, id);
     if (!existing) throw notFound();
     if (existing.status === 'ACCEPTED') throw new Conflict('INVITE_ALREADY_ACCEPTED', 'This invitation has already been accepted');
@@ -175,7 +175,8 @@ export async function resendInvitation(id: string): Promise<InvitationSentDto> {
     }
     const wasExpired = existing.status === 'EXPIRED' || existing.expiresAt <= now;
     if (wasExpired && existing.role === 'PM') {
-      await assertOfficeSeat(tx, tenantId, { countPendingInvites: true, excludeInvitationId: id });
+      // An expired invite no longer holds a seat, so reviving it needs one.
+      await assertWithinLimit(tx, tenantId, 'officeUsers');
     }
 
     // A new token invalidates the old link.
@@ -201,7 +202,7 @@ export async function cancelInvitation(id: string): Promise<{ id: string; status
   const { tenantId, userId } = current();
   return withTenant(tenantId, async (tx) => {
     // Same lock as invite acceptance, so a cancel can never overwrite a just-accepted invite.
-    await repo.lockOfficeSeats(tx, tenantId);
+    await lockPlanUsage(tx, tenantId);
     const existing = await repo.findInvitation(tx, id);
     if (!existing) throw notFound();
     if (existing.status === 'ACCEPTED') throw new Conflict('INVITE_ALREADY_ACCEPTED', 'This invitation has already been accepted');
