@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { permissionsFor } from '../../src/core/auth/permissions.js';
 import { generateOtp, safeEqual } from '../../src/core/utils/crypto.js';
 import { jsonReplacer } from '../../src/core/utils/json.js';
-import { normalizePkPhone } from '../../src/core/utils/phone.js';
+import { normalizePkAnyPhone, normalizePkPhone } from '../../src/core/utils/phone.js';
 import { slugify } from '../../src/core/utils/slug.js';
 
 describe('normalizePkPhone', () => {
@@ -19,6 +19,20 @@ describe('normalizePkPhone', () => {
 
   it.each(['0423456789', '+4420712345678', '0300123456', '030012345678', 'abc', '', '+92421234567'])('rejects %s', (input) => {
     expect(normalizePkPhone(input)).toBeNull();
+  });
+});
+
+describe('normalizePkAnyPhone (office numbers)', () => {
+  it.each([
+    ['042-35761234', '+924235761234'],
+    ['051 1234567', '+92511234567'],
+    ['+92 21 34567890', '+922134567890'],
+    ['0300-1234567', '+923001234567'],
+  ])('%s → %s', (input, expected) => {
+    expect(normalizePkAnyPhone(input)).toBe(expected);
+  });
+  it.each(['35761234', '042-123', 'abc', '+44 20 7123 4567'])('rejects %s', (input) => {
+    expect(normalizePkAnyPhone(input)).toBeNull();
   });
 });
 

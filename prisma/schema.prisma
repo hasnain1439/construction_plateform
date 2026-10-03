@@ -42,7 +42,21 @@ enum UserRole {
 
 enum UserStatus {
   ACTIVE
-  DISABLED
+  INACTIVE
+}
+
+enum AttachmentKind {
+  LOGO
+  PROFILE_PHOTO
+  SITE_PHOTO
+  RECEIPT
+  DOCUMENT
+  VOICE_NOTE
+}
+
+enum HolidayType {
+  NON_WORKING
+  PARTIAL
 }
 
 enum Language {
@@ -170,6 +184,8 @@ model OtpCode {
   createdAt  DateTime   @default(now()) @db.Timestamptz(3)
 
   @@index([phone, purpose, createdAt])
+  /// Hourly send limit counts all purposes for a phone.
+  @@index([phone, createdAt])
 }
 
 // ─── Tenant core ────────────────────────────────────────────────────────────
@@ -180,9 +196,18 @@ model Tenant {
   slug                 String                @unique
   status               TenantStatus          @default(ACTIVE)
   region               Region
-  logoUrl              String?
+  /// National Tax Number, e.g. 1234567-8
+  ntn                  String?
+  address              String?
+  /// E.164 office phone
+  phone                String?
+  email                String?
+  logoAttachmentId     String?               @db.Uuid
   createdAt            DateTime              @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime              @updatedAt @db.Timestamptz(3)
+  /// Same-tenant + kind LOGO is enforced by the company service (RLS lookup). A composite
+  /// (id, logoAttachmentId) FK would stop Prisma generating Tenant.id defaults.
+  logo                 Attachment?           @relation("TenantLogo", fields: [logoAttachmentId], references: [id], onDelete: SetNull)
   settings             TenantSettings?
   subscription         Subscription?
   subscriptionPayments SubscriptionPayment[]
@@ -205,6 +230,16 @@ model TenantSettings {
   timezone          String   @default("Asia/Karachi")
   defaultLanguage   Language @default(ROMAN_URDU)
   weekStartsOn      Int      @default(1)
+  /// Kharcha (site expense) above this needs THEKEDAR approval. Paisa. Default Rs 25,000.
+  kharchaApprovalLimitPaisa BigInt  @default(2500000)
+  /// Alert when material use exceeds the estimate by this percent (1–20).
+  overuseAlertPercent       Int     @default(10)
+  /// Local time (HH:MM, tenant timezone) after which a missing daily site log raises an alert.
+  missingLogAlertTime       String  @default("18:00")
+  quoteValidityDays         Int     @default(15)
+  taxEnabled                Boolean @default(false)
+  /// Default for `canSeeFinancials` on new PM invitations.
+  pmCanSeeFinancials        Boolean @default(false)
   createdAt         DateTime @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime @updatedAt @db.Timestamptz(3)
   tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -263,10 +298,11 @@ model User {
   lockedUntil       DateTime?           @db.Timestamptz(3)
   passwordChangedAt DateTime?           @db.Timestamptz(3)
   lastLoginAt       DateTime?           @db.Timestamptz(3)
+  deactivatedAt     DateTime?           @db.Timestamptz(3)
   createdAt         DateTime            @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime            @updatedAt @db.Timestamptz(3)
   tenant            Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  photo             Attachment?         @relation("UserPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  photo           Attachment?         @relation("UserPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
   projectAccess     UserProjectAccess[]
   devices           Device[]
   sessions          Session[]
@@ -325,6 +361,8 @@ model Invitation {
   invitedById      String?          @db.Uuid
   acceptedUserId   String?          @db.Uuid
   acceptedAt       DateTime?        @db.Timestamptz(3)
+  /// Last time a new link was sent (resend is limited to once per 60 s).
+  lastResentAt     DateTime?        @db.Timestamptz(3)
   createdAt        DateTime         @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
   tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -332,6 +370,7 @@ model Invitation {
   acceptedUser     User?            @relation("InvitationAcceptedUser", fields: [tenantId, acceptedUserId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([tenantId, status])
+  @@index([tenantId, phone, status])
 }
 
 model Device {
@@ -344,6 +383,10 @@ model Device {
   model          String?
   appVersion     String?
   lastActiveAt   DateTime       @default(now()) @db.Timestamptz(3)
+  /// Last successful offline-sync from the mobile app (set by the sync module).
+  lastSyncAt     DateTime?      @db.Timestamptz(3)
+  /// Items queued on the device at last sync.
+  pendingUploads Int            @default(0)
   revokedAt      DateTime?      @db.Timestamptz(3)
   createdAt      DateTime       @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
@@ -378,32 +421,38 @@ model Session {
 
   @@index([tenantId, userId])
   @@index([familyId])
+  @@index([deviceId])
 }
 
 model CompanyHoliday {
-  id        String   @id @default(uuid(7)) @db.Uuid
-  tenantId  String   @db.Uuid
-  date      DateTime @db.Date
+  id        String      @id @default(uuid(7)) @db.Uuid
+  tenantId  String      @db.Uuid
+  startDate DateTime    @db.Date
+  /// null = single day
+  endDate   DateTime?   @db.Date
   name      String
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type      HolidayType @default(NON_WORKING)
+  createdAt DateTime    @default(now()) @db.Timestamptz(3)
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@unique([tenantId, date, name])
+  @@unique([tenantId, startDate, name])
 }
 
 model Attachment {
-  id           String   @id @default(uuid(7)) @db.Uuid
-  tenantId     String   @db.Uuid
+  id           String         @id @default(uuid(7)) @db.Uuid
+  tenantId     String         @db.Uuid
+  kind         AttachmentKind
+  /// tenantId/yyyy/mm/<id>.<ext> inside the storage provider
   storageKey   String
-  url          String
   fileName     String
   mimeType     String
   sizeBytes    Int
-  uploadedById String?  @db.Uuid
-  createdAt    DateTime @default(now()) @db.Timestamptz(3)
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  uploadedBy   User?    @relation("AttachmentUploadedBy", fields: [tenantId, uploadedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
-  userPhotos   User[]   @relation("UserPhoto")
+  uploadedById String?        @db.Uuid
+  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  uploadedBy   User?          @relation("AttachmentUploadedBy", fields: [tenantId, uploadedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  userPhotos   User[]         @relation("UserPhoto")
+  tenantLogos  Tenant[]       @relation("TenantLogo")
 
   @@unique([tenantId, id])
   @@index([tenantId, createdAt])

@@ -37,6 +37,19 @@ const PLANS = [
 
 const DAY = 86_400_000;
 
+/**
+ * Fixed-date national holidays. Islamic holidays (Eid, Ashura, Eid Milad) move with the
+ * moon and are announced each year — platform admins add those per year.
+ */
+const NATIONAL_HOLIDAYS = [
+  ['02-05', 'Kashmir Solidarity Day'],
+  ['03-23', 'Pakistan Day'],
+  ['05-01', 'Labour Day'],
+  ['08-14', 'Independence Day'],
+  ['11-09', 'Iqbal Day'],
+  ['12-25', 'Quaid-e-Azam Day'],
+] as const;
+
 async function upsertTenant(
   db: PrismaClient,
   data: { slug: string; name: string; region: 'PUNJAB_KP' | 'KARACHI_SINDH'; planId: string },
@@ -119,8 +132,21 @@ export async function seed(db: PrismaClient = prismaAdmin) {
     plans[plan.code] = await db.plan.upsert({ where: { code: plan.code }, create: plan, update: plan });
   }
 
+  // Platform holidays for this year and next
+  const year = new Date().getUTCFullYear();
+  for (const y of [year, year + 1]) {
+    for (const [monthDay, name] of NATIONAL_HOLIDAYS) {
+      const date = new Date(`${y}-${monthDay}T00:00:00.000Z`);
+      await db.platformHoliday.upsert({ where: { date_name: { date, name } }, create: { date, name }, update: {} });
+    }
+  }
+
   // Malik & Sons Builders (Professional)
   const malik = await upsertTenant(db, { slug: SEED.malik.slug, name: SEED.malik.name, region: 'PUNJAB_KP', planId: plans['PROFESSIONAL']!.id });
+  await db.tenant.update({
+    where: { id: malik.id },
+    data: { ntn: '1234567-8', address: 'Office 12, MM Alam Road, Gulberg III, Lahore', phone: '+924235761234', email: 'info@maliksons.pk' },
+  });
   const dha = await ensureProject(db, malik.id, 'DHA Phase 6 — 1 Kanal Villa');
   const bahria = await ensureProject(db, malik.id, 'Bahria Town — Commercial Plaza');
   const khalid = await upsertUser(db, { tenantId: malik.id, ...SEED.malik.owner, role: 'THEKEDAR' });

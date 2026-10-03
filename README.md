@@ -80,7 +80,7 @@ login ─► session A (family F) ──refresh──► session B (F) ──ref
 - Presenting a token that was already rotated away means it was copied → **every session in the family is revoked**, `auth.refresh_reuse_detected` is audited, and the API answers `401 REFRESH_TOKEN_REUSED`. Both the attacker and the real user must log in again.
 - Refresh also fails for an expired/unknown token (`REFRESH_INVALID`), a revoked device (`DEVICE_REVOKED`), a disabled user, or a suspended company (`403 COMPANY_SUSPENDED`).
 - Clients should run one refresh at a time (queue concurrent 401s behind a single refresh), otherwise the second refresh looks like reuse.
-- Logging out revokes the session. Access tokens are stateless and stay valid until they expire (max 15 min).
+- Every company request re-checks the login behind the access token (`tenantContext`, one indexed query): the user must be ACTIVE, the device not revoked, and the session family still alive. So logout, logout-all, password change/reset, deactivation, device revoke and refresh-token reuse cut access **immediately** (`401 SESSION_REVOKED` / `ACCOUNT_DISABLED` / `DEVICE_REVOKED`). A normal refresh keeps the family alive, so the previous access token keeps working until it expires. Role and financial-permission changes reach the token at the next refresh (≤ 15 min).
 
 ### Sign-in flows
 
@@ -154,6 +154,86 @@ All under `/api/v1`, documented with examples at **`/api/docs`** (raw spec: `/ap
 ### Audit log
 
 `tenant.signup`, `auth.login`, `auth.login_failed`, `auth.otp_verified`, `auth.refresh_reuse_detected`, `auth.logout`, `auth.logout_all`, `auth.password_reset`, `auth.password_changed`, `invite.accept`, `admin.login` — with IP, user agent and request id; never passwords, tokens or codes.
+
+---
+
+## Attachments
+
+`src/modules/attachments` — files for every other module (logos, profile photos, site photos, receipts, documents, voice notes).
+
+- `POST /api/v1/attachments` — multipart `file` + `kind`, max **10 MB**, any company role. Allowed per kind:
+
+  | kind | types |
+  |---|---|
+  | `LOGO`, `PROFILE_PHOTO`, `SITE_PHOTO` | JPEG, PNG, WebP |
+  | `RECEIPT`, `DOCUMENT` | JPEG, PNG, WebP, PDF |
+  | `VOICE_NOTE` | MP3, M4A (audio/mp4), OGG |
+
+  The first bytes of the file are checked against the declared type (a renamed HTML file is rejected).
+- Stored at `tenantId/yyyy/mm/<attachmentId>.<ext>` through a `StorageProvider` (`put`, `getSignedUrl`, `delete`, `open`). `STORAGE_PROVIDER=local` writes to `STORAGE_DIR` (default `./storage`, git-ignored); an S3/R2 provider can replace it without touching callers.
+- The database never stores URLs. Responses carry a **signed URL** valid `SIGNED_URL_TTL_SECONDS` (default 900): `/api/v1/attachments/:id/file?tid=&exp=&sig=` where `sig = HMAC-SHA256(JWT_REFRESH_PEPPER, id:tid:exp)`. The link needs no login, works only for that file and company, and answers `403 INVALID_SIGNATURE` / `403 LINK_EXPIRED` when edited or old. Set `API_PUBLIC_URL` so the absolute URLs point at the public API host.
+- `GET /api/v1/attachments/:id` returns metadata + a fresh URL (RLS: other companies get 404).
+
+Other modules call `signedUrlFor()` / `optionalSignedUrl()` from `attachments.service.ts` (company logo, user photo in `/auth/me`).
+
+## Company
+
+`src/modules/company` — mounted at `/api/v1/company`.
+
+| Endpoint | Who | Notes |
+|---|---|---|
+| `GET /company` | THEKEDAR, PM | Profile incl. signed `logoUrl` |
+| `PATCH /company` | THEKEDAR | name 3–100, NTN `1234567-8`, logo (attachment of kind LOGO in this company, else 404), address, phone (mobile or landline → E.164), email, region, marlaStandard 225 / 272.25. Audit `company.update` stores changed field **names** only. |
+| `GET /company/settings` · `PATCH` | THEKEDAR | `kharchaApprovalLimitPaisa` (paisa as string), `overuseAlertPercent` 1–20, `missingLogAlertTime` HH:MM, `quoteValidityDays` 1–90, `taxEnabled`, `pmCanSeeFinancials` (default for new PM invites), `defaultLanguage`. Audit `settings.update` with before/after. |
+| `GET /company/holidays` | everyone | `year` or `from`+`to`. Platform holidays (nationwide or the company's region, `editable: false`) merged with company holidays, sorted. |
+| `POST /company/holidays` · `DELETE /:id` | THEKEDAR | name, startDate (not in the past, company time zone), endDate ≥ startDate, type `NON_WORKING` / `PARTIAL`. Platform holidays can't be deleted (404). |
+
+The seed adds the fixed-date national holidays (Kashmir Day, Pakistan Day, Labour Day, Independence Day, Iqbal Day, Quaid Day) for this year and next. Lunar holidays (Eids, Ashura) must be added per year by platform admins.
+
+## Team
+
+`src/modules/team` — users, invitations and devices.
+
+**Users** (`/api/v1/users`)
+- `GET /users` (THEKEDAR, PM): `search`, `role`, `status`, `projectId`, `page`, `limit` (25, max 100). `meta.usage = { officeUsers, maxOfficeUsers }` — office users are active THEKEDAR + PM; Munshis are free. PMs don't see `canSeeFinancials`.
+- `GET /users/:id`, `PATCH /users/:id` (THEKEDAR): role only PM ↔ MUNSHI; nobody changes their own role (`CANNOT_CHANGE_OWN_ROLE`) or an owner's (`CANNOT_CHANGE_OWNER_ROLE`); `canSeeFinancials` only for PMs; MUNSHI → PM needs a free seat (`402`); duplicate phone `409 PHONE_TAKEN`. New role/permissions reach the user's token at their next refresh (`/auth/refresh` always recomputes from the database).
+- `DELETE /users/:id` = soft deactivate: status `INACTIVE`, all sessions and devices revoked. Not yourself (`CANNOT_DEACTIVATE_SELF`), never the last active THEKEDAR (`LAST_THEKEDAR`). `assertNoOpenCashBalance()` is the hook for the cash module (TODO → `409 CASH_BALANCE_OPEN`).
+- `POST /users/:id/reactivate` (PM re-checks the seat limit), `PUT /users/:id/projects` replaces the project list in one transaction (`400 INVALID_PROJECT` for ids outside the company, `400 THEKEDAR_HAS_ALL_PROJECTS`).
+
+**Invitations** (`/api/v1/invitations`, THEKEDAR; the public accept route stays in Auth)
+- `POST` sends a Roman Urdu SMS — *"Malik & Sons Builders ne aap ko Project Manager ke taur par invite kiya hai: <APP_URL>/invite/<token>"*. The token is random, stored only as a hash, valid 7 days. `409 ALREADY_MEMBER`, `409 INVITE_PENDING`; PM invites count **pending PM invites** against the seat limit. Non-production responses include `devInviteUrl`.
+- `GET` (status default PENDING; overdue ones are flipped to EXPIRED on read), `POST /:id/resend` (PENDING/EXPIRED, new link, once per 60 s → `429 INVITE_RESEND_WAIT`), `DELETE /:id` (cancel; accepting then gives `410 INVITE_CANCELLED`).
+
+**Devices** (`/api/v1/devices`, THEKEDAR)
+- `GET` lists devices with user, `lastSyncAt`, `pendingUploads` (filled by the future sync module) and `current`.
+- `DELETE /:id` revokes the device and its sessions — its refresh then fails with `401 DEVICE_REVOKED` until the user logs in again. Your own current device → `400 CANNOT_REVOKE_CURRENT_DEVICE`.
+
+Audit actions added: `attachment.upload`, `company.update`, `settings.update`, `holiday.create`, `holiday.delete`, `user.update`, `user.deactivate`, `user.reactivate`, `user.projects_update`, `invite.create`, `invite.resend`, `invite.cancel`, `device.revoke`.
+
+## Error codes
+
+| HTTP | Codes |
+|---|---|
+| 400 | `VALIDATION_ERROR`, `INVALID_JSON`, `USE_OTP_LOGIN`, `OTP_INVALID`, `CURRENT_PASSWORD_WRONG`, `FILE_REQUIRED`, `FILE_TOO_LARGE`, `INVALID_FILE_TYPE`, `INVALID_UPLOAD`, `HOLIDAY_IN_PAST`, `FINANCIALS_PM_ONLY`, `INVALID_PROJECT`, `THEKEDAR_HAS_ALL_PROJECTS`, `CANNOT_REVOKE_CURRENT_DEVICE` |
+| 401 | `UNAUTHENTICATED`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `SESSION_REVOKED`, `ACCOUNT_DISABLED`, `INVALID_CREDENTIALS`, `REFRESH_INVALID`, `REFRESH_TOKEN_REUSED`, `DEVICE_REVOKED` |
+| 402 | `PLAN_LIMIT_REACHED` |
+| 403 | `FORBIDDEN`, `COMPANY_SUSPENDED`, `ACCOUNT_READ_ONLY`, `INVALID_SIGNATURE`, `LINK_EXPIRED`, `CANNOT_CHANGE_OWN_ROLE`, `CANNOT_CHANGE_OWNER_ROLE`, `CANNOT_DEACTIVATE_SELF`, `LAST_THEKEDAR` |
+| 404 | `ROUTE_NOT_FOUND`, `NOT_FOUND`, `PHONE_NOT_REGISTERED`, `INVITE_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `HOLIDAY_NOT_FOUND`, `USER_NOT_FOUND`, `DEVICE_NOT_FOUND`, `COMPANY_NOT_FOUND` |
+| 409 | `ALREADY_EXISTS`, `PHONE_TAKEN`, `EMAIL_TAKEN`, `MULTIPLE_COMPANIES`, `INVITE_ALREADY_ACCEPTED`, `INVITE_CANCELLED`, `INVITE_PENDING`, `ALREADY_MEMBER`, `HOLIDAY_EXISTS`, `USER_ALREADY_ACTIVE`, `CASH_BALANCE_OPEN` (future) |
+| 410 | `OTP_EXPIRED`, `INVITE_EXPIRED`, `INVITE_CANCELLED` |
+| 423 | `ACCOUNT_LOCKED` |
+| 429 | `RATE_LIMITED`, `OTP_RESEND_WAIT`, `OTP_LIMIT_REACHED`, `OTP_TOO_MANY_ATTEMPTS`, `INVITE_RESEND_WAIT` |
+
+## Migrations
+
+| Migration | What |
+|---|---|
+| `20261002192308_init_core_auth` | Core tenant schema, RLS policies, role grants |
+| `20261003120000_company_team` | Attachment `kind` (url dropped — URLs are signed on demand), company profile fields, settings rules, holiday ranges/types, `User.deactivatedAt`, `UserStatus DISABLED → INACTIVE`, `Invitation.lastResentAt` + `(tenantId, phone, status)` index, device sync fields |
+| `20261003130000_tenant_logo_fk` | Logo FK → `Attachment.id` (same-tenant enforced in the service) |
+| `20261003140000_auth_indexes` | `Session(deviceId)` for device revocation, `OtpCode(phone, createdAt)` for the hourly OTP limit |
+
+Prisma's `migrate dev` refuses to run non-interactively when a change has warnings (enum value removed). Generate SQL with `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, hand-edit renames (e.g. `ALTER TYPE … RENAME VALUE`, `RENAME COLUMN`) so data is kept, save it as a new migration folder and run `npx prisma migrate deploy`.
 
 ## Tests
 

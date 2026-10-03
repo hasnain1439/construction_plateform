@@ -108,3 +108,34 @@ export async function ageOtps(phone: string, seconds = 120) {
 }
 
 export const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+/** Munshi Rafaqat signs in with an SMS code for the given company (mobile tokens). */
+export async function loginMunshi(tenantId: string): Promise<MobileSession> {
+  const phone = SEED.malik.munshi.phone;
+  await ageOtps(phone, 120);
+  const req = await api().post('/api/v1/auth/otp/request').send({ phone });
+  if (req.status !== 200) throw new Error(`otp request failed: ${req.status} ${JSON.stringify(req.body)}`);
+  const dev = device();
+  const res = await api()
+    .post('/api/v1/auth/otp/verify')
+    .send({ phone, code: lastOtp(phone), tenantId, client: 'mobile', device: dev });
+  if (res.status !== 200) throw new Error(`otp verify failed: ${res.status} ${JSON.stringify(res.body)}`);
+  return { accessToken: res.body.data.accessToken, refreshToken: res.body.data.refreshToken, body: res.body, deviceId: dev.deviceId };
+}
+
+/** Bytes that pass the PNG signature check (content beyond the header is irrelevant here). */
+export function pngBytes(size = 512): Buffer {
+  const buf = Buffer.alloc(size, 7);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buf);
+  return buf;
+}
+
+export function upload(token: string, kind: string, file: Buffer, filename = 'logo.png', contentType = 'image/png') {
+  return api().post('/api/v1/attachments').set(bearer(token)).field('kind', kind).attach('file', file, { filename, contentType });
+}
+
+/** Relative path + query of an absolute signed URL, for supertest. */
+export const pathOf = (url: string) => {
+  const u = new URL(url);
+  return `${u.pathname}${u.search}`;
+};

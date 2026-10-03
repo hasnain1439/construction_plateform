@@ -157,7 +157,7 @@ const cookiesNote =
   '**Web** (`client: "web"`): sets httpOnly `access_token` + `refresh_token` cookies; tokens are not in the body. ' +
   '**Mobile** (`client: "mobile"`): returns `accessToken` + `refreshToken` in the body.';
 
-const AUTH_401 = { 401: ['UNAUTHENTICATED', 'TOKEN_INVALID', 'TOKEN_EXPIRED'] };
+const AUTH_401 = { 401: ['UNAUTHENTICATED', 'TOKEN_INVALID', 'TOKEN_EXPIRED', 'SESSION_REVOKED', 'ACCOUNT_DISABLED', 'DEVICE_REVOKED'] };
 
 export function registerAuthDocs(): void {
   registry.registerPath({

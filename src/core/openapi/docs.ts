@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import swaggerUi from 'swagger-ui-express';
+import { registerAttachmentsDocs } from '../../modules/attachments/attachments.docs.js';
 import { registerAuthDocs } from '../../modules/auth/auth.docs.js';
+import { registerCompanyDocs } from '../../modules/company/company.docs.js';
 import { registerHealthDocs } from '../../modules/health/health.routes.js';
+import { registerTeamDocs } from '../../modules/team/team.docs.js';
 import { buildOpenApiDocument } from './registry.js';
 import { swaggerCss, swaggerFavicon } from './theme.js';
 
@@ -12,6 +15,9 @@ export function openApiDocument() {
   if (!document) {
     registerHealthDocs();
     registerAuthDocs();
+    registerCompanyDocs();
+    registerTeamDocs();
+    registerAttachmentsDocs();
     document = buildOpenApiDocument();
   }
   return document;

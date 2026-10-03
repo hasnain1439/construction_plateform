@@ -12,9 +12,17 @@ import {
   signupBody,
   updateMeBody,
 } from '../src/modules/auth/auth.schema.js';
+import { updateCompanyBody, updateSettingsBody, createHolidayBody } from '../src/modules/company/company.schema.js';
+import { createInvitationBody, setUserProjectsBody, updateUserBody } from '../src/modules/team/team.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
+  'patch /api/v1/company': updateCompanyBody,
+  'patch /api/v1/company/settings': updateSettingsBody,
+  'post /api/v1/company/holidays': createHolidayBody,
+  'patch /api/v1/users/{id}': updateUserBody,
+  'put /api/v1/users/{id}/projects': setUserProjectsBody,
+  'post /api/v1/invitations': createInvitationBody,
   'post /api/v1/auth/signup': signupBody,
   'post /api/v1/auth/login': loginBody,
   'post /api/v1/auth/otp/request': otpRequestBody,
@@ -40,8 +48,15 @@ describe('API docs', () => {
     expect(res.body.info.description).toContain('Getting started');
     expect(res.body.info.description).toContain('Common error codes');
     expect(res.body.info.description).toContain('What to do');
-    expect(res.body.tags.map((t: { name: string }) => t.name)).toEqual(['Health', 'Auth', 'Platform admin auth']);
-    expect(Object.keys(res.body.paths)).toHaveLength(17);
+    expect(res.body.tags.map((t: { name: string }) => t.name)).toEqual([
+      'Health',
+      'Auth',
+      'Company',
+      'Team',
+      'Attachments',
+      'Platform admin auth',
+    ]);
+    expect(Object.keys(res.body.paths)).toHaveLength(33);
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 
@@ -49,7 +64,7 @@ describe('API docs', () => {
     const spec = (await api().get('/api/docs.json')).body as Spec;
     const withBody = Object.entries(spec.paths).flatMap(([path, ops]) =>
       Object.entries(ops)
-        .filter(([, op]) => op.requestBody)
+        .filter(([, op]) => op.requestBody?.content['application/json'])
         .map(([method, op]) => ({ key: `${method} ${path}`, examples: op.requestBody!.content['application/json']?.examples })),
     );
     expect(withBody.map((b) => b.key).sort()).toEqual(Object.keys(BODY_SCHEMAS).sort());
@@ -57,6 +72,8 @@ describe('API docs', () => {
     for (const { key, examples } of withBody) {
       expect(examples, `${key} has no examples`).toBeDefined();
       for (const [name, example] of Object.entries(examples!)) {
+        // "❌ … → 400" examples demonstrate validation errors on purpose.
+        if ((example as { summary?: string }).summary?.includes('→ 400')) continue;
         const parsed = BODY_SCHEMAS[key]!.safeParse(example.value);
         expect(parsed.success, `${key} example "${name}": ${parsed.success ? '' : JSON.stringify(parsed.error.issues)}`).toBe(true);
       }

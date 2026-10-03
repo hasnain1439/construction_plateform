@@ -5,6 +5,7 @@ import { authRateLimit } from '../../core/middleware/rateLimit.js';
 import { requirePlatformAdmin } from '../../core/middleware/requirePlatformAdmin.js';
 import { tenantContext } from '../../core/middleware/tenantContext.js';
 import { validate } from '../../core/middleware/validate.js';
+import { assertAdminSessionActive } from './admin.service.js';
 import * as c from './auth.controller.js';
 import {
   acceptInvitationBody,
@@ -56,5 +57,11 @@ export const adminAuthRouter = Router();
 
 adminAuthRouter.post('/login', authRateLimit, validate({ body: adminLoginBody }), h(c.adminLogin));
 adminAuthRouter.post('/refresh', validate({ body: refreshBody }), h(c.adminRefresh));
+/** Platform admin with a live session (future platform-admin routes should use this too). */
+export const requireActivePlatformAdmin = [...requirePlatformAdmin, h(async (_req, _res, next) => {
+  await assertAdminSessionActive();
+  next();
+})];
+
 adminAuthRouter.post('/logout', ...requirePlatformAdmin, h(c.adminLogout));
-adminAuthRouter.get('/me', ...requirePlatformAdmin, h(c.adminMe));
+adminAuthRouter.get('/me', ...requireActivePlatformAdmin, h(c.adminMe));

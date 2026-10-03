@@ -3,6 +3,7 @@
  * `platform`-audience tokens and their own session table; they are never company users.
  */
 import bcrypt from 'bcryptjs';
+import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import { writeAudit } from '../../core/audit/audit.js';
 import { getCtx } from '../../core/context/requestContext.js';
@@ -21,7 +22,7 @@ import {
   type IssuedTokens,
 } from './token.service.js';
 
-const DUMMY_HASH = bcrypt.hashSync('timing-equaliser-not-a-password', 10);
+const DUMMY_HASH = bcrypt.hashSync('timing-equaliser-not-a-password', env.BCRYPT_ROUNDS);
 const invalidCredentials = () => new Unauthorized('INVALID_CREDENTIALS', 'Incorrect email or password');
 
 function toAdminDto(admin: { id: string; email: string; name: string; lastLoginAt: Date | null }): PlatformAdminDto {
@@ -133,6 +134,24 @@ export async function adminRefresh(refreshToken: string | undefined): Promise<{ 
       refreshToken: next.token,
     },
   };
+}
+
+/**
+ * Platform-admin counterpart of the company session check: the admin is active and the
+ * token's session family is still alive (so logout ends access immediately).
+ */
+export async function assertAdminSessionActive(): Promise<void> {
+  const ctx = getCtx();
+  const session = await prismaAdmin.platformAdminSession.findUnique({
+    where: { id: ctx.sessionId! },
+    select: { familyId: true, admin: { select: { isActive: true } } },
+  });
+  const alive =
+    session?.admin.isActive &&
+    (await prismaAdmin.platformAdminSession.count({
+      where: { familyId: session.familyId, revokedAt: null, expiresAt: { gt: new Date() } },
+    })) > 0;
+  if (!alive) throw new Unauthorized('SESSION_REVOKED', 'You have been signed out. Please log in again.');
 }
 
 export async function adminLogout(): Promise<void> {

@@ -25,6 +25,13 @@ const envSchema = z.object({
 
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
   COOKIE_DOMAIN: z.string().optional(),
+  /** Base URL clients use to reach this API (absolute signed file URLs). */
+  API_PUBLIC_URL: z.url().optional(),
+  STORAGE_PROVIDER: z.enum(['local']).default('local'),
+  /** Folder for the local storage provider. */
+  STORAGE_DIR: z.string().default('./storage'),
+  /** Lifetime of signed attachment URLs. */
+  SIGNED_URL_TTL_SECONDS: z.coerce.number().int().min(30).max(86_400).default(900),
   SMS_PROVIDER: z.enum(['console']).default('console'),
   MAIL_PROVIDER: z.enum(['console']).default('console'),
   ENABLE_DOCS: booleanish.optional(),
@@ -74,3 +81,4 @@ export function durationToSeconds(value: string): number {
 }
 
 export const accessTokenTtlSeconds = durationToSeconds(env.ACCESS_TOKEN_TTL);
+export const apiPublicUrl = (env.API_PUBLIC_URL ?? `http://localhost:${env.PORT}`).replace(/\/+$/, '');
