@@ -26,6 +26,10 @@ const ADMIN_ROUTES: Array<[string, string]> = [
   ['PATCH', `/api/v1/admin/holidays/${someId}`],
   ['DELETE', `/api/v1/admin/holidays/${someId}`],
   ['GET', '/api/v1/admin/audit-logs'],
+  ['GET', '/api/v1/admin/material-groups'],
+  ['GET', '/api/v1/admin/materials'],
+  ['POST', '/api/v1/admin/materials'],
+  ['PATCH', `/api/v1/admin/materials/${someId}`],
 ];
 
 const send = (method: string, path: string, token?: string) => {

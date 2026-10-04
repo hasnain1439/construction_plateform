@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { created, ok } from '../../core/http/response.js';
 import * as catalog from './catalog.service.js';
+import * as materials from './materials.service.js';
 import * as overview from './overview.service.js';
 import * as payments from './payments.service.js';
 import type {
@@ -17,6 +18,9 @@ import type {
   TenantsQuery,
   UpdateHolidayInput,
   UpdatePlanInput,
+  CatalogMaterialsQuery,
+  CreateCatalogMaterialInput,
+  UpdateCatalogMaterialInput,
 } from './platformAdmin.schema.js';
 import * as tenants from './tenants.service.js';
 
@@ -57,3 +61,10 @@ export async function listAuditLogs(req: Request, res: Response) {
   const { data, meta } = await catalog.listAuditLogs(query<AuditQuery>(req));
   return ok(res, data, meta);
 }
+
+export const listMaterialGroups = async (_req: Request, res: Response) => ok(res, await materials.listGroups());
+export const listCatalogMaterials = async (req: Request, res: Response) => ok(res, await materials.listMaterials(query<CatalogMaterialsQuery>(req)));
+export const createCatalogMaterial = async (req: Request, res: Response) =>
+  created(res, await materials.createMaterial(req.body as CreateCatalogMaterialInput));
+export const updateCatalogMaterial = async (req: Request, res: Response) =>
+  ok(res, await materials.updateMaterial(id(req), req.body as UpdateCatalogMaterialInput));

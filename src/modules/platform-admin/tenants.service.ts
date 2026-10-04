@@ -3,12 +3,13 @@ import { Prisma, prismaAdmin } from '../../core/db/prisma.js';
 import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { invalidateTenantStatus } from '../../core/middleware/tenantContext.js';
-import { getLimits, getUsage } from '../../core/plan/planLimits.js';
+import { getLimits, getUsage, PLAN_COUNTED_PROJECT_STATUSES } from '../../core/plan/planLimits.js';
 import { hashSecret, randomToken } from '../../core/utils/crypto.js';
 import { dateOnly, formatDateOnly, todayIn } from '../../core/utils/dates.js';
 import { slugify } from '../../core/utils/slug.js';
 import type { Plan, TenantStatus } from '../../generated/prisma/client.js';
 import { smsProvider } from '../auth/sms.provider.js';
+import { provisionMasterData } from '../master-data/provision.js';
 import { assertPlanFits, parkProjectsOverLimit } from '../subscription/subscription.rules.js';
 import { syncTenantStatus, tenantStatusFor } from '../subscription/subscription.status.js';
 import { adminId, auditAdmin, nextReceiptNo } from './platformAdmin.shared.js';
@@ -66,7 +67,7 @@ export async function listTenants(query: TenantsQuery) {
 
   // Usage for the whole page in three grouped queries (not N+1).
   const ids = rows.map((r) => r.id);
-  const projects = await prismaAdmin.project.groupBy({ by: ['tenantId'], where: { tenantId: { in: ids }, status: 'ACTIVE' }, _count: { _all: true } });
+  const projects = await prismaAdmin.project.groupBy({ by: ['tenantId'], where: { tenantId: { in: ids }, status: { in: [...PLAN_COUNTED_PROJECT_STATUSES] } }, _count: { _all: true } });
   const office = await prismaAdmin.user.groupBy({
     by: ['tenantId'],
     where: { tenantId: { in: ids }, status: 'ACTIVE', role: { in: ['THEKEDAR', 'PM'] } },
@@ -288,6 +289,8 @@ export async function createTenant(input: CreateTenantInput) {
           },
         });
       }
+
+      await provisionMasterData(tx, tenant.id);
 
       const invitation = await tx.invitation.create({
         data: {

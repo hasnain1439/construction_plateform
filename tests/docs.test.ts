@@ -16,6 +16,9 @@ import { updateCompanyBody, updateSettingsBody, createHolidayBody } from '../src
 import { createInvitationBody, setUserProjectsBody, updateUserBody } from '../src/modules/team/team.schema.js';
 import { changePlanBody, submitPaymentBody } from '../src/modules/subscription/subscription.schema.js';
 import * as admin from '../src/modules/platform-admin/platformAdmin.schema.js';
+import * as md from '../src/modules/master-data/master-data.schema.js';
+import * as cl from '../src/modules/clients/clients.schema.js';
+import * as pr from '../src/modules/projects/projects.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
@@ -47,6 +50,39 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/invitations/{token}/accept': acceptInvitationBody,
   'post /api/v1/admin/auth/login': adminLoginBody,
   'post /api/v1/admin/auth/refresh': refreshBody,
+  'post /api/v1/admin/materials': admin.createCatalogMaterialBody,
+  'patch /api/v1/admin/materials/{id}': admin.updateCatalogMaterialBody,
+  'post /api/v1/materials': md.createMaterialBody,
+  'patch /api/v1/materials/{id}': md.updateMaterialBody,
+  'post /api/v1/quality-categories': md.createCategoryBody,
+  'patch /api/v1/quality-categories/{id}': md.updateCategoryBody,
+  'post /api/v1/quality-categories/{id}/duplicate': md.duplicateCategoryBody,
+  'put /api/v1/price-list': md.setPriceListBody,
+  'post /api/v1/price-list/bulk-percent': md.bulkPercentBody,
+  'put /api/v1/labor-rates': md.setLaborRatesBody,
+  'post /api/v1/payment-templates': md.createTemplateBody,
+  'patch /api/v1/payment-templates/{id}': md.updateTemplateBody,
+  'post /api/v1/suppliers': md.createSupplierBody,
+  'patch /api/v1/suppliers/{id}': md.updateSupplierBody,
+  'put /api/v1/suppliers/{id}/rates': md.setSupplierRatesBody,
+  'post /api/v1/workers': md.createWorkerBody,
+  'patch /api/v1/workers/{id}': md.updateWorkerBody,
+  'post /api/v1/subcontractors': md.createSubcontractorBody,
+  'patch /api/v1/subcontractors/{id}': md.updateSubcontractorBody,
+  'post /api/v1/clients': cl.createClientBody,
+  'patch /api/v1/clients/{id}': cl.updateClientBody,
+  'post /api/v1/projects': pr.createProjectBody,
+  'patch /api/v1/projects/{id}/basic': pr.updateBasicBody,
+  'put /api/v1/projects/{id}/team': pr.setTeamBody,
+  'patch /api/v1/projects/{id}/contract': pr.updateContractBody,
+  'patch /api/v1/projects/{id}/plot-structure': pr.updatePlotStructureBody,
+  'patch /api/v1/projects/{id}/coverage': pr.updateCoverageBody,
+  'patch /api/v1/projects/{id}/status': pr.changeStatusBody,
+  'post /api/v1/floors/{id}/rooms': pr.createRoomBody,
+  'post /api/v1/floors/{id}/copy': pr.copyFloorBody,
+  'patch /api/v1/rooms/{id}': pr.updateRoomBody,
+  'post /api/v1/rooms/{id}/openings': pr.openingInputSchema,
+  'patch /api/v1/openings/{id}': pr.updateOpeningBody,
 };
 
 type Spec = {
@@ -68,10 +104,21 @@ describe('API docs', () => {
       'Team',
       'Subscription',
       'Attachments',
+      'Materials',
+      'Price List',
+      'Labor Rates',
+      'Payment Templates',
+      'Suppliers',
+      'Workers',
+      'Sub-contractors',
+      'Clients',
+      'Projects',
+      'Project Wizard',
+      'Floors & Rooms',
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(52);
+    expect(Object.keys(res.body.paths)).toHaveLength(102);
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

@@ -6,6 +6,9 @@ import { assertAdminSessionActive } from '../auth/admin.service.js';
 import * as c from './platformAdmin.controller.js';
 import {
   approvePaymentBody,
+  catalogMaterialsQuery,
+  createCatalogMaterialBody,
+  updateCatalogMaterialBody,
   auditQuery,
   createHolidayBody,
   createPlanBody,
@@ -60,3 +63,8 @@ platformAdminRouter.patch('/holidays/:id', validate({ params: idParams, body: up
 platformAdminRouter.delete('/holidays/:id', validate({ params: idParams }), h(c.deleteHoliday));
 
 platformAdminRouter.get('/audit-logs', validate({ query: auditQuery }), h(c.listAuditLogs));
+
+platformAdminRouter.get('/material-groups', h(c.listMaterialGroups));
+platformAdminRouter.get('/materials', validate({ query: catalogMaterialsQuery }), h(c.listCatalogMaterials));
+platformAdminRouter.post('/materials', validate({ body: createCatalogMaterialBody }), h(c.createCatalogMaterial));
+platformAdminRouter.patch('/materials/:id', validate({ params: idParams, body: updateCatalogMaterialBody }), h(c.updateCatalogMaterial));

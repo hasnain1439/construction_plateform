@@ -26,7 +26,8 @@ describe('GET /auth/me', () => {
     expect(res.body.data.permissions).toContain('projects.manage');
     expect(res.body.data.permissions).not.toContain('profit.view');
     expect(res.body.data.permissions).not.toContain('billing.view');
-    expect(res.body.data.assignedProjectIds.sort()).toEqual([seeded().projects.dha.id, seeded().projects.bahria.id].sort());
+    const { dha, johar, valencia } = seeded().projects;
+    expect(res.body.data.assignedProjectIds.sort()).toEqual([dha.id, johar.id, valencia.id].sort());
   });
 
   it('PM with canSeeFinancials gets billing.view and profit.view', async () => {

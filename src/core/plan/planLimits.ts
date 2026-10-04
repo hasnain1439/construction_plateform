@@ -1,10 +1,12 @@
 import type { Tx } from '../db/withTenant.js';
+import type { ProjectStatus } from '../../generated/prisma/enums.js';
 import { PlanLimit } from '../errors/AppError.js';
 
 /**
  * Plan limits shared by every module that creates something the plan counts.
  *
- *   activeProjects – projects with status ACTIVE
+ *   activeProjects – projects with status ACTIVE or CLOSEOUT (DRAFT, handed-over, closed
+ *                    and READ_ONLY projects are free)
  *   officeUsers    – active THEKEDAR + PM, plus pending (unexpired) PM invitations,
  *                    which reserve a seat. MUNSHI users and invites never count.
  *
@@ -13,6 +15,9 @@ import { PlanLimit } from '../errors/AppError.js';
  * should hold `lockPlanUsage` for the same transaction.
  */
 export type LimitedResource = 'activeProjects' | 'officeUsers';
+
+/** Project statuses that count against `maxActiveProjects`. */
+export const PLAN_COUNTED_PROJECT_STATUSES = ['ACTIVE', 'CLOSEOUT'] as const satisfies ProjectStatus[];
 
 export interface Usage {
   activeProjects: number;
@@ -39,7 +44,7 @@ async function pendingPmInvites(tx: Tx, tenantId: string, now: Date): Promise<nu
 }
 
 export async function getUsage(tx: Tx, tenantId: string, now = new Date()): Promise<Usage> {
-  const activeProjects = await tx.project.count({ where: { tenantId, status: 'ACTIVE' } });
+  const activeProjects = await tx.project.count({ where: { tenantId, status: { in: [...PLAN_COUNTED_PROJECT_STATUSES] } } });
   const officeUsers = (await activeOfficeUsers(tx, tenantId)) + (await pendingPmInvites(tx, tenantId, now));
   return { activeProjects, officeUsers };
 }

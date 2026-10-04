@@ -3,7 +3,7 @@ import { prismaAdmin } from '../../src/core/db/prisma.js';
 import { todayIn } from '../../src/core/utils/dates.js';
 import { runSubscriptionLifecycle } from '../../src/jobs/subscriptionLifecycle.js';
 import { lastSmsTo } from '../../src/modules/auth/sms.provider.js';
-import { api, bearer, device, expectedReceipt, loginAdmin, loginMobile, SEED, useFreshDatabase } from '../helpers.js';
+import { api, bearer, device, expectedReceipt, loginAdmin, loginMobile, SEED, useFreshDatabase, projectRow } from '../helpers.js';
 
 const seeded = useFreshDatabase();
 const DAY = 86_400_000;
@@ -37,7 +37,7 @@ describe('GET /admin/tenants', () => {
       plan: { code: 'PROFESSIONAL' },
       subscriptionStatus: 'ACTIVE',
       tenantStatus: 'ACTIVE',
-      usage: { activeProjects: { used: 2, limit: 5 }, officeUsers: { used: 3, limit: 10 } },
+      usage: { activeProjects: { used: 3, limit: 5 }, officeUsers: { used: 3, limit: 10 } },
     });
   });
 
@@ -205,14 +205,19 @@ describe('PATCH /admin/tenants/:id/plan', () => {
   const plan = async (id: string, body: Record<string, unknown>) => api().patch(`/api/v1/admin/tenants/${id}/plan`).set(await admin()).send(body);
 
   it('IMMEDIATE switches now; NEXT_RENEWAL schedules for the period end', async () => {
-    const { malik, plans } = seeded();
+    const { malik, plans, projects } = seeded();
     const later = await plan(malik.id, { planId: plans.ENTERPRISE.id, effective: 'NEXT_RENEWAL' });
     expect(later.status).toBe(200);
     const sub = await prismaAdmin.subscription.findUniqueOrThrow({ where: { tenantId: malik.id } });
     expect(sub.pendingPlanId).toBe(plans.ENTERPRISE.id);
     expect(later.body.data.pendingPlan.effectiveOn).toBe(sub.currentPeriodEnd!.toISOString());
 
-    const now = await plan(malik.id, { planId: plans.STARTER.id, effective: 'IMMEDIATE', note: 'Owner asked by phone' });
+    const now = await plan(malik.id, {
+      planId: plans.STARTER.id,
+      effective: 'IMMEDIATE',
+      note: 'Owner asked by phone',
+      keepActiveProjectIds: [projects.dha.id, projects.johar.id],
+    });
     expect(now.status).toBe(200);
     const after = await prismaAdmin.subscription.findUniqueOrThrow({ where: { tenantId: malik.id }, include: { plan: true } });
     expect(after.plan.code).toBe('STARTER');
@@ -227,11 +232,11 @@ describe('PATCH /admin/tenants/:id/plan', () => {
     expect(users.body.error).toMatchObject({ code: 'DOWNGRADE_USERS_OVER_LIMIT', details: { officeUsers: 4, limit: 3 } });
 
     await prismaAdmin.user.deleteMany({ where: { phone: '+923450000701' } });
-    const third = await prismaAdmin.project.create({ data: { tenantId: malik.id, name: 'Third site' } });
+    const third = await projectRow(malik.id, 'Third site');
     expect((await plan(malik.id, { planId: plans.STARTER.id, effective: 'IMMEDIATE' })).body.error.code).toBe('KEEP_PROJECTS_REQUIRED');
     const ok = await plan(malik.id, { planId: plans.STARTER.id, effective: 'IMMEDIATE', keepActiveProjectIds: [projects.dha.id, third.id] });
     expect(ok.status).toBe(200);
-    expect(ok.body.data.projectsReadOnly).toEqual([projects.bahria.id]);
+    expect(ok.body.data.projectsReadOnly.sort()).toEqual([projects.bahria.id, projects.johar.id].sort());
     expect((await prismaAdmin.project.findUniqueOrThrow({ where: { id: projects.bahria.id } })).status).toBe('READ_ONLY');
   });
 });

@@ -9,7 +9,11 @@ import bcrypt from 'bcryptjs';
 import { env } from '../src/config/env.js';
 import { prismaAdmin } from '../src/core/db/prisma.js';
 import { hashSecret } from '../src/core/utils/crypto.js';
-import type { PrismaClient, UserRole } from '../src/generated/prisma/client.js';
+import type { Prisma, PrismaClient, UserRole } from '../src/generated/prisma/client.js';
+import { MATERIAL_GROUPS, PLATFORM_MATERIALS } from '../src/modules/master-data/catalog.js';
+import { provisionMasterData } from '../src/modules/master-data/provision.js';
+import { seedMalikMasterData } from './seedMasterData.js';
+import { ensureProjectRow, seedAhmedProject, seedMalikClients, seedMalikProjects } from './seedProjects.js';
 
 export const SEED = {
   admin: { email: 'admin@platform.local', password: 'Admin#2026', name: 'Platform Admin' },
@@ -19,6 +23,7 @@ export const SEED = {
     owner: { name: 'Khalid Malik', phone: '+923001234567', email: 'khalid@maliksons.pk', password: 'Thekedar#2026' },
     pm: { name: 'Bilal Ahmed', phone: '+923331112233', password: 'Bilal#2026' },
     munshi: { name: 'Rafaqat Ali', phone: '+923211234567' },
+    munshi2: { name: 'Asif Mehmood', phone: '+923224567890' },
   },
   ahmed: {
     slug: 'ahmed-constructions',
@@ -140,6 +145,28 @@ async function upsertPayment(
   });
 }
 
+/** Platform material catalog: groups + materials (upsert by code / name). */
+async function seedCatalog(db: PrismaClient) {
+  const groups: Record<string, string> = {};
+  for (const g of MATERIAL_GROUPS) {
+    groups[g.code] = (await db.materialGroup.upsert({ where: { code: g.code }, create: g, update: g })).id;
+  }
+  for (const [i, m] of PLATFORM_MATERIALS.entries()) {
+    const data = {
+      groupId: groups[m.group]!,
+      unit: m.unit,
+      unitDetail: m.unitDetail ?? null,
+      altUnits: (m.altUnits ?? []) as unknown as Prisma.InputJsonValue,
+      supplyCategory: m.supplyCategory,
+      usedByRulebook: Boolean(m.rulebookKey),
+      rulebookKey: m.rulebookKey ?? null,
+      isActive: true,
+      sortOrder: i + 1,
+    };
+    await db.platformMaterial.upsert({ where: { name: m.name }, create: { name: m.name, ...data }, update: data });
+  }
+}
+
 async function upsertUser(
   db: PrismaClient,
   data: {
@@ -171,11 +198,6 @@ async function upsertUser(
   });
 }
 
-async function ensureProject(db: PrismaClient, tenantId: string, name: string) {
-  const existing = await db.project.findFirst({ where: { tenantId, name } });
-  return existing ?? db.project.create({ data: { tenantId, name } });
-}
-
 export async function seed(db: PrismaClient = prismaAdmin) {
   // Platform admin
   await db.platformAdmin.upsert({
@@ -199,6 +221,8 @@ export async function seed(db: PrismaClient = prismaAdmin) {
     const data = { ...plan, features: [...plan.features] };
     plans[plan.code] = await db.plan.upsert({ where: { code: plan.code }, create: data, update: data });
   }
+
+  await seedCatalog(db);
 
   // Platform holidays for this year and next
   const year = new Date().getUTCFullYear();
@@ -225,19 +249,12 @@ export async function seed(db: PrismaClient = prismaAdmin) {
     where: { id: malik.id },
     data: { ntn: '1234567-8', address: 'Office 12, MM Alam Road, Gulberg III, Lahore', phone: '+924235761234', email: 'info@maliksons.pk' },
   });
-  const dha = await ensureProject(db, malik.id, 'DHA Phase 6 — 1 Kanal Villa');
-  const bahria = await ensureProject(db, malik.id, 'Bahria Town — Commercial Plaza');
+  // Project rows first (the invitation below points at DHA); details are filled in at the end
+  const dha = await ensureProjectRow(db, malik.id, 'MSB-2026-012', 'DHA Phase 6 · 10 Marla', 'DHA Phase 6 — 1 Kanal Villa');
   const khalid = await upsertUser(db, { tenantId: malik.id, ...SEED.malik.owner, role: 'THEKEDAR' });
   const bilal = await upsertUser(db, { tenantId: malik.id, ...SEED.malik.pm, role: 'PM', canSeeFinancials: false });
   const rafaqatMalik = await upsertUser(db, { tenantId: malik.id, ...SEED.malik.munshi, role: 'MUNSHI' });
-  await db.userProjectAccess.createMany({
-    data: [
-      { tenantId: malik.id, userId: bilal.id, projectId: dha.id },
-      { tenantId: malik.id, userId: bilal.id, projectId: bahria.id },
-      { tenantId: malik.id, userId: rafaqatMalik.id, projectId: dha.id },
-    ],
-    skipDuplicates: true,
-  });
+  const asif = await upsertUser(db, { tenantId: malik.id, ...SEED.malik.munshi2, role: 'MUNSHI' });
 
   // Ahmed Constructions (Starter) — second tenant for isolation tests
   const ahmed = await upsertTenant(db, {
@@ -256,14 +273,9 @@ export async function seed(db: PrismaClient = prismaAdmin) {
     paidDaysAgo: 1,
     status: 'PENDING_REVIEW',
   });
-  const ahmedProject = await ensureProject(db, ahmed.id, 'Gulberg — 10 Marla House');
-  await upsertUser(db, { tenantId: ahmed.id, ...SEED.ahmed.owner, role: 'THEKEDAR' });
+  const ahmedOwner = await upsertUser(db, { tenantId: ahmed.id, ...SEED.ahmed.owner, role: 'THEKEDAR' });
   // Rafaqat also works for Ahmed → MULTIPLE_COMPANIES on his phone
   const rafaqatAhmed = await upsertUser(db, { tenantId: ahmed.id, ...SEED.malik.munshi, role: 'MUNSHI' });
-  await db.userProjectAccess.createMany({
-    data: [{ tenantId: ahmed.id, userId: rafaqatAhmed.id, projectId: ahmedProject.id }],
-    skipDuplicates: true,
-  });
 
   // Pending invitation for Kamran Shah (PM at Malik & Sons)
   const invitation = {
@@ -294,7 +306,7 @@ export async function seed(db: PrismaClient = prismaAdmin) {
     subscription: { status: 'GRACE', periodEndsInDays: -1 },
   });
   await upsertUser(db, { tenantId: valley.id, ...SEED.valley.owner, role: 'THEKEDAR' });
-  await ensureProject(db, valley.id, 'Clifton — Apartment Renovation');
+  await ensureProjectRow(db, valley.id, 'VB-2026-001', 'Clifton — Apartment Renovation');
 
   // Old Town Contractors: grace ran out → LAPSED, company READ_ONLY
   const oldTown = await upsertTenant(db, {
@@ -306,14 +318,29 @@ export async function seed(db: PrismaClient = prismaAdmin) {
   });
   await upsertUser(db, { tenantId: oldTown.id, ...SEED.oldTown.owner, role: 'THEKEDAR' });
 
+  // Every company gets the starting master data (catalog copy, categories, labour rates, template).
+  for (const t of [malik, ahmed, valley, oldTown]) await provisionMasterData(db, t.id);
+  await seedMalikMasterData(db, malik.id, khalid.id);
+  const clients = await seedMalikClients(db, malik.id, khalid.id);
+  const malikProjects = await seedMalikProjects(db, {
+    tenantId: malik.id,
+    ownerId: khalid.id,
+    bilalId: bilal.id,
+    rafaqatId: rafaqatMalik.id,
+    asifId: asif.id,
+    clients,
+  });
+  const ahmedProject = await seedAhmedProject(db, ahmed.id, ahmedOwner.id, rafaqatAhmed.id);
+
   return {
     malik,
     ahmed,
     valley,
     oldTown,
     plans: plans as Record<'TRIAL' | 'STARTER' | 'PROFESSIONAL' | 'ENTERPRISE', { id: string }>,
-    projects: { dha, bahria, ahmedProject },
-    users: { khalid, bilal, rafaqatMalik, rafaqatAhmed },
+    projects: { ...malikProjects, ahmedProject },
+    users: { khalid, bilal, rafaqatMalik, rafaqatAhmed, asif },
+    clients,
   };
 }
 

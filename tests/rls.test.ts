@@ -9,7 +9,7 @@ describe('row-level security (app_user)', () => {
   it('with Malik context, an unfiltered User query returns only Malik users', async () => {
     const { malik } = seeded();
     const users = await withTenant(malik.id, (tx) => tx.user.findMany());
-    expect(users).toHaveLength(3);
+    expect(users).toHaveLength(4); // Khalid, Bilal, Rafaqat, Asif
     expect(users.every((u) => u.tenantId === malik.id)).toBe(true);
     expect(users.map((u) => u.phone)).not.toContain(SEED.ahmed.owner.phone);
 
@@ -32,7 +32,7 @@ describe('row-level security (app_user)', () => {
     ).rejects.toThrow(/row-level security/i);
 
     await expect(
-      withTenant(malik.id, (tx) => tx.project.create({ data: { tenantId: ahmed.id, name: 'Sneaky project' } })),
+      withTenant(malik.id, (tx) => tx.project.create({ data: { tenantId: ahmed.id, name: 'Sneaky project', code: 'SNEAKY-1' } })),
     ).rejects.toThrow(/row-level security/i);
   });
 

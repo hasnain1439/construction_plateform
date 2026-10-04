@@ -6,7 +6,7 @@
  */
 import type { Plan, Prisma } from '../../generated/prisma/client.js';
 import { BadRequest } from '../../core/errors/AppError.js';
-import { getUsage } from '../../core/plan/planLimits.js';
+import { getUsage, PLAN_COUNTED_PROJECT_STATUSES } from '../../core/plan/planLimits.js';
 
 type Tx = Prisma.TransactionClient;
 type PlanLimits = Pick<Plan, 'name' | 'maxActiveProjects' | 'maxOfficeUsers'>;
@@ -50,7 +50,7 @@ export async function assertPlanFits(
     });
   }
   const found = await tx.project.findMany({
-    where: { tenantId, id: { in: requested }, status: 'ACTIVE' },
+    where: { tenantId, id: { in: requested }, status: { in: [...PLAN_COUNTED_PROJECT_STATUSES] } },
     select: { id: true },
   });
   const ok = new Set(found.map((p) => p.id));
@@ -60,7 +60,7 @@ export async function assertPlanFits(
 }
 
 /**
- * Puts ACTIVE projects above `target.maxActiveProjects` into READ_ONLY, keeping
+ * Puts ACTIVE / CLOSEOUT projects above `target.maxActiveProjects` into READ_ONLY, keeping
  * `keepActiveProjectIds` (or, if that list is empty/stale, the most recently used ones).
  * Returns the ids that were parked.
  */
@@ -72,7 +72,7 @@ export async function parkProjectsOverLimit(
 ): Promise<string[]> {
   if (target.maxActiveProjects === null) return [];
   const active = await tx.project.findMany({
-    where: { tenantId, status: 'ACTIVE' },
+    where: { tenantId, status: { in: [...PLAN_COUNTED_PROJECT_STATUSES] } },
     select: { id: true },
     orderBy: { updatedAt: 'desc' },
   });

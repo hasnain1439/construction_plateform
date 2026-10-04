@@ -115,10 +115,13 @@ enum ActorType {
 }
 
 enum ProjectStatus {
+  /// Wizard in progress; not counted against the plan.
+  DRAFT
   ACTIVE
-  ON_HOLD
-  COMPLETED
-  ARCHIVED
+  /// Finishing / snag list; still counts as active for the plan.
+  CLOSEOUT
+  HANDED_OVER
+  CLOSED
   /// Over the plan's active-project limit after a downgrade: viewable, not editable.
   READ_ONLY
 }
@@ -226,10 +229,10 @@ model OtpCode {
 // ─── Tenant core ────────────────────────────────────────────────────────────
 
 model Tenant {
-  id                   String                @id @default(uuid(7)) @db.Uuid
+  id                   String                    @id @default(uuid(7)) @db.Uuid
   name                 String
-  slug                 String                @unique
-  status               TenantStatus          @default(ACTIVE)
+  slug                 String                    @unique
+  status               TenantStatus              @default(ACTIVE)
   region               Region
   /// National Tax Number, e.g. 1234567-8
   ntn                  String?
@@ -237,12 +240,12 @@ model Tenant {
   /// E.164 office phone
   phone                String?
   email                String?
-  logoAttachmentId     String?               @db.Uuid
-  createdAt            DateTime              @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime              @updatedAt @db.Timestamptz(3)
+  logoAttachmentId     String?                   @db.Uuid
+  createdAt            DateTime                  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime                  @updatedAt @db.Timestamptz(3)
   /// Same-tenant + kind LOGO is enforced by the company service (RLS lookup). A composite
   /// (id, logoAttachmentId) FK would stop Prisma generating Tenant.id defaults.
-  logo                 Attachment?           @relation("TenantLogo", fields: [logoAttachmentId], references: [id], onDelete: SetNull)
+  logo                 Attachment?               @relation("TenantLogo", fields: [logoAttachmentId], references: [id], onDelete: SetNull)
   settings             TenantSettings?
   subscription         Subscription?
   subscriptionPayments SubscriptionPayment[]
@@ -255,6 +258,21 @@ model Tenant {
   companyHolidays      CompanyHoliday[]
   attachments          Attachment[]
   auditLogs            AuditLog[]
+  materials            Material[]
+  qualityCategories    QualityCategory[]
+  materialRates        MaterialRate[]
+  laborRates           LaborRate[]
+  suppliers            Supplier[]
+  supplierRates        SupplierRate[]
+  workers              Worker[]
+  subcontractors       Subcontractor[]
+  paymentTemplates     PaymentScheduleTemplate[]
+  clients              Client[]
+  projectSupplyRules   ProjectSupplyRule[]
+  projectBillingStages ProjectBillingStage[]
+  floors               Floor[]
+  rooms                Room[]
+  openings             Opening[]
 }
 
 model TenantSettings {
@@ -347,35 +365,41 @@ model SubscriptionPayment {
 }
 
 model User {
-  id                String                @id @default(uuid(7)) @db.Uuid
-  tenantId          String                @db.Uuid
-  name              String
+  id                   String                @id @default(uuid(7)) @db.Uuid
+  tenantId             String                @db.Uuid
+  name                 String
   /// E.164, e.g. +923001234567
-  phone             String
-  email             String?
+  phone                String
+  email                String?
   /// null for OTP-only users (typically MUNSHI)
-  passwordHash      String?
-  role              UserRole
-  status            UserStatus            @default(ACTIVE)
-  language          Language              @default(ROMAN_URDU)
-  photoAttachmentId String?               @db.Uuid
-  canSeeFinancials  Boolean               @default(false)
-  failedLoginCount  Int                   @default(0)
-  lockedUntil       DateTime?             @db.Timestamptz(3)
-  passwordChangedAt DateTime?             @db.Timestamptz(3)
-  lastLoginAt       DateTime?             @db.Timestamptz(3)
-  deactivatedAt     DateTime?             @db.Timestamptz(3)
-  createdAt         DateTime              @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime              @updatedAt @db.Timestamptz(3)
-  tenant            Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  photo             Attachment?           @relation("UserPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
-  projectAccess     UserProjectAccess[]
-  devices           Device[]
-  sessions          Session[]
-  acceptedInvites   Invitation[]          @relation("InvitationAcceptedUser")
-  sentInvites       Invitation[]          @relation("InvitationInvitedBy")
-  uploads           Attachment[]          @relation("AttachmentUploadedBy")
-  submittedPayments SubscriptionPayment[] @relation("PaymentSubmittedBy")
+  passwordHash         String?
+  role                 UserRole
+  status               UserStatus            @default(ACTIVE)
+  language             Language              @default(ROMAN_URDU)
+  photoAttachmentId    String?               @db.Uuid
+  canSeeFinancials     Boolean               @default(false)
+  failedLoginCount     Int                   @default(0)
+  lockedUntil          DateTime?             @db.Timestamptz(3)
+  passwordChangedAt    DateTime?             @db.Timestamptz(3)
+  lastLoginAt          DateTime?             @db.Timestamptz(3)
+  deactivatedAt        DateTime?             @db.Timestamptz(3)
+  createdAt            DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime              @updatedAt @db.Timestamptz(3)
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  photo                Attachment?           @relation("UserPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  projectAccess        UserProjectAccess[]
+  devices              Device[]
+  sessions             Session[]
+  acceptedInvites      Invitation[]          @relation("InvitationAcceptedUser")
+  sentInvites          Invitation[]          @relation("InvitationInvitedBy")
+  uploads              Attachment[]          @relation("AttachmentUploadedBy")
+  submittedPayments    SubscriptionPayment[] @relation("PaymentSubmittedBy")
+  materialsCreated     Material[]            @relation("MaterialCreatedBy")
+  materialRatesCreated MaterialRate[]        @relation("MaterialRateCreatedBy")
+  supplierRatesCreated SupplierRate[]        @relation("SupplierRateCreatedBy")
+  workersCreated       Worker[]              @relation("WorkerCreatedBy")
+  clientsCreated       Client[]              @relation("ClientCreatedBy")
+  projectsCreated      Project[]             @relation("ProjectCreatedBy")
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -386,17 +410,63 @@ model User {
 
 /// Stub — the Projects module will extend this.
 model Project {
-  id         String              @id @default(uuid(7)) @db.Uuid
-  tenantId   String              @db.Uuid
-  name       String
-  status     ProjectStatus       @default(ACTIVE)
-  createdAt  DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt  DateTime            @updatedAt @db.Timestamptz(3)
-  tenant     Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userAccess UserProjectAccess[]
+  id                   String                @id @default(uuid(7)) @db.Uuid
+  tenantId             String                @db.Uuid
+  /// e.g. MSB-2026-015 — unique per company, editable
+  code                 String
+  name                 String
+  clientId             String?               @db.Uuid
+  siteAddress          String?
+  city                 String?
+  startDate            DateTime?             @db.Date
+  endDate              DateTime?             @db.Date
+  status               ProjectStatus         @default(DRAFT)
+  // Tab 2 — contract
+  contractType         ContractType?
+  billingModel         BillingModel?
+  contractValuePaisa   BigInt?
+  ratePerSqftPaisa     BigInt?
+  retentionPercent     Decimal               @default(5) @db.Decimal(5, 2)
+  defectPeriodMonths   Int                   @default(6)
+  // Tab 3 — plot & structure (feet)
+  plotUnit             PlotUnit?
+  plotSize             Decimal?              @db.Decimal(10, 2)
+  marlaStandard        Decimal               @default(225) @db.Decimal(6, 2)
+  frontFt              Decimal?              @db.Decimal(10, 2)
+  depthFt              Decimal?              @db.Decimal(10, 2)
+  cornerPlot           Boolean               @default(false)
+  structureType        StructureType?
+  hasBasement          Boolean               @default(false)
+  basementHeightFt     Decimal?              @db.Decimal(10, 2)
+  // Tab 4 — coverage (sq ft / rft / ft)
+  coveredAreaSqft      Decimal?              @db.Decimal(10, 2)
+  semiCoveredSqft      Decimal               @default(0) @db.Decimal(10, 2)
+  openAreaSqft         Decimal               @default(0) @db.Decimal(10, 2)
+  boundaryWall         Boolean               @default(false)
+  boundaryLengthFt     Decimal?              @db.Decimal(10, 2)
+  boundaryHeightFt     Decimal?              @db.Decimal(10, 2)
+  boundaryThickness    BoundaryThickness?
+  boundaryPlasterSides Int?
+  wizardCompletedSteps Int[]                 @default([])
+  /// Set by the quotations module (Phase 2).
+  createdFromQuoteId   String?               @db.Uuid
+  activatedAt          DateTime?             @db.Timestamptz(3)
+  createdById          String?               @db.Uuid
+  createdAt            DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime              @updatedAt @db.Timestamptz(3)
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client               Client?               @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy            User?                 @relation("ProjectCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  userAccess           UserProjectAccess[]
+  supplyRules          ProjectSupplyRule[]
+  billingStages        ProjectBillingStage[]
+  floors               Floor[]
+  rooms                Room[]
 
   @@unique([tenantId, id])
+  @@unique([tenantId, code])
   @@index([tenantId, status])
+  @@index([tenantId, clientId])
 }
 
 model UserProjectAccess {
@@ -544,4 +614,460 @@ model AuditLog {
 
   @@index([tenantId, createdAt])
   @@index([action, createdAt])
+}
+
+// ─── Master data (Phase 1 · Step 4) ─────────────────────────────────────────
+
+enum MaterialSection {
+  CIVIL
+  FINISHING
+}
+
+enum SupplyCategory {
+  GREY_STRUCTURE
+  FINISHING
+}
+
+enum MaterialSource {
+  PLATFORM
+  COMPANY
+}
+
+enum LaborRateKind {
+  DAILY
+  SUBCONTRACT
+}
+
+enum LaborUnit {
+  DAY
+  SQFT
+  TON
+  BRICK
+  RFT
+  LUMPSUM
+}
+
+enum WorkerType {
+  MISTRI
+  MISTRI_TILES
+  MAZDOOR
+  STEEL_FIXER_HELPER
+  CHOWKIDAR
+  OTHER
+}
+
+enum BillingModel {
+  STAGE_SCHEDULE
+  RUNNING_BILLS
+}
+
+/// Platform catalog: material groups (CEMENT, BRICKS, ...). app_user: SELECT only.
+model MaterialGroup {
+  id                String             @id @default(uuid(7)) @db.Uuid
+  code              String             @unique
+  name              String
+  section           MaterialSection
+  sortOrder         Int                @default(0)
+  platformMaterials PlatformMaterial[]
+  materials         Material[]
+}
+
+/// Platform catalog: materials copied into every company. app_user: SELECT only.
+model PlatformMaterial {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  groupId        String         @db.Uuid
+  name           String         @unique
+  unit           String
+  /// e.g. "1 bag = 50 kg"
+  unitDetail     String?
+  /// [{ unit, factor }], e.g. [{ "unit": "kg", "factor": 50 }]
+  altUnits       Json           @default("[]")
+  supplyCategory SupplyCategory
+  /// Used by the estimating rulebook (cement, bricks, steel, sand, bajri).
+  usedByRulebook Boolean        @default(false)
+  rulebookKey    String?        @unique
+  isActive       Boolean        @default(true)
+  sortOrder      Int            @default(0)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime       @default(now()) @updatedAt @db.Timestamptz(3)
+  group          MaterialGroup  @relation(fields: [groupId], references: [id])
+  copies         Material[]
+
+  @@index([groupId, sortOrder])
+}
+
+/// Material list of one company: copied from the platform catalog, or its own.
+model Material {
+  id                 String            @id @default(uuid(7)) @db.Uuid
+  tenantId           String            @db.Uuid
+  platformMaterialId String?           @db.Uuid
+  groupId            String            @db.Uuid
+  name               String
+  unit               String
+  unitDetail         String?
+  altUnits           Json              @default("[]")
+  supplyCategory     SupplyCategory
+  source             MaterialSource
+  isHidden           Boolean           @default(false)
+  /// Edited by the company: platform catalog edits no longer overwrite it.
+  isCustomised       Boolean           @default(false)
+  createdById        String?           @db.Uuid
+  createdAt          DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime          @updatedAt @db.Timestamptz(3)
+  tenant             Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  platformMaterial   PlatformMaterial? @relation(fields: [platformMaterialId], references: [id], onDelete: SetNull)
+  group              MaterialGroup     @relation(fields: [groupId], references: [id])
+  createdBy          User?             @relation("MaterialCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  rates              MaterialRate[]
+  supplierRates      SupplierRate[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+  @@unique([tenantId, platformMaterialId])
+  @@index([tenantId, groupId])
+}
+
+/// Rate tiers, e.g. A+ Premium / A Standard / B Economy.
+model QualityCategory {
+  id          String              @id @default(uuid(7)) @db.Uuid
+  tenantId    String              @db.Uuid
+  name        String
+  code        String
+  description String?
+  isDefault   Boolean             @default(false)
+  isArchived  Boolean             @default(false)
+  sortOrder   Int                 @default(0)
+  createdAt   DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @db.Timestamptz(3)
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rates       MaterialRate[]
+  supplyRules ProjectSupplyRule[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, code])
+  @@unique([tenantId, name])
+}
+
+/// Append-only price history. Current rate = latest effectiveFrom not after now.
+model MaterialRate {
+  id            String          @id @default(uuid(7)) @db.Uuid
+  tenantId      String          @db.Uuid
+  materialId    String          @db.Uuid
+  categoryId    String          @db.Uuid
+  ratePaisa     BigInt
+  specification String?
+  effectiveFrom DateTime        @db.Timestamptz(3)
+  createdById   String?         @db.Uuid
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  tenant        Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  material      Material        @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: Cascade)
+  category      QualityCategory @relation(fields: [tenantId, categoryId], references: [tenantId, id], onDelete: Cascade)
+  createdBy     User?           @relation("MaterialRateCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, materialId, categoryId, effectiveFrom(sort: Desc)])
+  @@index([tenantId, categoryId, effectiveFrom(sort: Desc)])
+}
+
+/// Labour price list: daily wages and sub-contract (piece) rates.
+model LaborRate {
+  id                 String        @id @default(uuid(7)) @db.Uuid
+  tenantId           String        @db.Uuid
+  kind               LaborRateKind
+  /// MISTRI, MAZDOOR, ... (DAILY) / SHUTTERING, PLASTER, ... (SUBCONTRACT)
+  key                String
+  label              String
+  unit               LaborUnit
+  ratePaisa          BigInt
+  overtimeMultiplier Decimal?      @db.Decimal(4, 2)
+  createdAt          DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime      @updatedAt @db.Timestamptz(3)
+  tenant             Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, kind, key])
+}
+
+model Supplier {
+  id        String         @id @default(uuid(7)) @db.Uuid
+  tenantId  String         @db.Uuid
+  name      String
+  /// Free text, e.g. "Cement", "Steel", "Sand & Bajri"
+  category  String
+  /// E.164 (mobile or landline)
+  phone     String?
+  city      String?
+  address   String?
+  ntn       String?
+  notes     String?
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime       @updatedAt @db.Timestamptz(3)
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rates     SupplierRate[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+}
+
+/// Agreed supplier prices (append-only history).
+model SupplierRate {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  tenantId      String   @db.Uuid
+  supplierId    String   @db.Uuid
+  materialId    String   @db.Uuid
+  ratePaisa     BigInt
+  effectiveFrom DateTime @db.Timestamptz(3)
+  createdById   String?  @db.Uuid
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier      Supplier @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: Cascade)
+  material      Material @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: Cascade)
+  createdBy     User?    @relation("SupplierRateCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, supplierId, materialId, effectiveFrom(sort: Desc)])
+}
+
+/// Daily-wage site workers (not app users).
+model Worker {
+  id             String     @id @default(uuid(7)) @db.Uuid
+  tenantId       String     @db.Uuid
+  name           String
+  type           WorkerType
+  phone          String?
+  dailyRatePaisa BigInt
+  isActive       Boolean    @default(true)
+  notes          String?
+  createdById    String?    @db.Uuid
+  createdAt      DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime   @updatedAt @db.Timestamptz(3)
+  tenant         Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy      User?      @relation("WorkerCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, phone])
+  @@index([tenantId, isActive, type])
+}
+
+model Subcontractor {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  tenantId  String   @db.Uuid
+  name      String
+  /// A SUBCONTRACT labour key: SHUTTERING, STEEL_FIXING, ...
+  trade     String
+  phone     String?
+  notes     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+}
+
+/// Client billing schedule template: [{ label, percent, isRetention? }] totalling 100.
+model PaymentScheduleTemplate {
+  id           String       @id @default(uuid(7)) @db.Uuid
+  tenantId     String       @db.Uuid
+  name         String
+  billingModel BillingModel
+  stages       Json
+  isDefault    Boolean      @default(false)
+  createdAt    DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime     @updatedAt @db.Timestamptz(3)
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+}
+
+// ─── Clients & projects (Phase 1 · Step 5) ──────────────────────────────────
+
+/// Project owner (the customer). No login.
+model Client {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  tenantId    String    @db.Uuid
+  name        String
+  /// E.164 (mobile or landline)
+  phone       String
+  email       String?
+  address     String?
+  notes       String?
+  createdById String?   @db.Uuid
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy   User?     @relation("ClientCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  projects    Project[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, phone])
+  @@index([tenantId, name])
+}
+
+enum ContractType {
+  FULL
+  GREY_OWNER_FINISHING
+  LABOR_ONLY
+}
+
+enum PlotUnit {
+  MARLA
+  KANAL
+  SQFT
+}
+
+enum StructureType {
+  FRAMED
+  LOAD_BEARING
+}
+
+enum BoundaryThickness {
+  IN_4_5
+  IN_9
+}
+
+enum SuppliedBy {
+  CONTRACTOR
+  OWNER
+}
+
+enum BillingStageStatus {
+  UPCOMING
+  INVOICED
+  PAID
+}
+
+enum FloorLevel {
+  BASEMENT
+  GROUND
+  FIRST
+  SECOND
+  THIRD
+  MUMTY
+}
+
+enum RoomType {
+  MASTER_BEDROOM
+  BEDROOM
+  ATTACHED_BATH
+  POWDER_ROOM
+  KITCHEN
+  TV_LOUNGE
+  DRAWING_ROOM
+  DINING
+  STORE
+  TERRACE
+  STAIR
+  GARAGE
+  OTHER
+}
+
+enum OpeningType {
+  DOOR
+  WINDOW
+  VENTILATOR
+}
+
+/// Who supplies each material category on a project (and in which quality).
+model ProjectSupplyRule {
+  id                String           @id @default(uuid(7)) @db.Uuid
+  tenantId          String           @db.Uuid
+  projectId         String           @db.Uuid
+  /// CEMENT, BRICKS, STEEL, SAND_BAJRI, PIPES, ... (see projects/presets.ts)
+  categoryKey       String
+  suppliedBy        SuppliedBy
+  qualityCategoryId String?          @db.Uuid
+  /// Set once material has been bought/estimated against the rule (later phases).
+  lockedAt          DateTime?        @db.Timestamptz(3)
+  createdAt         DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime         @updatedAt @db.Timestamptz(3)
+  tenant            Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project           Project          @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade)
+  qualityCategory   QualityCategory? @relation(fields: [tenantId, qualityCategoryId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([projectId, categoryKey])
+  @@index([tenantId, projectId])
+}
+
+model ProjectBillingStage {
+  id          String             @id @default(uuid(7)) @db.Uuid
+  tenantId    String             @db.Uuid
+  projectId   String             @db.Uuid
+  sortOrder   Int
+  label       String
+  percent     Decimal            @db.Decimal(5, 2)
+  isRetention Boolean            @default(false)
+  amountPaisa BigInt             @default(0)
+  status      BillingStageStatus @default(UPCOMING)
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime           @updatedAt @db.Timestamptz(3)
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project     Project            @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, projectId, sortOrder])
+}
+
+model Floor {
+  id              String     @id @default(uuid(7)) @db.Uuid
+  tenantId        String     @db.Uuid
+  projectId       String     @db.Uuid
+  level           FloorLevel
+  name            String
+  ceilingHeightFt Decimal    @db.Decimal(10, 2)
+  sortOrder       Int
+  createdAt       DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime   @updatedAt @db.Timestamptz(3)
+  tenant          Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project         Project    @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade)
+  rooms           Room[]
+
+  @@unique([tenantId, id])
+  @@unique([projectId, level])
+  @@index([tenantId, projectId])
+}
+
+model Room {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  tenantId        String    @db.Uuid
+  projectId       String    @db.Uuid
+  floorId         String    @db.Uuid
+  type            RoomType
+  name            String
+  lengthFt        Decimal   @db.Decimal(10, 2)
+  widthFt         Decimal   @db.Decimal(10, 2)
+  heightFt        Decimal   @db.Decimal(10, 2)
+  isWet           Boolean   @default(false)
+  /// true when isWet was set by hand (type changes no longer reset it)
+  isWetOverridden Boolean   @default(false)
+  sortOrder       Int       @default(0)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project         Project   @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade)
+  floor           Floor     @relation(fields: [tenantId, floorId], references: [tenantId, id], onDelete: Cascade)
+  openings        Opening[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, floorId, sortOrder])
+  @@index([tenantId, projectId])
+}
+
+model Opening {
+  id        String      @id @default(uuid(7)) @db.Uuid
+  tenantId  String      @db.Uuid
+  roomId    String      @db.Uuid
+  type      OpeningType
+  widthFt   Decimal     @db.Decimal(10, 2)
+  heightFt  Decimal     @db.Decimal(10, 2)
+  quantity  Int         @default(1)
+  createdAt DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime    @updatedAt @db.Timestamptz(3)
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  room      Room        @relation(fields: [tenantId, roomId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, roomId])
 }

@@ -12,8 +12,21 @@ import { docsRouter } from './core/openapi/docs.js';
 import { jsonReplacer } from './core/utils/json.js';
 import { attachmentsRouter } from './modules/attachments/attachments.routes.js';
 import { adminAuthRouter, authRouter, invitationRouter } from './modules/auth/auth.routes.js';
+import { clientsRouter } from './modules/clients/clients.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
+import { floorsRouter, openingsRouter, projectsRouter, roomsRouter, supplyPresetsRouter } from './modules/projects/projects.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
+import {
+  laborRatesRouter,
+  materialGroupsRouter,
+  materialsRouter,
+  paymentTemplatesRouter,
+  priceListRouter,
+  qualityCategoriesRouter,
+  subcontractorsRouter,
+  suppliersRouter,
+  workersRouter,
+} from './modules/master-data/master-data.routes.js';
 import { platformAdminRouter } from './modules/platform-admin/platformAdmin.routes.js';
 import { subscriptionRouter } from './modules/subscription/subscription.routes.js';
 import { devicesRouter, teamInvitationsRouter, usersRouter } from './modules/team/team.routes.js';
@@ -64,6 +77,21 @@ export function createApp(options: CreateAppOptions = {}): Express {
   api.use('/users', usersRouter);
   api.use('/devices', devicesRouter);
   api.use('/subscription', subscriptionRouter);
+  api.use('/material-groups', materialGroupsRouter);
+  api.use('/materials', materialsRouter);
+  api.use('/quality-categories', qualityCategoriesRouter);
+  api.use('/price-list', priceListRouter);
+  api.use('/labor-rates', laborRatesRouter);
+  api.use('/payment-templates', paymentTemplatesRouter);
+  api.use('/suppliers', suppliersRouter);
+  api.use('/workers', workersRouter);
+  api.use('/subcontractors', subcontractorsRouter);
+  api.use('/clients', clientsRouter);
+  api.use('/projects', projectsRouter);
+  api.use('/supply-presets', supplyPresetsRouter);
+  api.use('/floors', floorsRouter);
+  api.use('/rooms', roomsRouter);
+  api.use('/openings', openingsRouter);
   api.use('/admin', platformAdminRouter); // after /admin/auth (public login)
   options.extraRoutes?.(api);
   app.use('/api/v1', api);
