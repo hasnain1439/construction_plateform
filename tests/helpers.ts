@@ -155,3 +155,12 @@ export function expectedReceipt(offset: number): string {
   const seededMax = year === '2026' ? 381 : 0; // seed: RCPT-2026-0371, 0372, 0381
   return `RCPT-${year}-${String(seededMax + offset).padStart(4, '0')}`;
 }
+
+let projectCounter = 0;
+/** Inserts a bare project row (default ACTIVE) straight into the database, for plan / lifecycle tests. */
+export function projectRow(tenantId: string, name: string, data: { status?: 'DRAFT' | 'ACTIVE' | 'CLOSEOUT' | 'HANDED_OVER' | 'CLOSED' | 'READ_ONLY' } = {}) {
+  projectCounter += 1;
+  return prismaAdmin.project.create({
+    data: { tenantId, name, code: `TST-${Date.now()}-${projectCounter}`, status: data.status ?? 'ACTIVE' },
+  });
+}

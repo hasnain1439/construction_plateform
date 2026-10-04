@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { prismaAdmin } from '../../src/core/db/prisma.js';
 import { withTenant } from '../../src/core/db/withTenant.js';
 import { assertWithinLimit, getLimits, getUsage } from '../../src/core/plan/planLimits.js';
-import { api, bearer, loginMobile, SEED, useFreshDatabase } from '../helpers.js';
+import { api, bearer, loginMobile, SEED, useFreshDatabase, projectRow } from '../helpers.js';
 
 const seeded = useFreshDatabase();
 
@@ -18,7 +18,7 @@ describe('planLimits', () => {
       data: { tenantId: malik.id, tokenHash: 'expired-pm-hash-0001', role: 'PM', name: 'P', phone: '+923450000602', expiresAt: new Date(Date.now() - 1000) },
     });
     const usage = await withTenant(malik.id, (tx) => getUsage(tx, malik.id));
-    expect(usage).toEqual({ activeProjects: 2, officeUsers: 3 }); // Khalid, Bilal, Kamran (pending PM)
+    expect(usage).toEqual({ activeProjects: 3, officeUsers: 3 }); // DHA, Johar, Bahria; Khalid, Bilal, Kamran (pending PM)
     expect(await withTenant(malik.id, (tx) => getLimits(tx, malik.id))).toEqual({ activeProjects: 5, officeUsers: 10 });
   });
 
@@ -46,7 +46,7 @@ describe('planLimits', () => {
   it('active projects: Starter allows 2', async () => {
     const { ahmed } = seeded(); // 1 project
     await withTenant(ahmed.id, (tx) => assertWithinLimit(tx, ahmed.id, 'activeProjects'));
-    await prismaAdmin.project.create({ data: { tenantId: ahmed.id, name: 'Second site' } });
+    await projectRow(ahmed.id, 'Second site');
     const err = await withTenant(ahmed.id, (tx) => assertWithinLimit(tx, ahmed.id, 'activeProjects')).catch((e: unknown) => e);
     expect(err).toMatchObject({ status: 402, details: { resource: 'activeProjects', limit: 2, used: 2 } });
     // READ_ONLY / completed projects don't count

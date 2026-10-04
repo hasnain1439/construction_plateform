@@ -17,7 +17,8 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "typecheck": "tsc -p tsconfig.check.json",
     "test:watch": "vitest",
-    "jobs:subscriptions": "tsx src/jobs/cli/subscriptions.ts"
+    "jobs:subscriptions": "tsx src/jobs/cli/subscriptions.ts",
+    "backfill:master-data": "tsx scripts/backfill-master-data.ts"
   },
   "keywords": [],
   "author": "",

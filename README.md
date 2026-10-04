@@ -307,16 +307,128 @@ Every transition is a conditional update + `SYSTEM` audit row, so running it twi
 
 **Receipt numbers** — `RCPT-YYYY-NNNN`, one sequence per year (Pakistan time). The next number is `max(existing for the year) + 1`, taken inside the approving transaction under a global advisory lock: sequential, gap-free (a rolled-back approval releases its number) and never shared by parallel approvals. The seed ends at `RCPT-2026-0381`, so the first approval is `RCPT-2026-0382`.
 
+## Master Data
+
+`src/modules/master-data` (company side) + the material catalog in `src/modules/platform-admin`.
+
+### Data model
+
+| Table | Level | What |
+|---|---|---|
+| `MaterialGroup` | platform | 12 fixed groups (CEMENT … PAINT), section CIVIL / FINISHING |
+| `PlatformMaterial` | platform | The shared catalog (~40 seeded): unit, `unitDetail` ("1 bag = 50 kg"), `altUnits` [{unit, factor}], supply category, `usedByRulebook` / `rulebookKey` (cement, bricks, steel, sand, bajri) |
+| `Material` | tenant | The company's copy (`source PLATFORM`) or its own (`source COMPANY`); `isHidden`, `isCustomised`; name unique per company |
+| `QualityCategory` | tenant | A+ Premium / A Standard (default) / B Economy to start; exactly one default |
+| `MaterialRate` | tenant | **Append-only** rate history per material × category. Current rate = latest `effectiveFrom ≤ now()` |
+| `LaborRate` | tenant | DAILY wages (per DAY, overtime ×) and SUBCONTRACT piece rates, unique per kind + key |
+| `PaymentScheduleTemplate` | tenant | Stages `[{label, percent, isRetention?}]` adding up to 100 %; exactly one default |
+| `Supplier` / `SupplierRate` | tenant | Suppliers (mobile or landline) and their agreed-rate history |
+| `Worker` / `Subcontractor` | tenant | Daily-wage workers (phone unique per company) and piece-rate teams by trade |
+
+Platform tables: `app_user` has SELECT only. Tenant tables: RLS ENABLE + FORCE, `tenant_isolation` policy, composite `(tenantId, id)` FKs.
+
+**Starter data (copy-on-create).** `provisionMasterData(tx, tenantId)` (`master-data/provision.ts`) copies every active catalog material, the 3 quality categories, the 14 default labour rates and the "Residential standard" template. It runs in the sign-up and admin create-company transactions and is idempotent; `npm run backfill:master-data` runs it for every existing company.
+
+**Rates are never shown to MUNSHI.** `/materials` never carries a rate; rates only come from `/price-list` (`rates.view`) and `/suppliers/:id/rates`. New rate rows take `effectiveFrom` from the database clock, so app/DB clock drift can't hide a fresh rate.
+
+### Endpoints
+
+| Endpoint | Who | Notes |
+|---|---|---|
+| `GET /material-groups` | all | Groups with section + sortOrder |
+| `GET /materials` | all | `groupId`, `search`, `supplyCategory`, `includeHidden` (THEKEDAR / PM; ignored for MUNSHI) |
+| `POST /materials` | THEKEDAR, PM | Company material; `409 MATERIAL_EXISTS` |
+| `PATCH /materials/:id` | THEKEDAR, PM | Sets `isCustomised`; unit of a catalog material or of a material with rates → `400 UNIT_LOCKED` |
+| `POST /materials/:id/hide` · `/show` | THEKEDAR | |
+| `DELETE /materials/:id` | THEKEDAR | Company material without rates only, else `409 MATERIAL_IN_USE` |
+| `GET /quality-categories` | THEKEDAR, PM | `includeArchived`; `ratedMaterials` count |
+| `POST /quality-categories` | THEKEDAR | name, code (2–10 uppercase), `copyRatesFromCategoryId?` |
+| `PATCH /quality-categories/:id` | THEKEDAR | name, description, sortOrder, `isDefault: true` (clears the old default) |
+| `POST /quality-categories/:id/duplicate` · `/archive` | THEKEDAR | Duplicate copies current rates; archive: not the default (`CATEGORY_IS_DEFAULT`), not the last active (`LAST_ACTIVE_CATEGORY`) |
+| `GET /price-list` | THEKEDAR, PM | `categoryId` (default category), `groupId`, `search`; rate, specification, last updated at/by; hidden excluded |
+| `PUT /price-list` | THEKEDAR | 1–500 rates; history row only when rate or specification changed → `{ changed, unchanged }` |
+| `POST /price-list/bulk-percent` | THEKEDAR | −50 … +100 %, whole category / `groupId` / `materialIds`; rounded to the nearest rupee |
+| `GET /price-list/history` | THEKEDAR, PM | `materialId`, `categoryId?`; newest first with `changedBy` |
+| `GET /labor-rates` · `PUT` | all · THEKEDAR | Upsert by kind + key; keys must match the kind (`INVALID_LABOR_KEY`), DAILY is per DAY |
+| `GET /payment-templates` · `POST` · `PATCH /:id` · `DELETE /:id` | THEKEDAR, PM · THEKEDAR | 1–15 stages, total exactly 100 (`400 PERCENT_TOTAL_INVALID { total }`), one retention stage max, default can't be deleted |
+| `GET /suppliers` · `GET /:id` | THEKEDAR, PM | search (name / city / phone), category, isActive, page; detail has current agreed rates |
+| `POST /suppliers` · `PATCH /:id` | THEKEDAR, PM | `409 SUPPLIER_EXISTS`; landline allowed |
+| `POST /suppliers/:id/deactivate` · `/activate` · `PUT /:id/rates` | THEKEDAR | Rate history row only when changed; `GET /:id/rates` (THEKEDAR, PM) = current + history |
+| `GET /workers` · `POST` | all · THEKEDAR, PM, MUNSHI | `dailyRatePaisa` defaults from the DAILY labour rate of the type (OTHER → `DAILY_RATE_REQUIRED`); `409 WORKER_PHONE_TAKEN` |
+| `PATCH /workers/:id` · `/deactivate` · `/activate` | THEKEDAR, PM | |
+| `GET /subcontractors` · `POST` · `PATCH /:id` · `/deactivate` · `/activate` | all · THEKEDAR, PM | trade = a SUBCONTRACT key; `409 SUBCONTRACTOR_EXISTS` |
+
+**Platform catalog** (`/api/v1/admin`): `GET /material-groups`, `GET /materials` (`groupId`, `search`, `supplyCategory`, `isActive`; `companies` = copies), `POST /materials` (`pushToTenants` default true → copied into every company; a company with a material of the same name keeps its own; `409 PLATFORM_MATERIAL_EXISTS`), `PATCH /materials/:id` (name / unitDetail / altUnits propagate only to copies with `isCustomised = false` whose company has no other material with the new name; unit is immutable).
+
+Audit actions: `material.*`, `quality_category.*`, `price_list.update`, `price_list.bulk_percent`, `labor_rates.update`, `payment_template.*`, `supplier.*`, `supplier.rates_update`, `worker.*`, `subcontractor.*`, `admin.catalog_material_created` / `_updated`.
+
+**Seed (Malik & Sons).** Rates A+ / A / B with specifications: cement 1,550 / 1,450 / 1,350 (plus an older A rate 1,400), bricks 19 / 17 / 14, steel #4 2,95,000 / 2,85,000 / 2,70,000, Chenab sand 85 / 70 / 60, bajri 190 / 180 / 165, floor tiles 450 / 220 / 140, PPR 1" 420 / 320 / 250, wire 7/29 14,500 / 11,800 / 9,500. Templates Residential standard (default), Labor-only monthly, Commercial. Suppliers Al-Madina Cement Agency (cement 1,430), Ittefaq Steel Traders, Chaudhry Bricks Kiln, Bilal Traders, Punjab Shuttering Yard. 14 workers (Pervaiz inactive) and 6 sub-contractors. Other companies get only the copied defaults.
+
+## Projects
+
+`src/modules/clients` (project owners) and `src/modules/projects` (`/projects`, `/supply-presets`, `/floors`, `/rooms`, `/openings`).
+
+### Access rules
+
+| Role | Projects | Can do |
+|---|---|---|
+| THEKEDAR | all | everything |
+| PM | assigned (`UserProjectAccess`) | create (the creator is auto-assigned), edit assigned projects, review, activate; not delete, team or status |
+| MUNSHI | assigned | read only — basic fields (id, code, name, status, client name, site, dates, team) and floors/rooms |
+
+- A project outside the caller's reach is **404** (never 403), so its existence isn't leaked. Floors, rooms and openings inherit this (`FLOOR_NOT_FOUND` …).
+- Financial fields (`contractValuePaisa`, `ratePerSqftPaisa`, `contractTotalPaisa`, stage `amountPaisa`) are **omitted** — not null — without `billing.view` (THEKEDAR, or a PM with `canSeeFinancials`).
+- Clients (`/clients`, THEKEDAR + PM): list with `projectsCount`, detail with projects (both limited to what the caller can see), create / edit; phone (mobile or landline) unique per company → `409 CLIENT_PHONE_TAKEN`.
+
+### Statuses and transitions
+
+```
+DRAFT ──/activate──▶ ACTIVE ──▶ CLOSEOUT ──▶ HANDED_OVER ──▶ CLOSED
+                       ▲            │
+                       └── reopen ──┘          READ_ONLY ← subscription job only
+```
+
+- `POST /projects` creates a **DRAFT** (free — not counted against the plan). `DELETE` works only on drafts (`409 PROJECT_NOT_DRAFT`).
+- `POST /projects/:id/activate` (THEKEDAR, PM): DRAFT only, the review must have no errors (`400 PROJECT_NOT_READY` with `details.errors`), plan limit (`402`). Response has `nextStep: "ESTIMATE"` (Phase 2).
+- `PATCH /projects/:id/status` (THEKEDAR): only the arrows above (`409 INVALID_STATUS_TRANSITION`); reopening re-checks the plan limit.
+- **Plan limit:** `activeProjects` counts ACTIVE + CLOSEOUT (`PLAN_COUNTED_PROJECT_STATUSES` in `planLimits.ts`, also used by downgrade parking and the admin usage view).
+- Wizard sections, rooms and openings can change only while **DRAFT or ACTIVE**; otherwise `409 PROJECT_LOCKED` (team: also CLOSEOUT).
+
+### Wizard
+
+| Tab | Endpoint | Notes |
+|---|---|---|
+| 1 Basic | `POST /projects`, `PATCH /:id/basic` | name, code (auto `<initials>-<year>-NNN` e.g. `MSB-2026-017`, editable, unique → `PROJECT_CODE_TAKEN`), `clientId` **or** `newClient`, site, city, dates (end ≥ start), optional `pmId` / `munshiId`. Defaults: marla standard from company settings, retention 5 %, defect period 6 months. |
+| Team | `PUT /:id/team` | THEKEDAR. `pmId` (null removes), `munshiIds` ([] removes); omitted = unchanged; users must be active with that role. |
+| 2 Contract | `PATCH /:id/contract` | FULL / GREY_OWNER_FINISHING need `contractValuePaisa`, LABOR_ONLY needs `ratePerSqftPaisa`; retention 0–10 %, defect 0–24 months. **Supply rules** start from the contract-type preset (`GET /supply-presets`: FULL all contractor; GREY → cement, bricks, steel, sand & bajri, pipes by contractor; LABOR_ONLY all owner) with the default quality category on contractor rows; `supplyRules` override categories (CONTRACTOR needs `qualityCategoryId`, OWNER must not have one); rows with `lockedAt` → `409 SUPPLY_RULE_LOCKED`. **Billing stages** from `billingStages`, `templateId`, or the company default template on first save; exactly 100 % (`PERCENT_TOTAL_INVALID {total}`), one retention max. |
+| 3 Plot & structure | `PATCH /:id/plot-structure` | MARLA / KANAL / SQFT, marla standard 225 / 272.25, front × depth, corner, FRAMED / LOAD_BEARING, basement (+height). Floors upserted by level (GROUND required, BASEMENT only with a basement); dropping a floor with rooms → `409 FLOOR_HAS_ROOMS` unless `force: true`. |
+| 4 Coverage | `PATCH /:id/coverage` | covered (> 0), semi-covered, open; boundary length / height / thickness (4.5″ / 9″) / plaster sides required with a boundary wall. |
+| 5 Rooms | `POST /floors/:id/rooms`, `PATCH·DELETE /rooms/:id`, `POST /rooms/:id/openings`, `PATCH·DELETE /openings/:id`, `POST /floors/:id/copy`, `GET /projects/:id/floors` | Height defaults to the floor ceiling; name defaults to the type ("Bedroom 2"); bath / powder room / kitchen are wet unless overridden (`isWet`, `null` = automatic). Openings larger than the walls → `400 OPENINGS_EXCEED_WALL`. Copy takes the target's ceiling height; non-empty target needs `replace: true` (`409 FLOOR_NOT_EMPTY`). |
+| 6 Review | `GET /:id/review` | `{ ready, errors[], warnings[], summary }`. Errors: missing tab fields, stages ≠ 100 %, no GROUND floor, no rooms, contract value / rate missing. Warnings: plot vs front × depth > 10 %, room area vs covered > 15 % ("walls and passages"), no PM, no Munshi, end < 3 months after start. |
+
+Each wizard PATCH validates its section, saves, adds the tab to `wizardCompletedSteps` and returns the full project.
+
+### Calculations (`projects/calc.ts`, Decimal-safe, 2 dp)
+
+- **Plot:** marla × standard; kanal = 20 marla; frontage = front × depth; `plotAreaMismatch` when they differ by > 10 %.
+- **Room:** floor = L × W; gross wall = 2 × (L + W) × H; openings = Σ w × h × qty; net wall = gross − openings. (16 × 14 × 11 with a 3.5 × 7 door and a 5 × 4 window → 224 / 660 / 44.5 / 615.5.)
+- **Floor / project totals:** rooms, total floor area, net wall area, wet rooms.
+- **Billing amounts:** contract value × % (labour-only: rate × covered area), each rounded to the rupee, last stage absorbs the rounding; recomputed when the contract or covered area changes.
+
+Audit actions: `client.create`, `client.update`, `project.create`, `project.delete`, `project.update_basic`, `project.team_update`, `project.update_contract`, `project.update_plot_structure`, `project.update_coverage`, `project.room_*`, `project.opening_*`, `project.floor_copy`, `project.activate`, `project.status_change`.
+
+**Seed.** Malik & Sons: 6 clients; DHA Phase 6 · 10 Marla (`MSB-2026-012`, ACTIVE, grey structure, Rs 1,85,00,000, full wizard with 17 rooms on Ground / First / Mumty, PM Bilal, Munshi Rafaqat), Johar Town · 5 Marla (`MSB-2026-008`, ACTIVE, PM Bilal), Bahria Town · 1 Kanal (`MSB-2026-014`, ACTIVE, basement, Munshi **Asif Mehmood** `03224567890` OTP), Valencia · 7 Marla (`MSB-2025-031`, HANDED_OVER, labour-only Rs 450/sq ft) and a DRAFT Model Town · 1 Kanal (tabs 1–2). Ahmed Constructions: Wapda Town · 5 Marla (`AC-2026-001`, ACTIVE). Older seed rows are renamed in place, so foreign keys survive.
+
 ## Error codes
 
 | HTTP | Codes |
 |---|---|
-| 400 | `VALIDATION_ERROR`, `INVALID_JSON`, `USE_OTP_LOGIN`, `OTP_INVALID`, `CURRENT_PASSWORD_WRONG`, `FILE_REQUIRED`, `FILE_TOO_LARGE`, `INVALID_FILE_TYPE`, `INVALID_UPLOAD`, `HOLIDAY_IN_PAST`, `FINANCIALS_PM_ONLY`, `INVALID_PROJECT`, `THEKEDAR_HAS_ALL_PROJECTS`, `CANNOT_REVOKE_CURRENT_DEVICE`, `AMOUNT_MISMATCH`, `INVALID_PLAN`, `PLAN_REQUIRED`, `PAID_ON_IN_FUTURE`, `PAID_ON_TOO_OLD`, `SAME_PLAN`, `DOWNGRADE_USERS_OVER_LIMIT`, `KEEP_PROJECTS_REQUIRED`, `TOO_MANY_PROJECTS` |
+| 400 | `VALIDATION_ERROR`, `INVALID_JSON`, `USE_OTP_LOGIN`, `OTP_INVALID`, `CURRENT_PASSWORD_WRONG`, `FILE_REQUIRED`, `FILE_TOO_LARGE`, `INVALID_FILE_TYPE`, `INVALID_UPLOAD`, `HOLIDAY_IN_PAST`, `FINANCIALS_PM_ONLY`, `INVALID_PROJECT`, `THEKEDAR_HAS_ALL_PROJECTS`, `CANNOT_REVOKE_CURRENT_DEVICE`, `AMOUNT_MISMATCH`, `INVALID_PLAN`, `PLAN_REQUIRED`, `PAID_ON_IN_FUTURE`, `PAID_ON_TOO_OLD`, `SAME_PLAN`, `DOWNGRADE_USERS_OVER_LIMIT`, `KEEP_PROJECTS_REQUIRED`, `TOO_MANY_PROJECTS`, `INVALID_GROUP`, `UNIT_LOCKED`, `CATEGORY_ARCHIVED`, `CATEGORY_IS_DEFAULT`, `LAST_ACTIVE_CATEGORY`, `INVALID_MATERIAL`, `INVALID_LABOR_KEY`, `INVALID_LABOR_UNIT`, `PERCENT_TOTAL_INVALID`, `RETENTION_STAGE_INVALID`, `TEMPLATE_IS_DEFAULT`, `DAILY_RATE_REQUIRED`, `INVALID_CLIENT`, `INVALID_PM`, `INVALID_MUNSHI`, `INVALID_DATES`, `CONTRACT_VALUE_REQUIRED`, `RATE_REQUIRED`, `INVALID_TEMPLATE`, `QUALITY_CATEGORY_REQUIRED`, `QUALITY_CATEGORY_NOT_ALLOWED`, `INVALID_QUALITY_CATEGORY`, `OPENINGS_EXCEED_WALL`, `INVALID_TARGET_FLOOR`, `PROJECT_NOT_READY` |
 | 401 | `UNAUTHENTICATED`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `SESSION_REVOKED`, `ACCOUNT_DISABLED`, `INVALID_CREDENTIALS`, `REFRESH_INVALID`, `REFRESH_TOKEN_REUSED`, `DEVICE_REVOKED` |
 | 402 | `PLAN_LIMIT_REACHED` |
 | 403 | `FORBIDDEN`, `COMPANY_SUSPENDED`, `ACCOUNT_READ_ONLY`, `INVALID_SIGNATURE`, `LINK_EXPIRED`, `CANNOT_CHANGE_OWN_ROLE`, `CANNOT_CHANGE_OWNER_ROLE`, `CANNOT_DEACTIVATE_SELF`, `LAST_THEKEDAR` |
-| 404 | `ROUTE_NOT_FOUND`, `NOT_FOUND`, `PHONE_NOT_REGISTERED`, `INVITE_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `HOLIDAY_NOT_FOUND`, `USER_NOT_FOUND`, `DEVICE_NOT_FOUND`, `COMPANY_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`, `NO_PENDING_CHANGE`, `TENANT_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `PLAN_NOT_FOUND` |
-| 409 | `ALREADY_EXISTS`, `PHONE_TAKEN`, `EMAIL_TAKEN`, `MULTIPLE_COMPANIES`, `INVITE_ALREADY_ACCEPTED`, `INVITE_CANCELLED`, `INVITE_PENDING`, `ALREADY_MEMBER`, `HOLIDAY_EXISTS`, `USER_ALREADY_ACTIVE`, `PAYMENT_PENDING`, `DUPLICATE_TRANSACTION`, `SLUG_TAKEN`, `PLAN_CODE_TAKEN`, `LAST_ACTIVE_PLAN`, `ALREADY_PROCESSED`, `CANNOT_EXTEND_TRIAL`, `TENANT_CLOSED`, `CASH_BALANCE_OPEN` (future) |
+| 404 | `ROUTE_NOT_FOUND`, `NOT_FOUND`, `PHONE_NOT_REGISTERED`, `INVITE_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `HOLIDAY_NOT_FOUND`, `USER_NOT_FOUND`, `DEVICE_NOT_FOUND`, `COMPANY_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`, `NO_PENDING_CHANGE`, `TENANT_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `PLAN_NOT_FOUND`, `MATERIAL_NOT_FOUND`, `PLATFORM_MATERIAL_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `TEMPLATE_NOT_FOUND`, `SUPPLIER_NOT_FOUND`, `WORKER_NOT_FOUND`, `SUBCONTRACTOR_NOT_FOUND`, `CLIENT_NOT_FOUND`, `PROJECT_NOT_FOUND`, `FLOOR_NOT_FOUND`, `ROOM_NOT_FOUND`, `OPENING_NOT_FOUND` |
+| 409 | `ALREADY_EXISTS`, `PHONE_TAKEN`, `EMAIL_TAKEN`, `MULTIPLE_COMPANIES`, `INVITE_ALREADY_ACCEPTED`, `INVITE_CANCELLED`, `INVITE_PENDING`, `ALREADY_MEMBER`, `HOLIDAY_EXISTS`, `USER_ALREADY_ACTIVE`, `PAYMENT_PENDING`, `DUPLICATE_TRANSACTION`, `SLUG_TAKEN`, `PLAN_CODE_TAKEN`, `LAST_ACTIVE_PLAN`, `ALREADY_PROCESSED`, `CANNOT_EXTEND_TRIAL`, `TENANT_CLOSED`, `MATERIAL_EXISTS`, `MATERIAL_IN_USE`, `PLATFORM_MATERIAL_EXISTS`, `CATEGORY_EXISTS`, `TEMPLATE_EXISTS`, `SUPPLIER_EXISTS`, `WORKER_PHONE_TAKEN`, `SUBCONTRACTOR_EXISTS`, `CLIENT_PHONE_TAKEN`, `PROJECT_CODE_TAKEN`, `PROJECT_NOT_DRAFT`, `PROJECT_LOCKED`, `INVALID_STATUS_TRANSITION`, `SUPPLY_RULE_LOCKED`, `BILLING_STAGES_LOCKED`, `FLOOR_HAS_ROOMS`, `FLOOR_NOT_EMPTY`, `CASH_BALANCE_OPEN` (future) |
 | 410 | `OTP_EXPIRED`, `INVITE_EXPIRED`, `INVITE_CANCELLED` |
 | 423 | `ACCOUNT_LOCKED` |
 | 429 | `RATE_LIMITED`, `OTP_RESEND_WAIT`, `OTP_LIMIT_REACHED`, `OTP_TOO_MANY_ATTEMPTS`, `INVITE_RESEND_WAIT` |
@@ -331,6 +443,9 @@ Every transition is a conditional update + `SYSTEM` audit row, so running it twi
 | `20261003140000_auth_indexes` | `Session(deviceId)` for device revocation, `OtpCode(phone, createdAt)` for the hourly OTP limit |
 | `20261005090000_platform_admin` | `Plan.sortOrder`; PlatformHoliday `date → startDate` (renamed) + `endDate`, `type`, `updatedAt`; payment `reviewedById` (PlatformAdmin) + `reviewNote`; `JobRun` table (platform-level, no RLS; app_user has no access) |
 | `20261004090000_subscription` | SubscriptionStatus `PAST_DUE → GRACE`, `EXPIRED → LAPSED`; PaymentStatus `PENDING/PAID/FAILED → PENDING_REVIEW/APPROVED/REJECTED`; `PaymentMethod` enum; `Plan.maxProjects → maxActiveProjects` + `features`; subscription period/grace/pending-change/reminder fields; payment `transactionId` (globally unique), `paidOn`, slip, `receiptNo`; `AttachmentKind.PAYMENT_SLIP`; `ProjectStatus.READ_ONLY` |
+| `20261006090000_master_data` | Platform `MaterialGroup` + `PlatformMaterial` (app_user SELECT only); tenant `Material`, `QualityCategory`, `MaterialRate`, `LaborRate`, `Supplier`, `SupplierRate`, `Worker`, `Subcontractor`, `PaymentScheduleTemplate` with RLS (ENABLE + FORCE + `tenant_isolation`), grants and composite FKs. Existing companies: run `npm run backfill:master-data` once. |
+| `20261007090000_clients` | `Client` (tenant, RLS, unique phone per company) |
+| `20261007100000_projects` | `ProjectStatus` → DRAFT / ACTIVE / CLOSEOUT / HANDED_OVER / CLOSED / READ_ONLY (old ON_HOLD → ACTIVE, COMPLETED → HANDED_OVER, ARCHIVED → CLOSED; default DRAFT); Project wizard columns (code backfilled as `PRJ-<year>-NNN` for existing rows, then NOT NULL + unique per company); `ProjectSupplyRule`, `ProjectBillingStage`, `Floor`, `Room`, `Opening` with RLS, grants and composite FKs |
 
 Prisma's `migrate dev` refuses to run non-interactively when a change has warnings (enum value removed). Generate SQL with `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, hand-edit renames (e.g. `ALTER TYPE … RENAME VALUE`, `RENAME COLUMN`) so data is kept, save it as a new migration folder and run `npx prisma migrate deploy`.
 

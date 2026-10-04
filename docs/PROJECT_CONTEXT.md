@@ -12,8 +12,10 @@ Backend for a multi-tenant Construction Management SaaS for Pakistani constructi
 | Phase 1 · Step 2 | **Attachments**, **Company**, **Team** (users, invitations, devices) | done |
 | Phase 1 · Step 3A | **Subscription** (company side), plan limits helper, lifecycle job | done |
 | Phase 1 · Step 3B | **Platform admin** console: overview/health, companies, payment review + receipts, plans, holidays, audit log | done |
+| Phase 1 · Step 4 | **Master data**: platform material catalog, materials, quality categories + price list (rate history), labour rates, payment templates, suppliers (+ rates), workers, sub-contractors | done |
+| Phase 1 · Step 5 | **Clients** + **Projects**: draft wizard (basic, team, contract with supply rules + billing stages, plot & structure, coverage, floors/rooms/openings with calculations), review, activation, status transitions | done |
 
-Tests: 235 passing in 30 files. Migrations: `init_core_auth`, `company_team`, `tenant_logo_fk`, `auth_indexes`, `subscription`, `platform_admin`.
+Tests: 321 passing in 43 files. Migrations: `init_core_auth`, `company_team`, `tenant_logo_fk`, `auth_indexes`, `subscription`, `platform_admin`, `master_data`, `clients`, `projects`.
 
 ## Stack
 Node 24, Express 5, TypeScript 7 (strict ESM, NodeNext → imports end in `.js`), Prisma **7.10.0** (pinned; `@prisma/adapter-pg`; client generated to `src/generated/prisma`), PostgreSQL 18, Zod 4, zod-to-openapi 9, pino, jsonwebtoken, bcryptjs, multer 2, Vitest 5 + Supertest. Do not upgrade Prisma to 8 (npm `latest` is an RC).
@@ -28,7 +30,7 @@ Node 24, Express 5, TypeScript 7 (strict ESM, NodeNext → imports end in `.js`)
 
 ## Database & security
 - `DATABASE_URL` app_user (RLS) → `withTenant(tenantId, tx => …)` for everything tenant-scoped.
-- `DATABASE_ADMIN_URL` app_admin (BYPASSRLS) → `prismaAdmin`, allowed only in `src/modules/auth/**`, `src/modules/platform-admin/**`, seed, scripts, tests (guard test enforces).
+- `DATABASE_ADMIN_URL` app_admin (BYPASSRLS) → `prismaAdmin`, allowed only in `src/modules/auth/**`, `src/modules/platform-admin/**`, `src/jobs/**`, seed, scripts, tests (guard test enforces — it greps for the word, so don't even mention it in comments elsewhere).
 - `DATABASE_MIGRATION_URL` superuser → Prisma CLI only.
 - RLS: ENABLE + FORCE + `tenant_isolation` policy on every `tenantId` table (`prisma/rls.sql`). New tenant tables need the policy and an explicit `GRANT … TO app_user` in their migration. Composite `(tenantId, id)` FKs for tenant-scoped parents — **but never include a model's own `id` in relation fields** (Prisma then stops generating its default; see `tenant_logo_fk`).
 - `prisma migrate dev` refuses non-interactive runs with warnings and `migrate reset` is blocked for AI agents: generate SQL with `prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, hand-edit renames, save as a migration folder, `prisma migrate deploy`.
@@ -49,18 +51,23 @@ env (Zod), logger (redacted), requestContext (ALS), AppError family, response/as
 - **jobs** — `src/jobs/subscriptionLifecycle.ts` (trial end → LAPSED, period end → GRACE +3 d → LAPSED, scheduled downgrades, 3-day/1-day reminder SMS), scheduled in-process at start-up + 02:00 PKT with `pg_try_advisory_lock`; `npm run jobs:subscriptions`. `src/jobs/**` may use prismaAdmin.
 - **platform-admin** (`/api/v1/admin`, prismaAdmin allowed) — overview (counts, MRR, revenue), health (+ `JobRun`), tenants (list/detail, create TRIAL/PAID with a THEKEDAR invite, status actions, plan change), payments (queue with duplicate warnings, approve → period/plan/receipt `RCPT-YYYY-NNNN`/company ACTIVE/SMS, reject with reason), plans CRUD, platform holidays CRUD, audit log. Every write audited as PLATFORM_ADMIN.
 - **subscription.rules.ts** — `assertPlanFits` / `parkProjectsOverLimit`, shared by company change-plan, admin plan change, payment approval and the lifecycle job. `planLimits` filters by tenantId explicitly (safe under prismaAdmin).
-- **health**, **projects** (stub model only — status `READ_ONLY` exists for downgrades).
+- **master-data** (`/material-groups`, `/materials`, `/quality-categories`, `/price-list`, `/labor-rates`, `/payment-templates`, `/suppliers`, `/workers`, `/subcontractors`) — platform catalog copied into each company by `provisionMasterData(tx, tenantId)` at sign-up / admin create (idempotent; `npm run backfill:master-data`). Material rates are append-only history per material × quality category; current = latest `effectiveFrom ≤ now()` (`repository.currentRates`, DISTINCT ON). `/materials` never returns rates; `/price-list` needs `rates.view` (MUNSHI 403). Workers: MUNSHI may list/add; daily rate defaults from the DAILY `LaborRate`. Platform catalog in platform-admin: push to all companies, edits propagate to non-customised copies, unit immutable. Constants in `master-data/catalog.ts`.
+- **clients** (`/clients`, THEKEDAR + PM) — project owners, no login; phone unique per company; `createClientTx` is reused by project tab 1 `newClient`.
+- **projects** — `access.ts` (THEKEDAR all; PM/MUNSHI via UserProjectAccess; out of scope → 404; `assertEditable` → 409 PROJECT_LOCKED unless DRAFT/ACTIVE), `projects.dto.ts` (financial fields omitted without billing.view; MUNSHI basic view), `code.ts` (`MSB-2026-NNN`, advisory lock), `presets.ts` (supply categories/presets, floor levels, room types, wet types), `calc.ts` (pure Decimal maths: plot, room, totals, stage amounts), services: projects (list/create/detail/delete/basic/team), wizard (contract/plot-structure/coverage + `recomputeStageAmounts`), rooms (floors/rooms/openings/copy), review (review/activate/status). Statuses DRAFT → ACTIVE → CLOSEOUT → HANDED_OVER → CLOSED (+ reopen CLOSEOUT → ACTIVE); READ_ONLY only from the subscription job. Plan counts ACTIVE + CLOSEOUT (`PLAN_COUNTED_PROJECT_STATUSES`). Estimate engine (`nextStep: "ESTIMATE"`) is Phase 2.
+- **health**.
 
 ## Seed (`npm run db:seed`, idempotent)
 Plans TRIAL / STARTER (3 office users) / PROFESSIONAL (10) / ENTERPRISE. Platform admin `admin@platform.local` / `Admin#2026`.
-Malik & Sons Builders (Professional, NTN 1234567-8): Khalid THEKEDAR `03001234567` / `Thekedar#2026`; Bilal PM `03331112233` / `Bilal#2026`; Rafaqat MUNSHI `03211234567` (OTP).
+Malik & Sons Builders (Professional, NTN 1234567-8): Khalid THEKEDAR `03001234567` / `Thekedar#2026`; Bilal PM `03331112233` / `Bilal#2026`; Rafaqat MUNSHI `03211234567` (OTP); Asif Mehmood MUNSHI `03224567890` (OTP).
 Ahmed Constructions (Starter): Ahmed THEKEDAR `03331234567` / `Ahmed#2026`; Rafaqat also MUNSHI here; Easypaisa payment `EP2610010042` pending review.
 Malik: ACTIVE Professional, period ends in 12 days, 3 approved payments (RCPT-2026-0371/0372/0381).
 Valley Builders (GRACE, Zubair `03451000001` / `Valley#2026`), Old Town Contractors (LAPSED + READ_ONLY, Nasir `03451000002` / `OldTown#2026`).
 Pending PM invite Kamran Shah `03009988776`, token `dev-invite-kamran-shah-2026-0001`.
+Projects (`prisma/seedProjects.ts`): Malik — 6 clients; DHA Phase 6 · 10 Marla `MSB-2026-012` (ACTIVE, full wizard, 17 rooms, Bilal + Rafaqat), Johar Town `MSB-2026-008` (ACTIVE, Bilal), Bahria Town · 1 Kanal `MSB-2026-014` (ACTIVE, Asif), Valencia `MSB-2025-031` (HANDED_OVER, labour-only), Model Town `MSB-2026-016` (DRAFT, tabs 1–2) → 3 count against the plan. Ahmed — Wapda Town `AC-2026-001` (ACTIVE). Valley — Clifton `VB-2026-001`.
+Master data (`prisma/seedMasterData.ts`): 12 groups + 40 catalog materials; every company gets the copy, 3 categories, 14 labour rates, Residential template. Malik also has A+/A/B rates for 8 materials (+ older cement A rate), Labor-only + Commercial templates, 5 suppliers (Al-Madina cement 1,430), 14 workers (Pervaiz inactive), 6 sub-contractors.
 
 ## Tests
-`npm test` → `.env.test` → `construction_test` (setup runs `db-setup` + `migrate deploy`; each test truncates + re-seeds; refuses non-`_test` DBs). Helpers: `api`, `useFreshDatabase`, `loginMobile`, `loginMunshi`, `refreshMobile`, `lastOtp`, `upload`, `pngBytes`, `pathOf`, `bearer`.
+`npm test` → `.env.test` → `construction_test` (setup runs `db-setup` + `migrate deploy`; each test truncates + re-seeds; refuses non-`_test` DBs). Helpers: `api`, `useFreshDatabase`, `loginMobile`, `loginMunshi`, `refreshMobile`, `lastOtp`, `upload`, `pngBytes`, `pathOf`, `bearer`, `projectRow` (bare ACTIVE project row); `tests/projects/fixtures.ts` (`createDraft`, `createReadyDraft`).
 
 ## Known notes
 - Access tokens are re-checked on every company request (user ACTIVE, device not revoked, session family alive), so logout/deactivate/revoke cut access at once. Role/permission changes apply at the next refresh (≤ 15 min).

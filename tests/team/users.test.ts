@@ -27,11 +27,11 @@ describe('GET /users', () => {
     const first = await api().get('/api/v1/users?limit=2').set(bearer(s.accessToken));
     expect(first.status).toBe(200);
     expect(first.body.data).toHaveLength(2);
-    expect(first.body.meta).toEqual({ page: 1, limit: 2, total: 3, totalPages: 2, usage: { officeUsers: 2, maxOfficeUsers: 10 } });
+    expect(first.body.meta).toEqual({ page: 1, limit: 2, total: 4, totalPages: 2, usage: { officeUsers: 2, maxOfficeUsers: 10 } });
     const second = await api().get('/api/v1/users?limit=2&page=2').set(bearer(s.accessToken));
-    expect(second.body.data).toHaveLength(1);
+    expect(second.body.data).toHaveLength(2);
     const ids = [...first.body.data, ...second.body.data].map((u: { id: string }) => u.id);
-    expect(new Set(ids).size).toBe(3);
+    expect(new Set(ids).size).toBe(4);
     expect((await api().get('/api/v1/users?limit=101').set(bearer(s.accessToken))).status).toBe(400);
   });
 
@@ -41,13 +41,13 @@ describe('GET /users', () => {
     expect(await q('role=PM')).toEqual(['Bilal Ahmed']);
     expect(await q('search=rafa')).toEqual(['Rafaqat Ali']);
     expect(await q('search=0333-111')).toEqual(['Bilal Ahmed']);
-    expect(await q(`projectId=${seeded().projects.bahria.id}`)).toEqual(['Bilal Ahmed', 'Khalid Malik']);
+    expect(await q(`projectId=${seeded().projects.bahria.id}`)).toEqual(['Asif Mehmood', 'Khalid Malik']);
     expect(await q(`projectId=${seeded().projects.dha.id}`)).toEqual(['Bilal Ahmed', 'Khalid Malik', 'Rafaqat Ali']);
     expect(await q('status=INACTIVE')).toEqual([]);
 
     const bilal = (await api().get('/api/v1/users?role=PM').set(bearer(s.accessToken))).body.data[0];
     expect(bilal).toMatchObject({ canSeeFinancials: false, allProjects: false });
-    expect(bilal.projects.map((p: { name: string }) => p.name)).toHaveLength(2);
+    expect(bilal.projects.map((p: { name: string }) => p.name)).toHaveLength(3); // DHA, Johar Town, Valencia
   });
 
   it('PM callers do not see canSeeFinancials', async () => {
@@ -208,7 +208,7 @@ describe('PUT /users/:id/projects', () => {
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('INVALID_PROJECT');
     expect(res.body.error.details.invalidIds).toEqual([projects.ahmedProject.id]);
-    expect(await prismaAdmin.userProjectAccess.count({ where: { userId: users.bilal.id } })).toBe(2);
+    expect(await prismaAdmin.userProjectAccess.count({ where: { userId: users.bilal.id } })).toBe(3);
 
     const owner2 = await api().put(`/api/v1/users/${users.khalid.id}/projects`).set(bearer(s.accessToken)).send({ projectIds: [] });
     expect(owner2.status).toBe(400);

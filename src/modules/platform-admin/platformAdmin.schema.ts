@@ -190,3 +190,55 @@ export type HolidaysQuery = z.infer<typeof holidaysQuery>;
 export type CreateHolidayInput = z.infer<typeof createHolidayBody>;
 export type UpdateHolidayInput = z.infer<typeof updateHolidayBody>;
 export type AuditQuery = z.infer<typeof auditQuery>;
+
+// ─── Material catalog ───────────────────────────────────────────────────────
+
+export const supplyCategorySchema = z.enum(['GREY_STRUCTURE', 'FINISHING']);
+export const altUnitsSchema = z
+  .array(z.object({ unit: z.string().trim().min(1).max(20), factor: z.number().positive() }))
+  .max(5)
+  .meta({ example: [{ unit: 'kg', factor: 50 }], description: 'How many of `unit` make one base unit' });
+
+export const catalogMaterialsQuery = z.object({
+  groupId: uuid('groupId').optional(),
+  search: z.string().trim().min(1).max(100).optional(),
+  supplyCategory: supplyCategorySchema.optional(),
+  isActive: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional(),
+});
+
+export const createCatalogMaterialBody = z.object({
+  groupId: uuid('groupId'),
+  name: z.string().trim().min(2).max(80),
+  unit: z.string().trim().min(1).max(20),
+  unitDetail: z.string().trim().max(80).optional(),
+  altUnits: altUnitsSchema.default([]),
+  supplyCategory: supplyCategorySchema,
+  usedByRulebook: z.boolean().default(false),
+  rulebookKey: z.string().trim().regex(/^[a-z][a-z0-9_]{1,39}$/, 'lowercase_snake_case').optional(),
+  sortOrder: z.number().int().min(0).max(10_000).optional(),
+  pushToTenants: z.boolean().default(true).meta({ description: 'Add it to every company now (skips companies that already have the name)' }),
+});
+
+export const updateCatalogMaterialBody = z
+  .object({
+    unit: z
+      .unknown()
+      .optional()
+      .refine((v) => v === undefined, 'unit cannot be changed')
+      .meta({ description: 'Immutable — companies have rates in this unit' }),
+    name: z.string().trim().min(2).max(80).optional(),
+    unitDetail: z.string().trim().max(80).nullable().optional(),
+    altUnits: altUnitsSchema.optional(),
+    supplyCategory: supplyCategorySchema.optional(),
+    usedByRulebook: z.boolean().optional(),
+    isActive: z.boolean().optional(),
+    sortOrder: z.number().int().min(0).max(10_000).optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'Nothing to update' });
+
+export type CatalogMaterialsQuery = z.infer<typeof catalogMaterialsQuery>;
+export type CreateCatalogMaterialInput = z.infer<typeof createCatalogMaterialBody>;
+export type UpdateCatalogMaterialInput = z.infer<typeof updateCatalogMaterialBody>;

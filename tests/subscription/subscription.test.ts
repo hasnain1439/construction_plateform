@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { prismaAdmin } from '../../src/core/db/prisma.js';
 import { todayIn } from '../../src/core/utils/dates.js';
-import { api, bearer, loginMobile, loginMunshi, pngBytes, SEED, upload, useFreshDatabase } from '../helpers.js';
+import { api, bearer, loginMobile, loginMunshi, pngBytes, SEED, upload, useFreshDatabase, projectRow } from '../helpers.js';
 
 const seeded = useFreshDatabase();
 const owner = () => loginMobile(SEED.malik.owner.phone, SEED.malik.owner.password);
@@ -29,7 +29,7 @@ describe('GET /subscription', () => {
       pendingChange: null,
       readOnly: false,
       // Khalid + Bilal + Kamran's pending PM invite; Rafaqat (Munshi) not counted
-      usage: { activeProjects: { used: 2, limit: 5 }, officeUsers: { used: 3, limit: 10 } },
+      usage: { activeProjects: { used: 3, limit: 5 }, officeUsers: { used: 3, limit: 10 } },
     });
     expect(res.body.data.plan.features.length).toBeGreaterThan(0);
   });
@@ -201,7 +201,11 @@ describe('POST/DELETE /subscription/change-plan', () => {
 
   it('downgrade is scheduled for the period end', async () => {
     const s = await owner();
-    const res = await api().post('/api/v1/subscription/change-plan').set(bearer(s.accessToken)).send({ planId: plan('STARTER') });
+    const { dha, johar } = seeded().projects;
+    const res = await api()
+      .post('/api/v1/subscription/change-plan')
+      .set(bearer(s.accessToken))
+      .send({ planId: plan('STARTER'), keepActiveProjectIds: [dha.id, johar.id] });
     expect(res.status).toBe(200);
     const sub = await prismaAdmin.subscription.findUniqueOrThrow({ where: { tenantId: seeded().malik.id } });
     expect(res.body.data).toMatchObject({ type: 'DOWNGRADE', amountDuePaisa: null, pendingChange: { effectiveOn: sub.currentPeriodEnd!.toISOString() } });
@@ -219,11 +223,11 @@ describe('POST/DELETE /subscription/change-plan', () => {
   it('too many active projects → keepActiveProjectIds required, validated and stored', async () => {
     const s = await owner();
     const { malik, projects } = seeded();
-    const third = await prismaAdmin.project.create({ data: { tenantId: malik.id, name: 'Johar Town — Shop' } });
+    const third = await projectRow(malik.id, 'Johar Town — Shop');
     const change = (body: Record<string, unknown>) =>
       api().post('/api/v1/subscription/change-plan').set(bearer(s.accessToken)).send({ planId: plan('STARTER'), ...body });
 
-    expect((await change({})).body.error).toMatchObject({ code: 'KEEP_PROJECTS_REQUIRED', details: { activeProjects: 3, limit: 2 } });
+    expect((await change({})).body.error).toMatchObject({ code: 'KEEP_PROJECTS_REQUIRED', details: { activeProjects: 4, limit: 2 } });
     expect((await change({ keepActiveProjectIds: [projects.dha.id, projects.bahria.id, third.id] })).body.error.code).toBe('TOO_MANY_PROJECTS');
     expect((await change({ keepActiveProjectIds: [projects.dha.id, projects.ahmedProject.id] })).body.error.code).toBe('INVALID_PROJECT');
 

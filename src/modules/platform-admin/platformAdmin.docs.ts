@@ -3,6 +3,8 @@ import { errors, jsonBody, platformSecurity, registry, type NamedExample } from 
 import {
   approvePaymentBody,
   auditQuery,
+  catalogMaterialsQuery,
+  createCatalogMaterialBody,
   createHolidayBody,
   createPlanBody,
   createTenantBody,
@@ -13,6 +15,7 @@ import {
   tenantsQuery,
   tenantStatusBody,
   updateHolidayBody,
+  updateCatalogMaterialBody,
   updatePlanBody,
 } from './platformAdmin.schema.js';
 
@@ -271,5 +274,60 @@ export function registerPlatformAdminDocs(): void {
     description: 'Newest first. `action` is a prefix (e.g. `auth.`, `subscription.payment`). Secret-looking fields are always redacted.',
     request: { query: auditQuery },
     responses: { ...ok('Audit events'), ...errors({ ...AUTH, 400: ['VALIDATION_ERROR'] }) },
+  });
+
+  // ─── Material catalog ────────────────────────────────────────────────────
+  const GROUP_ID = '0199a8c0-0000-7000-8000-0000000000c4';
+  const catalogItem = {
+    id: '0199a8c0-0000-7000-8000-0000000000d9',
+    group: { id: GROUP_ID, code: 'WATERPROOFING', name: 'Waterproofing' },
+    name: 'Waterproof coating',
+    unit: 'bucket',
+    unitDetail: '1 bucket = 20 kg',
+    altUnits: [{ unit: 'kg', factor: 20 }],
+    supplyCategory: 'GREY_STRUCTURE',
+    usedByRulebook: false,
+    rulebookKey: null,
+    isActive: true,
+    sortOrder: 41,
+  };
+  path('get', '/api/v1/admin/material-groups', {
+    summary: 'Material groups',
+    description: 'The 12 fixed groups with how many catalog materials each has.',
+    responses: { ...ok('Groups', [{ id: GROUP_ID, code: 'WATERPROOFING', name: 'Waterproofing', section: 'CIVIL', sortOrder: 5, materials: 3 }]), ...errors(AUTH) },
+  });
+  path('get', '/api/v1/admin/materials', {
+    summary: 'Platform material catalog',
+    description: 'Every catalog material; `companies` = how many companies have a copy.',
+    request: { query: catalogMaterialsQuery },
+    responses: { ...ok('Catalog', [{ ...catalogItem, companies: 4 }]), ...errors({ ...AUTH, 400: ['VALIDATION_ERROR'] }) },
+  });
+  path('post', '/api/v1/admin/materials', {
+    summary: 'Add a catalog material',
+    description:
+      'With `pushToTenants` (default true) it is copied into every company at once; a company that already has a ' +
+      'material with that name keeps its own. New companies always get every active catalog material.',
+    request: {
+      body: jsonBody(createCatalogMaterialBody, {
+        push: ex('Waterproof coating, push to all', { groupId: GROUP_ID, name: 'Waterproof coating', unit: 'bucket', unitDetail: '1 bucket = 20 kg', altUnits: [{ unit: 'kg', factor: 20 }], supplyCategory: 'GREY_STRUCTURE' }),
+        quiet: ex('Catalog only (new companies get it)', { groupId: GROUP_ID, name: 'Crystalline admixture', unit: 'kg', supplyCategory: 'GREY_STRUCTURE', pushToTenants: false }),
+      }),
+    },
+    responses: { ...createdResp('Created', { ...catalogItem, pushedTo: 4 }), ...errors({ ...AUTH, 400: ['VALIDATION_ERROR', 'INVALID_GROUP'], 409: ['PLATFORM_MATERIAL_EXISTS'] }) },
+  });
+  path('patch', '/api/v1/admin/materials/{id}', {
+    summary: 'Edit a catalog material',
+    description:
+      'Name, unitDetail and altUnits flow into company copies that were never customised (skipping a company that ' +
+      'already has another material with the new name). The unit can never change.',
+    request: {
+      params: idParam('Catalog material'),
+      body: jsonBody(updateCatalogMaterialBody, {
+        rename: ex('Rename everywhere', { name: 'Waterproof coating (acrylic)' }),
+        retire: ex('Stop giving it to new companies', { isActive: false }),
+        unit: ex('❌ Change unit → 400', { unit: 'litre' }),
+      }),
+    },
+    responses: { ...ok('Updated', { ...catalogItem, propagatedTo: 3 }), ...errors({ ...AUTH, 400: ['VALIDATION_ERROR'], 404: ['PLATFORM_MATERIAL_NOT_FOUND'], 409: ['PLATFORM_MATERIAL_EXISTS'] }) },
   });
 }

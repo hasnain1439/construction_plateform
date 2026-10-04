@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { prismaAdmin } from '../../src/core/db/prisma.js';
 import { runSubscriptionLifecycle } from '../../src/jobs/subscriptionLifecycle.js';
 import { ConsoleSmsProvider, smsProvider } from '../../src/modules/auth/sms.provider.js';
-import { api, bearer, device, loginMobile, SEED, useFreshDatabase } from '../helpers.js';
+import { api, bearer, device, loginMobile, SEED, useFreshDatabase, projectRow } from '../helpers.js';
 
 const seeded = useFreshDatabase();
 const DAY = 86_400_000;
@@ -94,7 +94,7 @@ describe('subscription lifecycle job', () => {
   it('a scheduled downgrade is applied at period end; projects outside keepActiveProjectIds become READ_ONLY', async () => {
     const { malik, plans, projects } = seeded();
     const s = await loginMobile(SEED.malik.owner.phone, SEED.malik.owner.password);
-    const third = await prismaAdmin.project.create({ data: { tenantId: malik.id, name: 'Johar Town — Shop' } });
+    const third = await projectRow(malik.id, 'Johar Town — Shop');
     const change = await api()
       .post('/api/v1/subscription/change-plan')
       .set(bearer(s.accessToken))
@@ -113,9 +113,16 @@ describe('subscription lifecycle job', () => {
     const statuses = Object.fromEntries(
       (await prismaAdmin.project.findMany({ where: { tenantId: malik.id } })).map((p) => [p.id, p.status]),
     );
-    expect(statuses).toEqual({ [projects.dha.id]: 'ACTIVE', [third.id]: 'ACTIVE', [projects.bahria.id]: 'READ_ONLY' });
+    expect(statuses).toEqual({
+      [projects.dha.id]: 'ACTIVE',
+      [third.id]: 'ACTIVE',
+      [projects.bahria.id]: 'READ_ONLY',
+      [projects.johar.id]: 'READ_ONLY',
+      [projects.valencia.id]: 'HANDED_OVER', // not counted, untouched
+      [projects.modelTown.id]: 'DRAFT',
+    });
     const audit = await prismaAdmin.auditLog.findFirstOrThrow({ where: { tenantId: malik.id, action: 'subscription.downgraded' } });
-    expect(audit.details).toMatchObject({ from: 'PROFESSIONAL', to: 'STARTER', projectsReadOnly: [projects.bahria.id] });
+    expect(audit.details).toMatchObject({ from: 'PROFESSIONAL', to: 'STARTER', projectsReadOnly: expect.arrayContaining([projects.bahria.id, projects.johar.id]) });
   });
 
   it('reminder SMS 3 days and 1 day before the end — once each', async () => {

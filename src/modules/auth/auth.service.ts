@@ -24,6 +24,7 @@ import { maskPhone } from '../../core/utils/phone.js';
 import { slugify } from '../../core/utils/slug.js';
 import type { TenantStatus } from '../../generated/prisma/enums.js';
 import { optionalSignedUrl } from '../attachments/attachments.service.js';
+import { provisionMasterData } from '../master-data/provision.js';
 import * as repo from './auth.repository.js';
 import type {
   AcceptInvitationInput,
@@ -280,6 +281,8 @@ export async function signup(input: SignupInput): Promise<AuthResult> {
       passwordHash,
       role: 'THEKEDAR',
     });
+    // Starting master data: material catalog, quality categories, labour rates, billing template.
+    await provisionMasterData(tx, tenant.id);
     await repo.markLoginSuccess(tx, user.id, now);
     const session = await openSession(tx, user, input.device, now);
     await writeAudit(tx, {
