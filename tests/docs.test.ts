@@ -19,6 +19,9 @@ import * as admin from '../src/modules/platform-admin/platformAdmin.schema.js';
 import * as md from '../src/modules/master-data/master-data.schema.js';
 import * as cl from '../src/modules/clients/clients.schema.js';
 import * as pr from '../src/modules/projects/projects.schema.js';
+import * as inv from '../src/modules/inventory/inventory.schema.js';
+import * as proc from '../src/modules/procurement/procurement.schema.js';
+import * as dsp from '../src/modules/dispatch/dispatch.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
@@ -83,6 +86,22 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'patch /api/v1/rooms/{id}': pr.updateRoomBody,
   'post /api/v1/rooms/{id}/openings': pr.openingInputSchema,
   'patch /api/v1/openings/{id}': pr.updateOpeningBody,
+  'put /api/v1/stores/{locationId}/low-stock-levels': inv.lowStockLevelsBody,
+  'post /api/v1/projects/{id}/material-usage': inv.usageBody,
+  'post /api/v1/stock-counts': inv.stockCountBody,
+  'post /api/v1/purchases': proc.createPurchaseBody,
+  'patch /api/v1/purchases/{id}/rates': proc.setRatesBody,
+  'post /api/v1/purchases/{id}/corrections': proc.correctionBody,
+  'post /api/v1/purchases/{id}/returns': proc.purchaseReturnBody,
+  'post /api/v1/purchases/{id}/receive': proc.receivePurchaseBody,
+  'post /api/v1/purchase-orders': proc.createPurchaseOrderBody,
+  'patch /api/v1/purchase-orders/{id}': proc.updatePurchaseOrderBody,
+  'post /api/v1/supplier-payments': proc.createPaymentBody,
+  'patch /api/v1/supplier-payments/{id}/cheque-status': proc.chequeStatusBody,
+  'post /api/v1/dispatches': dsp.createDispatchBody,
+  'post /api/v1/dispatches/{id}/receive': dsp.receiveDispatchBody,
+  'post /api/v1/shortages/{id}/resolve': dsp.resolveShortageBody,
+  'post /api/v1/projects/{id}/owner-deliveries': dsp.ownerDeliveryBody,
 };
 
 type Spec = {
@@ -115,10 +134,20 @@ describe('API docs', () => {
       'Projects',
       'Project Wizard',
       'Floors & Rooms',
+      'Stock',
+      'Purchases',
+      'Purchase Orders',
+      'Supplier Ledger',
+      'Dispatch',
+      'Receiving',
+      'Shortages',
+      'Owner Deliveries',
+      'Material Usage',
+      'Stock Counts',
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(102);
+    expect(Object.keys(res.body.paths)).toHaveLength(130);
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

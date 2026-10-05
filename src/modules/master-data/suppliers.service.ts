@@ -1,4 +1,6 @@
+import { getCtx } from '../../core/context/requestContext.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
+import { balanceDto, supplierBalances } from '../procurement/supplierLedger.service.js';
 import { BadRequest, NotFound } from '../../core/errors/AppError.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import type { Prisma, Supplier } from '../../generated/prisma/client.js';
@@ -7,6 +9,8 @@ import type { CreateSupplierInput, ListSuppliersQuery, SetSupplierRatesInput, Up
 import { audit, conflictOn, current } from './master-data.shared.js';
 
 const notFound = () => new NotFound('SUPPLIER_NOT_FOUND', 'Supplier not found');
+/** Udhaar balance + ageing are money: only with rates.view. */
+const seesRates = () => getCtx().permissions.includes('rates.view');
 const exists = conflictOn('SUPPLIER_EXISTS', 'A supplier with this name already exists');
 
 function toSupplierDto(s: Supplier) {
@@ -59,12 +63,17 @@ export async function listSuppliers(query: ListSuppliersQuery) {
     const where: Prisma.SupplierWhereInput = and.length ? { AND: and } : {};
     const rows = await tx.supplier.findMany({ where, orderBy: [{ isActive: 'desc' }, { name: 'asc' }], ...skipTake(query) });
     const total = await tx.supplier.count({ where });
-    return { data: rows.map(toSupplierDto), meta: pageMeta(query, total) };
+    const balances = seesRates() ? await supplierBalances(tx, current().tenantId, rows.map((r) => r.id)) : null;
+    return { data: rows.map((r) => ({ ...toSupplierDto(r), ...(balances ? balanceDto(balances.get(r.id)) : {}) })), meta: pageMeta(query, total) };
   });
 }
 
 export async function getSupplier(id: string) {
-  return withTenant(current().tenantId, async (tx) => ({ ...toSupplierDto(await findSupplier(tx, id)), rates: await currentRatesOf(tx, id) }));
+  return withTenant(current().tenantId, async (tx) => {
+    const supplier = toSupplierDto(await findSupplier(tx, id));
+    const balance = seesRates() ? balanceDto((await supplierBalances(tx, current().tenantId, [id])).get(id)) : {};
+    return { ...supplier, ...balance, rates: await currentRatesOf(tx, id) };
+  });
 }
 
 export async function createSupplier(input: CreateSupplierInput) {

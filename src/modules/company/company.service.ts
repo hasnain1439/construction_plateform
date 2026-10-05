@@ -95,6 +95,7 @@ function toSettingsDto(s: SettingsRow): SettingsDto {
     quoteValidityDays: s.quoteValidityDays,
     taxEnabled: s.taxEnabled,
     pmCanSeeFinancials: s.pmCanSeeFinancials,
+    blindCountEnabled: s.blindCountEnabled,
     defaultLanguage: s.defaultLanguage,
   };
 }

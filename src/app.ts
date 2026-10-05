@@ -15,7 +15,16 @@ import { adminAuthRouter, authRouter, invitationRouter } from './modules/auth/au
 import { clientsRouter } from './modules/clients/clients.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 import { floorsRouter, openingsRouter, projectsRouter, roomsRouter, supplyPresetsRouter } from './modules/projects/projects.routes.js';
+import { dispatchesRouter, projectDispatchRouter, shortagesRouter } from './modules/dispatch/dispatch.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
+import { projectStockRouter, stockCountsRouter, stockLocationsRouter, stockRouter, storesRouter } from './modules/inventory/inventory.routes.js';
+import {
+  purchaseOrdersRouter,
+  purchaseReturnsRouter,
+  purchasesRouter,
+  supplierLedgerRouter,
+  supplierPaymentsRouter,
+} from './modules/procurement/procurement.routes.js';
 import {
   laborRatesRouter,
   materialGroupsRouter,
@@ -83,10 +92,23 @@ export function createApp(options: CreateAppOptions = {}): Express {
   api.use('/price-list', priceListRouter);
   api.use('/labor-rates', laborRatesRouter);
   api.use('/payment-templates', paymentTemplatesRouter);
+  api.use('/suppliers', supplierLedgerRouter); // /suppliers/:id/ledger (per-route auth)
   api.use('/suppliers', suppliersRouter);
+  api.use('/supplier-payments', supplierPaymentsRouter);
+  api.use('/purchase-orders', purchaseOrdersRouter);
+  api.use('/purchases', purchasesRouter);
+  api.use('/purchase-returns', purchaseReturnsRouter);
   api.use('/workers', workersRouter);
   api.use('/subcontractors', subcontractorsRouter);
   api.use('/clients', clientsRouter);
+  api.use('/stock-locations', stockLocationsRouter);
+  api.use('/stores', storesRouter);
+  api.use('/stock', stockRouter);
+  api.use('/stock-counts', stockCountsRouter);
+  api.use('/dispatches', dispatchesRouter);
+  api.use('/shortages', shortagesRouter);
+  api.use('/projects', projectStockRouter); // /projects/:id/stock, /material-usage (per-route auth)
+  api.use('/projects', projectDispatchRouter); // /projects/:id/incoming, /owner-deliveries (per-route auth)
   api.use('/projects', projectsRouter);
   api.use('/supply-presets', supplyPresetsRouter);
   api.use('/floors', floorsRouter);

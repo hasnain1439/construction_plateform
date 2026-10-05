@@ -1,3 +1,4 @@
+import { env } from '../../config/env.js';
 import { prisma, type Prisma } from './prisma.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -23,6 +24,6 @@ export async function withTenant<T>(
       await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
       return fn(tx);
     },
-    { timeout: options?.timeout ?? 10_000 },
+    { maxWait: env.DB_TX_MAX_WAIT_MS, timeout: options?.timeout ?? 10_000 },
   );
 }

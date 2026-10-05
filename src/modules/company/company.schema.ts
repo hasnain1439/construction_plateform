@@ -82,6 +82,7 @@ export const updateSettingsBody = z
     quoteValidityDays: z.number().int().min(1, 'Must be between 1 and 90').max(90, 'Must be between 1 and 90').optional(),
     taxEnabled: z.boolean().optional(),
     pmCanSeeFinancials: z.boolean().optional(),
+    blindCountEnabled: z.boolean().optional(),
     defaultLanguage: languageSchema.optional(),
   })
   .refine((value) => Object.values(value).some((v) => v !== undefined), { message: 'Nothing to update' });
@@ -94,6 +95,7 @@ export const settingsDto = z
     quoteValidityDays: z.number(),
     taxEnabled: z.boolean(),
     pmCanSeeFinancials: z.boolean(),
+    blindCountEnabled: z.boolean().meta({ description: 'Site receiving hides sent / challan quantities until counted' }),
     defaultLanguage: languageSchema,
   })
   .meta({ id: 'CompanySettings' });

@@ -43,6 +43,7 @@ const settingsExample = {
     quoteValidityDays: 15,
     taxEnabled: false,
     pmCanSeeFinancials: false,
+    blindCountEnabled: true,
     defaultLanguage: 'ROMAN_URDU',
   },
 };
@@ -103,7 +104,7 @@ export function registerCompanyDocs(): void {
     summary: 'Update business rules',
     description:
       'THEKEDAR only.\n\n- `kharchaApprovalLimitPaisa` ≥ 0 (paisa string)\n- `overuseAlertPercent` 1–20\n- `missingLogAlertTime` HH:MM\n- `quoteValidityDays` 1–90\n\n' +
-      '`pmCanSeeFinancials` is the default for new PM invitations.',
+      '`pmCanSeeFinancials` is the default for new PM invitations. `blindCountEnabled` hides sent / challan quantities while a site counts a delivery.',
     security: companySecurity,
     request: {
       body: jsonBody(updateSettingsBody, {

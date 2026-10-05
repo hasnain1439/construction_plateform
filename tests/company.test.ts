@@ -96,6 +96,7 @@ describe('company settings', () => {
       quoteValidityDays: 15,
       taxEnabled: false,
       pmCanSeeFinancials: false,
+      blindCountEnabled: true,
       defaultLanguage: 'ROMAN_URDU',
     });
   });

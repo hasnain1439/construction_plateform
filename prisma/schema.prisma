@@ -53,6 +53,8 @@ enum AttachmentKind {
   DOCUMENT
   VOICE_NOTE
   PAYMENT_SLIP
+  /// Supplier's delivery challan (purchases).
+  CHALLAN
 }
 
 enum HolidayType {
@@ -273,6 +275,28 @@ model Tenant {
   floors               Floor[]
   rooms                Room[]
   openings             Opening[]
+  counters             TenantCounter[]
+  stockLocations       StockLocation[]
+  stockMovements       StockMovement[]
+  lowStockLevels       LowStockLevel[]
+  purchaseOrders       PurchaseOrder[]
+  purchaseOrderItems   PurchaseOrderItem[]
+  purchases            Purchase[]
+  purchaseItems        PurchaseItem[]
+  purchaseCorrections  PurchaseCorrection[]
+  purchaseReturns      PurchaseReturn[]
+  purchaseReturnItems  PurchaseReturnItem[]
+  supplierLedger       SupplierLedgerEntry[]
+  supplierPayments     SupplierPayment[]
+  dispatches           Dispatch[]
+  dispatchItems        DispatchItem[]
+  shortages            Shortage[]
+  ownerDeliveries      OwnerDelivery[]
+  ownerDeliveryItems   OwnerDeliveryItem[]
+  materialUsages       MaterialUsage[]
+  materialUsageItems   MaterialUsageItem[]
+  stockCounts          StockCount[]
+  stockCountItems      StockCountItem[]
 }
 
 model TenantSettings {
@@ -293,6 +317,8 @@ model TenantSettings {
   taxEnabled                Boolean  @default(false)
   /// Default for `canSeeFinancials` on new PM invitations.
   pmCanSeeFinancials        Boolean  @default(false)
+  /// Site receiving hides sent / challan quantities until the count is submitted.
+  blindCountEnabled         Boolean  @default(true)
   createdAt                 DateTime @default(now()) @db.Timestamptz(3)
   updatedAt                 DateTime @updatedAt @db.Timestamptz(3)
   tenant                    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -400,6 +426,20 @@ model User {
   workersCreated       Worker[]              @relation("WorkerCreatedBy")
   clientsCreated       Client[]              @relation("ClientCreatedBy")
   projectsCreated      Project[]             @relation("ProjectCreatedBy")
+  stockMovements       StockMovement[]       @relation("StockMovementCreatedBy")
+  purchaseOrders       PurchaseOrder[]       @relation("PurchaseOrderCreatedBy")
+  purchasesCreated     Purchase[]            @relation("PurchaseCreatedBy")
+  purchasesReceived    Purchase[]            @relation("PurchaseReceivedBy")
+  purchaseCorrections  PurchaseCorrection[]  @relation("PurchaseCorrectionCreatedBy")
+  purchaseReturns      PurchaseReturn[]      @relation("PurchaseReturnCreatedBy")
+  supplierLedger       SupplierLedgerEntry[] @relation("SupplierLedgerCreatedBy")
+  supplierPayments     SupplierPayment[]     @relation("SupplierPaymentCreatedBy")
+  dispatchesCreated    Dispatch[]            @relation("DispatchCreatedBy")
+  dispatchesReceived   Dispatch[]            @relation("DispatchReceivedBy")
+  shortagesResolved    Shortage[]            @relation("ShortageResolvedBy")
+  ownerDeliveries      OwnerDelivery[]       @relation("OwnerDeliveryCreatedBy")
+  materialUsages       MaterialUsage[]       @relation("MaterialUsageCreatedBy")
+  stockCounts          StockCount[]          @relation("StockCountCreatedBy")
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -462,6 +502,14 @@ model Project {
   billingStages        ProjectBillingStage[]
   floors               Floor[]
   rooms                Room[]
+  stockLocation        StockLocation?
+  purchaseOrders       PurchaseOrder[]
+  purchases            Purchase[]
+  supplierLedger       SupplierLedgerEntry[]
+  supplierPayments     SupplierPayment[]
+  shortages            Shortage[]
+  ownerDeliveries      OwnerDelivery[]
+  materialUsages       MaterialUsage[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
@@ -591,6 +639,11 @@ model Attachment {
   userPhotos   User[]                @relation("UserPhoto")
   tenantLogos  Tenant[]              @relation("TenantLogo")
   paymentSlips SubscriptionPayment[] @relation("PaymentSlip")
+  challans     Purchase[]            @relation("PurchaseChallan")
+  bills        Purchase[]            @relation("PurchaseBill")
+  returnDocs   PurchaseReturn[]      @relation("PurchaseReturnAttachment")
+  loadPhotos   Dispatch[]            @relation("DispatchLoadPhoto")
+  itemPhotos   DispatchItem[]        @relation("DispatchItemPhoto")
 
   @@unique([tenantId, id])
   @@index([tenantId, createdAt])
@@ -698,28 +751,38 @@ model PlatformMaterial {
 
 /// Material list of one company: copied from the platform catalog, or its own.
 model Material {
-  id                 String            @id @default(uuid(7)) @db.Uuid
-  tenantId           String            @db.Uuid
-  platformMaterialId String?           @db.Uuid
-  groupId            String            @db.Uuid
+  id                 String               @id @default(uuid(7)) @db.Uuid
+  tenantId           String               @db.Uuid
+  platformMaterialId String?              @db.Uuid
+  groupId            String               @db.Uuid
   name               String
   unit               String
   unitDetail         String?
-  altUnits           Json              @default("[]")
+  altUnits           Json                 @default("[]")
   supplyCategory     SupplyCategory
   source             MaterialSource
-  isHidden           Boolean           @default(false)
+  isHidden           Boolean              @default(false)
   /// Edited by the company: platform catalog edits no longer overwrite it.
-  isCustomised       Boolean           @default(false)
-  createdById        String?           @db.Uuid
-  createdAt          DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime          @updatedAt @db.Timestamptz(3)
-  tenant             Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  platformMaterial   PlatformMaterial? @relation(fields: [platformMaterialId], references: [id], onDelete: SetNull)
-  group              MaterialGroup     @relation(fields: [groupId], references: [id])
-  createdBy          User?             @relation("MaterialCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  isCustomised       Boolean              @default(false)
+  createdById        String?              @db.Uuid
+  createdAt          DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime             @updatedAt @db.Timestamptz(3)
+  tenant             Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  platformMaterial   PlatformMaterial?    @relation(fields: [platformMaterialId], references: [id], onDelete: SetNull)
+  group              MaterialGroup        @relation(fields: [groupId], references: [id])
+  createdBy          User?                @relation("MaterialCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
   rates              MaterialRate[]
   supplierRates      SupplierRate[]
+  stockMovements     StockMovement[]
+  lowStockLevels     LowStockLevel[]
+  purchaseOrderItems PurchaseOrderItem[]
+  purchaseItems      PurchaseItem[]
+  returnItems        PurchaseReturnItem[]
+  dispatchItems      DispatchItem[]
+  shortages          Shortage[]
+  ownerDeliveryItems OwnerDeliveryItem[]
+  usageItems         MaterialUsageItem[]
+  countItems         StockCountItem[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, name])
@@ -788,22 +851,27 @@ model LaborRate {
 }
 
 model Supplier {
-  id        String         @id @default(uuid(7)) @db.Uuid
-  tenantId  String         @db.Uuid
-  name      String
+  id              String                @id @default(uuid(7)) @db.Uuid
+  tenantId        String                @db.Uuid
+  name            String
   /// Free text, e.g. "Cement", "Steel", "Sand & Bajri"
-  category  String
+  category        String
   /// E.164 (mobile or landline)
-  phone     String?
-  city      String?
-  address   String?
-  ntn       String?
-  notes     String?
-  isActive  Boolean        @default(true)
-  createdAt DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime       @updatedAt @db.Timestamptz(3)
-  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  rates     SupplierRate[]
+  phone           String?
+  city            String?
+  address         String?
+  ntn             String?
+  notes           String?
+  isActive        Boolean               @default(true)
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @db.Timestamptz(3)
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rates           SupplierRate[]
+  purchaseOrders  PurchaseOrder[]
+  purchases       Purchase[]
+  purchaseReturns PurchaseReturn[]
+  ledgerEntries   SupplierLedgerEntry[]
+  payments        SupplierPayment[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, name])
@@ -1070,4 +1138,660 @@ model Opening {
 
   @@unique([tenantId, id])
   @@index([tenantId, roomId])
+}
+
+// ─── Procurement & inventory (Phase 1 · Step 6) ─────────────────────────────
+
+enum StockLocationType {
+  STORE
+  SITE
+  TRANSIT
+}
+
+/// Every stock change is one append-only StockMovement row of one of these types.
+enum StockMovementType {
+  PURCHASE_IN
+  PURCHASE_RETURN_OUT
+  DISPATCH_OUT
+  TRANSIT_IN
+  TRANSIT_OUT
+  RECEIPT_IN
+  OWNER_DELIVERY_IN
+  USAGE_OUT
+  COUNT_ADJUSTMENT
+  CORRECTION
+}
+
+enum DeliverTo {
+  STORE
+  SITE
+}
+
+enum PurchaseOrderStatus {
+  OPEN
+  PARTLY_RECEIVED
+  RECEIVED
+  CANCELLED
+}
+
+enum PurchasePaymentMode {
+  /// On credit: the whole bill goes to the supplier's udhaar.
+  UDHAAR
+  CASH
+  PARTIAL
+}
+
+enum PaidFrom {
+  OFFICE_CASH
+  BANK
+  CHEQUE
+  JAZZCASH
+  EASYPAISA
+  SITE_CASH
+}
+
+enum PurchaseStatus {
+  /// Store purchase, counted on entry.
+  SAVED
+  /// Site purchase entered by a munshi; the office still has to add rates.
+  PENDING_RATE
+  /// Delivered straight to a site; waiting for the site count.
+  PENDING_RECEIPT
+  RECEIVED
+  RECEIVED_WITH_SHORTAGE
+}
+
+enum SupplierLedgerType {
+  OPENING
+  PURCHASE
+  RETURN
+  PAYMENT
+  PAYMENT_REVERSAL
+  ADJUSTMENT
+}
+
+enum SupplierPaymentMethod {
+  CASH
+  BANK
+  CHEQUE
+  JAZZCASH
+  EASYPAISA
+}
+
+enum SupplierPaymentStatus {
+  CLEARED
+  /// Cheque not cleared yet.
+  PENDING
+  BOUNCED
+}
+
+enum DispatchStatus {
+  ON_THE_WAY
+  RECEIVED
+  RECEIVED_WITH_SHORTAGE
+  RECEIVED_WITH_EXCESS
+  CANCELLED
+}
+
+enum ShortageKind {
+  DISPATCH_SHORT
+  DAMAGED
+  EXCESS
+  SUPPLIER_SHORT
+}
+
+enum ShortageSource {
+  DISPATCH
+  PURCHASE
+}
+
+enum ShortageStatus {
+  OPEN
+  RESOLVED
+}
+
+enum ShortageResolution {
+  SEND_REMAINING
+  RETURN_TO_STORE
+  ACCEPT_LOSS
+  RECOVER_FROM_DRIVER
+  SUPPLIER_CREDIT
+}
+
+enum StockCountReason {
+  HARDENED_IN_RAIN
+  BREAKAGE
+  THEFT_SUSPECTED
+  MEASUREMENT
+  OTHER
+}
+
+/// Gap-free document numbers per company (PUR-2026-0001, GP-0001 …). See core/db/counters.ts.
+model TenantCounter {
+  tenantId  String   @db.Uuid
+  /// e.g. "PUR-2026", "GP"
+  key       String
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([tenantId, key])
+}
+
+/// Where stock is kept: the central store, one in-transit bucket, one per non-draft project site.
+model StockLocation {
+  id             String            @id @default(uuid(7)) @db.Uuid
+  tenantId       String            @db.Uuid
+  type           StockLocationType
+  name           String
+  /// SITE only
+  projectId      String?           @db.Uuid
+  /// CENTRAL_STORE / TRANSIT for the per-company system locations
+  systemKey      String?
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @db.Timestamptz(3)
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project        Project?          @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  movements      StockMovement[]
+  lowStockLevels LowStockLevel[]
+  purchaseOrders PurchaseOrder[]
+  purchases      Purchase[]
+  returns        PurchaseReturn[]
+  dispatchesFrom Dispatch[]        @relation("DispatchFrom")
+  dispatchesTo   Dispatch[]        @relation("DispatchTo")
+  shortages      Shortage[]
+  stockCounts    StockCount[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, projectId])
+  @@unique([tenantId, systemKey])
+}
+
+/// Append-only stock ledger. Balances are SUM(quantity) / SUM(valuePaisa), never stored.
+model StockMovement {
+  id            String            @id @default(uuid(7)) @db.Uuid
+  tenantId      String            @db.Uuid
+  locationId    String            @db.Uuid
+  materialId    String            @db.Uuid
+  /// Signed: + in, − out
+  quantity      Decimal           @db.Decimal(14, 3)
+  unitCostPaisa BigInt
+  /// Signed, rounded to whole paisa
+  valuePaisa    BigInt
+  type          StockMovementType
+  /// PURCHASE / PURCHASE_RETURN / PURCHASE_CORRECTION / DISPATCH / SHORTAGE / OWNER_DELIVERY / USAGE / STOCK_COUNT
+  refType       String
+  refId         String            @db.Uuid
+  /// Owner-supplied stock is tracked separately at cost 0.
+  ownerSupplied Boolean           @default(false)
+  note          String?
+  occurredAt    DateTime          @db.Timestamptz(3)
+  createdById   String?           @db.Uuid
+  createdAt     DateTime          @default(now()) @db.Timestamptz(3)
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location      StockLocation     @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  material      Material          @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy     User?             @relation("StockMovementCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, locationId, materialId, occurredAt])
+  @@index([tenantId, refType, refId])
+  @@index([tenantId, materialId, occurredAt])
+}
+
+model LowStockLevel {
+  tenantId   String        @db.Uuid
+  locationId String        @db.Uuid
+  materialId String        @db.Uuid
+  minQty     Decimal       @db.Decimal(14, 3)
+  updatedAt  DateTime      @updatedAt @db.Timestamptz(3)
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location   StockLocation @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: Cascade)
+  material   Material      @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: Cascade)
+
+  @@id([locationId, materialId])
+  @@index([tenantId])
+}
+
+model PurchaseOrder {
+  id           String              @id @default(uuid(7)) @db.Uuid
+  tenantId     String              @db.Uuid
+  /// PO-0001
+  number       String
+  supplierId   String              @db.Uuid
+  deliverTo    DeliverTo
+  locationId   String              @db.Uuid
+  projectId    String?             @db.Uuid
+  expectedDate DateTime?           @db.Date
+  status       PurchaseOrderStatus @default(OPEN)
+  note         String?
+  cancelledAt  DateTime?           @db.Timestamptz(3)
+  createdById  String?             @db.Uuid
+  createdAt    DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime            @updatedAt @db.Timestamptz(3)
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier     Supplier            @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  location     StockLocation       @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  project      Project?            @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy    User?               @relation("PurchaseOrderCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  items        PurchaseOrderItem[]
+  purchases    Purchase[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, supplierId])
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(uuid(7)) @db.Uuid
+  tenantId        String        @db.Uuid
+  purchaseOrderId String        @db.Uuid
+  materialId      String        @db.Uuid
+  orderedQty      Decimal       @db.Decimal(14, 3)
+  ratePaisa       BigInt
+  sortOrder       Int           @default(0)
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchaseOrder   PurchaseOrder @relation(fields: [tenantId, purchaseOrderId], references: [tenantId, id], onDelete: Cascade)
+  material        Material      @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, purchaseOrderId])
+}
+
+/// A supplier delivery (challan). Saved purchases are locked: fixes go through returns / corrections.
+model Purchase {
+  id                  String               @id @default(uuid(7)) @db.Uuid
+  tenantId            String               @db.Uuid
+  /// PUR-2026-0001
+  number              String
+  supplierId          String               @db.Uuid
+  deliverTo           DeliverTo
+  locationId          String               @db.Uuid
+  projectId           String?              @db.Uuid
+  purchaseOrderId     String?              @db.Uuid
+  /// Supplier challan number, e.g. CH-2231
+  challanNo           String
+  vehicleNo           String?
+  purchaseDate        DateTime             @db.Date
+  paymentMode         PurchasePaymentMode
+  paidNowPaisa        BigInt               @default(0)
+  paidFrom            PaidFrom?
+  /// Supplier bill: Σ challan qty × rate (0 while PENDING_RATE)
+  totalPaisa          BigInt               @default(0)
+  status              PurchaseStatus
+  challanAttachmentId String               @db.Uuid
+  billAttachmentId    String?              @db.Uuid
+  note                String?
+  receivedById        String?              @db.Uuid
+  receivedAt          DateTime?            @db.Timestamptz(3)
+  ratesSetAt          DateTime?            @db.Timestamptz(3)
+  createdById         String?              @db.Uuid
+  createdAt           DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime             @updatedAt @db.Timestamptz(3)
+  tenant              Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier            Supplier             @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  location            StockLocation        @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  project             Project?             @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  purchaseOrder       PurchaseOrder?       @relation(fields: [tenantId, purchaseOrderId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  challan             Attachment           @relation("PurchaseChallan", fields: [tenantId, challanAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  bill                Attachment?          @relation("PurchaseBill", fields: [tenantId, billAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy           User?                @relation("PurchaseCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  receivedBy          User?                @relation("PurchaseReceivedBy", fields: [tenantId, receivedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  items               PurchaseItem[]
+  returns             PurchaseReturn[]
+  corrections         PurchaseCorrection[]
+  shortages           Shortage[]
+  payments            SupplierPayment[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@index([tenantId, supplierId, purchaseDate])
+  @@index([tenantId, status])
+  @@index([tenantId, projectId])
+}
+
+model PurchaseItem {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  tenantId    String   @db.Uuid
+  purchaseId  String   @db.Uuid
+  materialId  String   @db.Uuid
+  challanQty  Decimal  @db.Decimal(14, 3)
+  /// null until counted (site deliveries)
+  countedQty  Decimal? @db.Decimal(14, 3)
+  damagedQty  Decimal  @default(0) @db.Decimal(14, 3)
+  /// null while PENDING_RATE
+  ratePaisa   BigInt?
+  /// Good qty (counted − damaged) × rate
+  amountPaisa BigInt   @default(0)
+  note        String?
+  sortOrder   Int      @default(0)
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchase    Purchase @relation(fields: [tenantId, purchaseId], references: [tenantId, id], onDelete: Cascade)
+  material    Material @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, purchaseId])
+}
+
+/// Visible fix of a saved purchase (the original rows stay unchanged).
+model PurchaseCorrection {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  tenantId    String   @db.Uuid
+  purchaseId  String   @db.Uuid
+  reason      String
+  /// [{ purchaseItemId, materialId, fromQty, toQty, fromRatePaisa, toRatePaisa }]
+  items       Json
+  /// Change to the supplier bill (signed)
+  deltaPaisa  BigInt
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchase    Purchase @relation(fields: [tenantId, purchaseId], references: [tenantId, id], onDelete: Cascade)
+  createdBy   User?    @relation("PurchaseCorrectionCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, purchaseId])
+}
+
+model PurchaseReturn {
+  id           String               @id @default(uuid(7)) @db.Uuid
+  tenantId     String               @db.Uuid
+  /// PRN-0001
+  number       String
+  purchaseId   String               @db.Uuid
+  supplierId   String               @db.Uuid
+  locationId   String               @db.Uuid
+  reason       String
+  totalPaisa   BigInt
+  attachmentId String?              @db.Uuid
+  note         String?
+  createdById  String?              @db.Uuid
+  createdAt    DateTime             @default(now()) @db.Timestamptz(3)
+  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchase     Purchase             @relation(fields: [tenantId, purchaseId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  supplier     Supplier             @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  location     StockLocation        @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  attachment   Attachment?          @relation("PurchaseReturnAttachment", fields: [tenantId, attachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy    User?                @relation("PurchaseReturnCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  items        PurchaseReturnItem[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@index([tenantId, purchaseId])
+}
+
+model PurchaseReturnItem {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  tenantId    String         @db.Uuid
+  returnId    String         @db.Uuid
+  materialId  String         @db.Uuid
+  qty         Decimal        @db.Decimal(14, 3)
+  ratePaisa   BigInt
+  amountPaisa BigInt
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  return      PurchaseReturn @relation(fields: [tenantId, returnId], references: [tenantId, id], onDelete: Cascade)
+  material    Material       @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, returnId])
+}
+
+/// Supplier account (udhaar). Signed: + we owe more (purchase), − we owe less (payment, return).
+model SupplierLedgerEntry {
+  id          String             @id @default(uuid(7)) @db.Uuid
+  tenantId    String             @db.Uuid
+  supplierId  String             @db.Uuid
+  type        SupplierLedgerType
+  amountPaisa BigInt
+  /// PURCHASE / PURCHASE_RETURN / PURCHASE_CORRECTION / SUPPLIER_PAYMENT / SHORTAGE
+  refType     String?
+  refId       String?            @db.Uuid
+  projectId   String?            @db.Uuid
+  occurredAt  DateTime           @db.Timestamptz(3)
+  note        String?
+  createdById String?            @db.Uuid
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier    Supplier           @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  project     Project?           @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy   User?              @relation("SupplierLedgerCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, supplierId, occurredAt])
+}
+
+model SupplierPayment {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  tenantId        String                @db.Uuid
+  supplierId      String                @db.Uuid
+  amountPaisa     BigInt
+  method          SupplierPaymentMethod
+  reference       String?
+  chequeNo        String?
+  chequeDate      DateTime?             @db.Date
+  status          SupplierPaymentStatus
+  paidOn          DateTime              @db.Date
+  note            String?
+  /// Set when paid together with a purchase (CASH / PARTIAL)
+  purchaseId      String?               @db.Uuid
+  projectId       String?               @db.Uuid
+  statusChangedAt DateTime?             @db.Timestamptz(3)
+  createdById     String?               @db.Uuid
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier        Supplier              @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  purchase        Purchase?             @relation(fields: [tenantId, purchaseId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  project         Project?              @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy       User?                 @relation("SupplierPaymentCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, supplierId, paidOn])
+  @@index([tenantId, status])
+}
+
+/// Gate pass: stock moving from one location to another through TRANSIT.
+model Dispatch {
+  id                    String         @id @default(uuid(7)) @db.Uuid
+  tenantId              String         @db.Uuid
+  /// GP-0001
+  number                String
+  fromLocationId        String         @db.Uuid
+  toLocationId          String         @db.Uuid
+  vehicleNo             String?
+  driverName            String?
+  driverPhone           String?
+  dispatchedAt          DateTime       @db.Timestamptz(3)
+  loadPhotoAttachmentId String?        @db.Uuid
+  note                  String?
+  status                DispatchStatus @default(ON_THE_WAY)
+  receivedById          String?        @db.Uuid
+  receivedAt            DateTime?      @db.Timestamptz(3)
+  receiveNote           String?
+  cancelledAt           DateTime?      @db.Timestamptz(3)
+  createdById           String?        @db.Uuid
+  createdAt             DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime       @updatedAt @db.Timestamptz(3)
+  tenant                Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fromLocation          StockLocation  @relation("DispatchFrom", fields: [tenantId, fromLocationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  toLocation            StockLocation  @relation("DispatchTo", fields: [tenantId, toLocationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  loadPhoto             Attachment?    @relation("DispatchLoadPhoto", fields: [tenantId, loadPhotoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy             User?          @relation("DispatchCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  receivedBy            User?          @relation("DispatchReceivedBy", fields: [tenantId, receivedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  items                 DispatchItem[]
+  shortages             Shortage[]     @relation("ShortageDispatch")
+  replacementFor        Shortage[]     @relation("ShortageNewDispatch")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, toLocationId, status])
+  @@index([tenantId, fromLocationId, status])
+}
+
+model DispatchItem {
+  id                String      @id @default(uuid(7)) @db.Uuid
+  tenantId          String      @db.Uuid
+  dispatchId        String      @db.Uuid
+  materialId        String      @db.Uuid
+  sentQty           Decimal     @db.Decimal(14, 3)
+  /// Average cost at the source when dispatched
+  unitCostPaisa     BigInt
+  receivedQty       Decimal?    @db.Decimal(14, 3)
+  damagedQty        Decimal?    @db.Decimal(14, 3)
+  note              String?
+  photoAttachmentId String?     @db.Uuid
+  sortOrder         Int         @default(0)
+  tenant            Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dispatch          Dispatch    @relation(fields: [tenantId, dispatchId], references: [tenantId, id], onDelete: Cascade)
+  material          Material    @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  photo             Attachment? @relation("DispatchItemPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, dispatchId])
+}
+
+/// A difference found when counting a delivery; stays OPEN until the owner decides.
+model Shortage {
+  id                   String              @id @default(uuid(7)) @db.Uuid
+  tenantId             String              @db.Uuid
+  kind                 ShortageKind
+  source               ShortageSource
+  dispatchId           String?             @db.Uuid
+  purchaseId           String?             @db.Uuid
+  projectId            String?             @db.Uuid
+  /// Where it was counted
+  locationId           String              @db.Uuid
+  materialId           String              @db.Uuid
+  qty                  Decimal             @db.Decimal(14, 3)
+  valuePaisa           BigInt
+  status               ShortageStatus      @default(OPEN)
+  /// Receiver note when counting
+  note                 String?
+  resolution           ShortageResolution?
+  resolutionNote       String?
+  recoveredAmountPaisa BigInt?
+  newDispatchId        String?             @db.Uuid
+  resolvedById         String?             @db.Uuid
+  resolvedAt           DateTime?           @db.Timestamptz(3)
+  createdAt            DateTime            @default(now()) @db.Timestamptz(3)
+  tenant               Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  dispatch             Dispatch?           @relation("ShortageDispatch", fields: [tenantId, dispatchId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  purchase             Purchase?           @relation(fields: [tenantId, purchaseId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  project              Project?            @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  location             StockLocation       @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  material             Material            @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  newDispatch          Dispatch?           @relation("ShortageNewDispatch", fields: [tenantId, newDispatchId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  resolvedBy           User?               @relation("ShortageResolvedBy", fields: [tenantId, resolvedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, projectId])
+}
+
+/// Material the owner (client) delivered to the site himself, tracked at cost 0.
+model OwnerDelivery {
+  id                 String              @id @default(uuid(7)) @db.Uuid
+  tenantId           String              @db.Uuid
+  projectId          String              @db.Uuid
+  locationId         String              @db.Uuid
+  deliveryDate       DateTime            @db.Date
+  note               String?
+  photoAttachmentIds String[]            @default([]) @db.Uuid
+  createdById        String?             @db.Uuid
+  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project            Project             @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy          User?               @relation("OwnerDeliveryCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  items              OwnerDeliveryItem[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, projectId, deliveryDate])
+}
+
+model OwnerDeliveryItem {
+  id         String        @id @default(uuid(7)) @db.Uuid
+  tenantId   String        @db.Uuid
+  deliveryId String        @db.Uuid
+  materialId String        @db.Uuid
+  qty        Decimal       @db.Decimal(14, 3)
+  tenant     Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  delivery   OwnerDelivery @relation(fields: [tenantId, deliveryId], references: [tenantId, id], onDelete: Cascade)
+  material   Material      @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, deliveryId])
+}
+
+model MaterialUsage {
+  id              String              @id @default(uuid(7)) @db.Uuid
+  tenantId        String              @db.Uuid
+  projectId       String              @db.Uuid
+  locationId      String              @db.Uuid
+  usageDate       DateTime            @db.Date
+  note            String?
+  /// Schedule milestone (later phase)
+  milestoneId     String?             @db.Uuid
+  /// When the entry was made on the phone (offline sync)
+  deviceCreatedAt DateTime?           @db.Timestamptz(3)
+  createdById     String?             @db.Uuid
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project         Project             @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy       User?               @relation("MaterialUsageCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  items           MaterialUsageItem[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, projectId, usageDate])
+}
+
+model MaterialUsageItem {
+  id            String        @id @default(uuid(7)) @db.Uuid
+  tenantId      String        @db.Uuid
+  usageId       String        @db.Uuid
+  materialId    String        @db.Uuid
+  qty           Decimal       @db.Decimal(14, 3)
+  ownerSupplied Boolean       @default(false)
+  /// At average cost (0 for owner-supplied)
+  valuePaisa    BigInt
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  usage         MaterialUsage @relation(fields: [tenantId, usageId], references: [tenantId, id], onDelete: Cascade)
+  material      Material      @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, usageId])
+}
+
+model StockCount {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  tenantId    String           @db.Uuid
+  /// SC-0001
+  number      String
+  locationId  String           @db.Uuid
+  countedAt   DateTime         @db.Timestamptz(3)
+  note        String?
+  createdById String?          @db.Uuid
+  createdAt   DateTime         @default(now()) @db.Timestamptz(3)
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location    StockLocation    @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy   User?            @relation("StockCountCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  items       StockCountItem[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@index([tenantId, locationId, countedAt])
+}
+
+model StockCountItem {
+  id            String            @id @default(uuid(7)) @db.Uuid
+  tenantId      String            @db.Uuid
+  countId       String            @db.Uuid
+  materialId    String            @db.Uuid
+  ownerSupplied Boolean           @default(false)
+  systemQty     Decimal           @db.Decimal(14, 3)
+  countedQty    Decimal           @db.Decimal(14, 3)
+  difference    Decimal           @db.Decimal(14, 3)
+  reason        StockCountReason?
+  note          String?
+  valuePaisa    BigInt            @default(0)
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  count         StockCount        @relation(fields: [tenantId, countId], references: [tenantId, id], onDelete: Cascade)
+  material      Material          @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, countId])
 }

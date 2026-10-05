@@ -30,7 +30,7 @@ export function registerAttachmentsDocs(): void {
       'Multipart upload, max **10 MB**. Any company role.\n\n' +
       '| kind | Accepts |\n|---|---|\n' +
       '| LOGO, PROFILE_PHOTO, SITE_PHOTO | JPEG, PNG, WebP |\n' +
-      '| RECEIPT, DOCUMENT | JPEG, PNG, WebP, PDF |\n' +
+      '| RECEIPT, DOCUMENT, PAYMENT_SLIP, CHALLAN | JPEG, PNG, WebP, PDF |\n' +
       '| VOICE_NOTE | MP3, M4A, OGG |\n\n' +
       'The file content is checked, not just its name. The response `url` is signed and expires (default 10 min).',
     security: companySecurity,

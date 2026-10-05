@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
 export const attachmentKindSchema = z
-  .enum(['LOGO', 'PROFILE_PHOTO', 'SITE_PHOTO', 'RECEIPT', 'DOCUMENT', 'VOICE_NOTE', 'PAYMENT_SLIP'], {
-    error: 'kind must be one of LOGO, PROFILE_PHOTO, SITE_PHOTO, RECEIPT, DOCUMENT, VOICE_NOTE, PAYMENT_SLIP',
+  .enum(['LOGO', 'PROFILE_PHOTO', 'SITE_PHOTO', 'RECEIPT', 'DOCUMENT', 'VOICE_NOTE', 'PAYMENT_SLIP', 'CHALLAN'], {
+    error: 'kind must be one of LOGO, PROFILE_PHOTO, SITE_PHOTO, RECEIPT, DOCUMENT, VOICE_NOTE, PAYMENT_SLIP, CHALLAN',
   })
   .meta({ example: 'LOGO' });
 

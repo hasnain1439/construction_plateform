@@ -17,6 +17,7 @@ export const KIND_MIME_TYPES: Record<AttachmentKind, readonly string[]> = {
   DOCUMENT: [...IMAGES, ...PDF],
   VOICE_NOTE: AUDIO,
   PAYMENT_SLIP: [...IMAGES, ...PDF],
+  CHALLAN: [...IMAGES, ...PDF],
 };
 
 export const EXTENSIONS: Record<string, string> = {

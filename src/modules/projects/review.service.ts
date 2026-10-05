@@ -3,6 +3,7 @@ import { withTenant } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict } from '../../core/errors/AppError.js';
 import { assertWithinLimit, lockPlanUsage } from '../../core/plan/planLimits.js';
 import type { ProjectStatus } from '../../generated/prisma/client.js';
+import { siteLocation } from '../inventory/stock.js';
 import { caller, findEditableProject, findProjectFor, type Caller } from './access.js';
 import { contractTotalPaisa, floorTotals, num, projectCalculations } from './projects.dto.js';
 import * as repo from './projects.repository.js';
@@ -115,7 +116,8 @@ export async function activate(id: string) {
 
     await lockPlanUsage(tx, c.tenantId);
     await assertWithinLimit(tx, c.tenantId, 'activeProjects');
-    await tx.project.update({ where: { id }, data: { status: 'ACTIVE', activatedAt: new Date() } });
+    const activated = await tx.project.update({ where: { id }, data: { status: 'ACTIVE', activatedAt: new Date() } });
+    await siteLocation(tx, c.tenantId, activated); // stock can now be sent to the site
     await audit(tx, c, 'project.activate', id, { code: project.code, warnings: review.warnings.map((w) => w.code) });
     return { ...(await detail(tx, c, id)), nextStep: 'ESTIMATE' as const };
   });
