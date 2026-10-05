@@ -4,9 +4,12 @@ import { registerAttachmentsDocs } from '../../modules/attachments/attachments.d
 import { registerAuthDocs } from '../../modules/auth/auth.docs.js';
 import { registerClientsDocs } from '../../modules/clients/clients.docs.js';
 import { registerCompanyDocs } from '../../modules/company/company.docs.js';
+import { registerDispatchDocs } from '../../modules/dispatch/dispatch.docs.js';
 import { registerHealthDocs } from '../../modules/health/health.routes.js';
+import { registerInventoryDocs } from '../../modules/inventory/inventory.docs.js';
 import { registerMasterDataDocs } from '../../modules/master-data/master-data.docs.js';
 import { registerPlatformAdminDocs } from '../../modules/platform-admin/platformAdmin.docs.js';
+import { registerProcurementDocs } from '../../modules/procurement/procurement.docs.js';
 import { registerProjectsDocs } from '../../modules/projects/projects.docs.js';
 import { registerSubscriptionDocs } from '../../modules/subscription/subscription.docs.js';
 import { registerTeamDocs } from '../../modules/team/team.docs.js';
@@ -27,6 +30,9 @@ export function openApiDocument() {
     registerMasterDataDocs();
     registerClientsDocs();
     registerProjectsDocs();
+    registerInventoryDocs();
+    registerProcurementDocs();
+    registerDispatchDocs();
     registerPlatformAdminDocs();
     document = buildOpenApiDocument();
   }

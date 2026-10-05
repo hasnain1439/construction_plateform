@@ -39,6 +39,10 @@ function toAppError(err: unknown): AppError | null {
     }
     if (err.code === 'P2025') return new AppError(404, 'NOT_FOUND', 'Record not found');
     if (err.code === 'P2003') return new AppError(400, 'INVALID_REFERENCE', 'A referenced record does not exist');
+    // No connection / transaction slot in time: temporary, safe for the client to retry.
+    if (err.code === 'P2028' || err.code === 'P1001' || err.code === 'P1002' || err.code === 'P1017') {
+      return new AppError(503, 'SERVICE_BUSY', 'The server is busy. Please try again in a moment.');
+    }
   }
 
   if (err instanceof multer.MulterError) {
@@ -89,5 +93,6 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, _next)
     res.destroy();
     return;
   }
+  if (appError.status === 503) res.setHeader('Retry-After', '1');
   res.status(appError.status).json(body);
 };

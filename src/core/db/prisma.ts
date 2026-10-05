@@ -6,7 +6,15 @@ export { Prisma } from '../../generated/prisma/client.js';
 export type { PrismaClient } from '../../generated/prisma/client.js';
 
 function createClient(connectionString: string) {
-  return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+  const adapter = new PrismaPg({
+    connectionString,
+    max: env.DB_POOL_MAX,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: env.DB_TX_MAX_WAIT_MS,
+  });
+  // Prisma's default maxWait is 2 s: one page load's burst of parallel requests could
+  // exhaust it and fail with "Unable to start a transaction in the given time".
+  return new PrismaClient({ adapter, transactionOptions: { maxWait: env.DB_TX_MAX_WAIT_MS, timeout: 10_000 } });
 }
 
 /**

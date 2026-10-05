@@ -24,6 +24,7 @@ npm run dev                     # http://localhost:4000  ·  docs at /api/docs
 | `test` / `test:watch` | Vitest against the `construction_test` database (`.env.test`) |
 | `typecheck` | Type-checks src, tests, prisma and scripts |
 | `jobs:subscriptions` | Run the subscription lifecycle once (also runs in the server at start-up and daily 02:00 PKT) |
+| `dev:otp -- <phone>` | Development / E2E only: issues a fresh login code for the phone and prints `OTP=123456` (refuses in production) |
 | `docker:up` / `docker:down` | Postgres 16 + Redis 7 (optional; local Postgres works too) |
 
 ### Database roles
@@ -48,6 +49,7 @@ Every table with a `tenantId` has RLS **enabled and forced** with the policy `"t
 - Phones are normalised to `+923XXXXXXXXX` (`03001234567`, `+92 300 1234567`, `923001234567` all work).
 - Success: `{ "success": true, "data": …, "meta"?: … }` · Error: `{ "success": false, "error": { "code", "message", "details"? } }`.
 - Controllers have no business logic; services own transactions; repositories own Prisma calls.
+- Connection pool: `DB_POOL_MAX` (default 20 per pool) and `DB_TX_MAX_WAIT_MS` (default 10 000 — how long a request waits for a free connection before `503 SERVICE_BUSY`).
 
 ---
 
@@ -419,19 +421,70 @@ Audit actions: `client.create`, `client.update`, `project.create`, `project.dele
 
 **Seed.** Malik & Sons: 6 clients; DHA Phase 6 · 10 Marla (`MSB-2026-012`, ACTIVE, grey structure, Rs 1,85,00,000, full wizard with 17 rooms on Ground / First / Mumty, PM Bilal, Munshi Rafaqat), Johar Town · 5 Marla (`MSB-2026-008`, ACTIVE, PM Bilal), Bahria Town · 1 Kanal (`MSB-2026-014`, ACTIVE, basement, Munshi **Asif Mehmood** `03224567890` OTP), Valencia · 7 Marla (`MSB-2025-031`, HANDED_OVER, labour-only Rs 450/sq ft) and a DRAFT Model Town · 1 Kanal (tabs 1–2). Ahmed Constructions: Wapda Town · 5 Marla (`AC-2026-001`, ACTIVE). Older seed rows are renamed in place, so foreign keys survive.
 
+## Procurement & Inventory
+
+`src/modules/inventory` (locations, stock ledger, costing, usage, counts), `src/modules/procurement` (purchase orders, purchases, returns, corrections, supplier ledger + payments) and `src/modules/dispatch` (dispatches, receiving, shortages, owner deliveries).
+
+### Stock ledger
+
+- **Locations** (`StockLocation`): every company has one **Central Store** (`systemKey CENTRAL_STORE`) and one **In transit** location; every non-draft project has a **SITE** location (created on activation, or on first use). The migration backfilled existing companies and projects.
+- **All stock changes are one append-only `StockMovement` row** (`PURCHASE_IN`, `PURCHASE_RETURN_OUT`, `DISPATCH_OUT`, `TRANSIT_IN`, `TRANSIT_OUT`, `RECEIPT_IN`, `OWNER_DELIVERY_IN`, `USAGE_OUT`, `COUNT_ADJUSTMENT`, `CORRECTION`). Balances are `SUM(quantity)` / `SUM(valuePaisa)` — never stored. app_user has **SELECT + INSERT only** on `StockMovement` and `SupplierLedgerEntry`.
+- **Costing:** weighted average per (location, material, `ownerSupplied = false`). Stock in carries its own cost; stock out leaves at the current average (taking the last unit takes exactly the remaining value — no rounding residue). 200 @ 1,500 + 400 @ 1,430 → 1,453.33. Owner-supplied stock is a separate bucket at cost 0.
+- Stock-out operations take a per-location advisory lock (`lockLocations`) and check availability first → `400 INSUFFICIENT_STOCK { materialId, available, items[] }`.
+- Quantities are `Decimal(14,3)` (API: number or numeric string, ≤ 3 dp); money BigInt paisa.
+- **Numbers** from `TenantCounter` via `nextNumber(tx, tenantId, format)` (gap-free inside the transaction): `PUR-2026-0001` (yearly), `GP-0001`, `PRN-0001`, `PO-0001`, `SC-0001`.
+- **Who sees money:** rates, amounts, values and supplier balances need `rates.view` (THEKEDAR, PM); for MUNSHI the fields are omitted. Project-scoped endpoints use the project access rules (outside → 404).
+
+### Purchases
+
+| Who / where | Flow |
+|---|---|
+| THEKEDAR / PM → **STORE** | Counted on arrival → `SAVED`, `PURCHASE_IN` at the rate |
+| THEKEDAR / PM → **SITE** | `PENDING_RECEIPT` → appears in the site's Incoming; stock moves when the site counts it (`POST /purchases/:id/receive`) |
+| MUNSHI → **SITE** only | No rates / payment (`400 RATES_NOT_ALLOWED`); counted now, stock in at cost 0 → `PENDING_RATE` until the office sends `PATCH /purchases/:id/rates` (bill + payment posted, stock value added) |
+
+- Rates default from the purchase order, then the supplier's agreed rate (`400 RATE_REQUIRED`). The challan photo is required (kind `CHALLAN`).
+- **Money:** the supplier's bill (`totalPaisa`, ledger debit) = Σ challan qty × rate; each line's `amountPaisa` = good qty (counted − damaged) × rate. Good < challan needs an item note (`400 SHORTAGE_NOTE_REQUIRED`) and creates `SUPPLIER_SHORT` / `DAMAGED` shortages.
+- **Payment:** UDHAAR → ledger debit; CASH → debit + payment; PARTIAL → debit + payment (0 < paid < bill, `400 INVALID_PAID_AMOUNT`). `paidFrom: SITE_CASH` calls the documented hook `postCashPurchaseFromSiteCash()` for the Step 7 cash book.
+- **Locked:** saved purchases never change. `POST /purchases/:id/corrections` (THEKEDAR, `{ reason, items: [{ purchaseItemId, qty?, ratePaisa? }] }`) writes a visible `PurchaseCorrection`, a `CORRECTION` movement and a ledger `ADJUSTMENT`; the original lines stay. `POST /purchases/:id/returns` → `PRN-…`, `PURCHASE_RETURN_OUT` at the purchase rate + supplier credit (`400 RETURN_EXCEEDS_STOCK` / `RETURN_EXCEEDS_PURCHASE`).
+- **Purchase orders** (`/purchase-orders`, THEKEDAR + PM): status follows the linked purchases OPEN → PARTLY_RECEIVED → RECEIVED; edit only while OPEN; cancel only OPEN without purchases (`409 PURCHASE_ORDER_HAS_RECEIPTS`).
+
+### Supplier ledger
+
+`SupplierLedgerEntry` (OPENING / PURCHASE / RETURN / PAYMENT / PAYMENT_REVERSAL / ADJUSTMENT), signed (+ we owe more). `GET /suppliers` and `GET /suppliers/:id` add `udhaarBalancePaisa` + `oldestUnpaidDays` (FIFO: payments settle the oldest debits first) for rates.view. `GET /suppliers/:id/ledger` — running balance, filters project / dates. `POST /supplier-payments` (THEKEDAR; cheques start PENDING), `PATCH /supplier-payments/:id/cheque-status` (BOUNCED → `PAYMENT_REVERSAL`), `GET /supplier-payments`.
+
+### Dispatch, receiving, shortages
+
+- `POST /dispatches` (THEKEDAR from the store or any site; PM only from a site they manage, to the store or another of their sites): `DISPATCH_OUT` at average cost + `TRANSIT_IN` (same value), SMS to the destination PM / munshis: *"GP-0142: 200 bags cement aur 5,000 eent aap ki site par aa rahe hain (LES-4521)."* `POST /dispatches/:id/cancel` (ON_THE_WAY only) reverses it.
+- **Blind count** (`TenantSettings.blindCountEnabled`, default true, `PATCH /company/settings`): `GET /projects/:id/incoming` leaves out `sentQty` / `challanQty`; MUNSHI never sees them on a pending dispatch / purchase.
+- `POST /dispatches/:id/receive` (THEKEDAR / PM / MUNSHI with access): every item counted (`ITEMS_MISMATCH`), note when good < sent, `TRANSIT_OUT` (sent) + `RECEIPT_IN` (good at dispatch cost); differences → `DISPATCH_SHORT` / `DAMAGED` / `EXCESS` shortages with value; status RECEIVED / RECEIVED_WITH_SHORTAGE / RECEIVED_WITH_EXCESS; the response reveals sent vs counted vs difference; second receive → `409 ALREADY_RECEIVED`.
+- `GET /shortages` (THEKEDAR; PM read-only for their projects; `meta.openCount` / `openValuePaisa`), `POST /shortages/:id/resolve` (THEKEDAR, note required): SEND_REMAINING (new dispatch, stock checked) · RETURN_TO_STORE (back to the source; EXCESS back from the site) · ACCEPT_LOSS · RECOVER_FROM_DRIVER (amount required) · SUPPLIER_CREDIT (purchase shortages → ledger credit). Each shortage lists its `allowedResolutions`; resolved → `409 SHORTAGE_RESOLVED`.
+- `POST/GET /projects/:id/owner-deliveries`: only materials in a category the owner supplies on the project (`400 NOT_OWNER_SUPPLIED`; material group → supply category, e.g. AGGREGATES → SAND_BAJRI, PLUMBING → PIPES, FLOORING → TILES_FLOORING) → `OWNER_DELIVERY_IN` at cost 0.
+
+### Stock views, usage, counts
+
+- `GET /stock-locations` (scoped), `GET /stores/:locationId/stock` (THEKEDAR + PM: in store, in transit, average rate, value, last purchase, low-stock; summary value / low-stock count / dispatches on the way), `PUT /stores/:locationId/low-stock-levels` (THEKEDAR, `[{ materialId, minQty }]`, 0 removes), `GET /stock/movements` (ledger with filters), `GET /projects/:id/stock` (received contractor / owner, used, transferred out, adjustments, in stock, last count; values only with rates.view).
+- `POST/GET /projects/:id/material-usage` (all roles with access; ≤ site balance → else `400 INSUFFICIENT_STOCK`; `USAGE_OUT` at average cost, owner bucket at 0; `ownerSupplied` defaults from the supply rules).
+- `POST/GET /stock-counts` (sites: THEKEDAR / PM / MUNSHI with access; store: THEKEDAR only): the server takes the system quantity; a non-zero difference needs a reason (`HARDENED_IN_RAIN`, `BREAKAGE`, `THEFT_SUSPECTED`, `MEASUREMENT`, `OTHER` → `400 REASON_REQUIRED`) and becomes a `COUNT_ADJUSTMENT` (a surplus at the current average).
+
+Audit actions: `stock.low_levels_update`, `stock.usage_record`, `stock.count`, `stock.owner_delivery`, `purchase_order.create|update|cancel`, `purchase.create|rates_set|receive|correct|return`, `supplier_payment.create|cheque_cleared|cheque_bounced`, `dispatch.create|cancel|receive`, `shortage.resolve`.
+
+**Seed (`prisma/seedInventory.ts`, Malik & Sons, skipped when purchases exist; tests seed it on demand).** Store: CH-2198 200 cement @ 1,500 (15 Sep, cash), CB-1150 17,000 bricks @ 17 (Chaudhry, udhaar), store count SC-0001 on 28 Sep (cement −4 hardened in rain, bricks −50 breakage), CH-2231 400 cement @ 1,430 (Al-Madina, udhaar, 2 Oct → average ≈ 1,453), IT-8812 2 ton steel #4 @ 2,85,000 (part paid Rs 2,00,000). Direct to site: BT-451 400 cft Chenab sand @ 70 → DHA (cash, RECEIVED), CB-1190 10,000 bricks → Bahria (PENDING_RECEIPT). Gate passes: GP-0140 Johar 80 cement (RECEIVED), GP-0141 (cancelled), GP-0142 DHA 200 cement + 5,000 bricks, LES-4521, driver Nadeem 0300-1112233 (RECEIVED_WITH_SHORTAGE: cement 190, 200 bricks damaged → two OPEN shortages), GP-0143 Bahria 1 ton steel (ON_THE_WAY), GP-0144 DHA 100 cement (ON_THE_WAY). Supplier balances: Al-Madina 7,40,000 · Ittefaq 12,10,000 (with a bounced Rs 1,50,000 cheque) · Chaudhry 3,25,000 · Bilal Traders 1,15,000 · Punjab Shuttering 86,000 (OPENING entries as needed). DHA usage on the last three days. Store low-stock levels: cement 200, sand 500, PPR 100.
+
 ## Error codes
 
 | HTTP | Codes |
 |---|---|
-| 400 | `VALIDATION_ERROR`, `INVALID_JSON`, `USE_OTP_LOGIN`, `OTP_INVALID`, `CURRENT_PASSWORD_WRONG`, `FILE_REQUIRED`, `FILE_TOO_LARGE`, `INVALID_FILE_TYPE`, `INVALID_UPLOAD`, `HOLIDAY_IN_PAST`, `FINANCIALS_PM_ONLY`, `INVALID_PROJECT`, `THEKEDAR_HAS_ALL_PROJECTS`, `CANNOT_REVOKE_CURRENT_DEVICE`, `AMOUNT_MISMATCH`, `INVALID_PLAN`, `PLAN_REQUIRED`, `PAID_ON_IN_FUTURE`, `PAID_ON_TOO_OLD`, `SAME_PLAN`, `DOWNGRADE_USERS_OVER_LIMIT`, `KEEP_PROJECTS_REQUIRED`, `TOO_MANY_PROJECTS`, `INVALID_GROUP`, `UNIT_LOCKED`, `CATEGORY_ARCHIVED`, `CATEGORY_IS_DEFAULT`, `LAST_ACTIVE_CATEGORY`, `INVALID_MATERIAL`, `INVALID_LABOR_KEY`, `INVALID_LABOR_UNIT`, `PERCENT_TOTAL_INVALID`, `RETENTION_STAGE_INVALID`, `TEMPLATE_IS_DEFAULT`, `DAILY_RATE_REQUIRED`, `INVALID_CLIENT`, `INVALID_PM`, `INVALID_MUNSHI`, `INVALID_DATES`, `CONTRACT_VALUE_REQUIRED`, `RATE_REQUIRED`, `INVALID_TEMPLATE`, `QUALITY_CATEGORY_REQUIRED`, `QUALITY_CATEGORY_NOT_ALLOWED`, `INVALID_QUALITY_CATEGORY`, `OPENINGS_EXCEED_WALL`, `INVALID_TARGET_FLOOR`, `PROJECT_NOT_READY` |
+| 400 | `VALIDATION_ERROR`, `INVALID_JSON`, `USE_OTP_LOGIN`, `OTP_INVALID`, `CURRENT_PASSWORD_WRONG`, `FILE_REQUIRED`, `FILE_TOO_LARGE`, `INVALID_FILE_TYPE`, `INVALID_UPLOAD`, `HOLIDAY_IN_PAST`, `FINANCIALS_PM_ONLY`, `INVALID_PROJECT`, `THEKEDAR_HAS_ALL_PROJECTS`, `CANNOT_REVOKE_CURRENT_DEVICE`, `AMOUNT_MISMATCH`, `INVALID_PLAN`, `PLAN_REQUIRED`, `PAID_ON_IN_FUTURE`, `PAID_ON_TOO_OLD`, `SAME_PLAN`, `DOWNGRADE_USERS_OVER_LIMIT`, `KEEP_PROJECTS_REQUIRED`, `TOO_MANY_PROJECTS`, `INVALID_GROUP`, `UNIT_LOCKED`, `CATEGORY_ARCHIVED`, `CATEGORY_IS_DEFAULT`, `LAST_ACTIVE_CATEGORY`, `INVALID_MATERIAL`, `INVALID_LABOR_KEY`, `INVALID_LABOR_UNIT`, `PERCENT_TOTAL_INVALID`, `RETENTION_STAGE_INVALID`, `TEMPLATE_IS_DEFAULT`, `DAILY_RATE_REQUIRED`, `INVALID_CLIENT`, `INVALID_PM`, `INVALID_MUNSHI`, `INVALID_DATES`, `CONTRACT_VALUE_REQUIRED`, `RATE_REQUIRED`, `INVALID_TEMPLATE`, `QUALITY_CATEGORY_REQUIRED`, `QUALITY_CATEGORY_NOT_ALLOWED`, `INVALID_QUALITY_CATEGORY`, `OPENINGS_EXCEED_WALL`, `INVALID_TARGET_FLOOR`, `PROJECT_NOT_READY`, `INSUFFICIENT_STOCK`, `DATE_IN_FUTURE`, `REASON_REQUIRED`, `INVALID_LOCATION`, `SAME_LOCATION`, `SHORTAGE_NOTE_REQUIRED`, `DAMAGED_EXCEEDS_COUNTED`, `ITEMS_MISMATCH`, `INVALID_PAID_AMOUNT`, `CHALLAN_REQUIRED`, `INVALID_ATTACHMENT`, `RATES_NOT_ALLOWED`, `NOT_IN_PURCHASE`, `NOTHING_TO_CORRECT`, `RETURN_EXCEEDS_PURCHASE`, `RETURN_EXCEEDS_STOCK`, `PO_SUPPLIER_MISMATCH`, `SUPPLIER_INACTIVE`, `RESOLUTION_NOT_ALLOWED`, `NOT_OWNER_SUPPLIED` |
 | 401 | `UNAUTHENTICATED`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `SESSION_REVOKED`, `ACCOUNT_DISABLED`, `INVALID_CREDENTIALS`, `REFRESH_INVALID`, `REFRESH_TOKEN_REUSED`, `DEVICE_REVOKED` |
 | 402 | `PLAN_LIMIT_REACHED` |
 | 403 | `FORBIDDEN`, `COMPANY_SUSPENDED`, `ACCOUNT_READ_ONLY`, `INVALID_SIGNATURE`, `LINK_EXPIRED`, `CANNOT_CHANGE_OWN_ROLE`, `CANNOT_CHANGE_OWNER_ROLE`, `CANNOT_DEACTIVATE_SELF`, `LAST_THEKEDAR` |
-| 404 | `ROUTE_NOT_FOUND`, `NOT_FOUND`, `PHONE_NOT_REGISTERED`, `INVITE_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `HOLIDAY_NOT_FOUND`, `USER_NOT_FOUND`, `DEVICE_NOT_FOUND`, `COMPANY_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`, `NO_PENDING_CHANGE`, `TENANT_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `PLAN_NOT_FOUND`, `MATERIAL_NOT_FOUND`, `PLATFORM_MATERIAL_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `TEMPLATE_NOT_FOUND`, `SUPPLIER_NOT_FOUND`, `WORKER_NOT_FOUND`, `SUBCONTRACTOR_NOT_FOUND`, `CLIENT_NOT_FOUND`, `PROJECT_NOT_FOUND`, `FLOOR_NOT_FOUND`, `ROOM_NOT_FOUND`, `OPENING_NOT_FOUND` |
-| 409 | `ALREADY_EXISTS`, `PHONE_TAKEN`, `EMAIL_TAKEN`, `MULTIPLE_COMPANIES`, `INVITE_ALREADY_ACCEPTED`, `INVITE_CANCELLED`, `INVITE_PENDING`, `ALREADY_MEMBER`, `HOLIDAY_EXISTS`, `USER_ALREADY_ACTIVE`, `PAYMENT_PENDING`, `DUPLICATE_TRANSACTION`, `SLUG_TAKEN`, `PLAN_CODE_TAKEN`, `LAST_ACTIVE_PLAN`, `ALREADY_PROCESSED`, `CANNOT_EXTEND_TRIAL`, `TENANT_CLOSED`, `MATERIAL_EXISTS`, `MATERIAL_IN_USE`, `PLATFORM_MATERIAL_EXISTS`, `CATEGORY_EXISTS`, `TEMPLATE_EXISTS`, `SUPPLIER_EXISTS`, `WORKER_PHONE_TAKEN`, `SUBCONTRACTOR_EXISTS`, `CLIENT_PHONE_TAKEN`, `PROJECT_CODE_TAKEN`, `PROJECT_NOT_DRAFT`, `PROJECT_LOCKED`, `INVALID_STATUS_TRANSITION`, `SUPPLY_RULE_LOCKED`, `BILLING_STAGES_LOCKED`, `FLOOR_HAS_ROOMS`, `FLOOR_NOT_EMPTY`, `CASH_BALANCE_OPEN` (future) |
+| 404 | `ROUTE_NOT_FOUND`, `NOT_FOUND`, `PHONE_NOT_REGISTERED`, `INVITE_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `HOLIDAY_NOT_FOUND`, `USER_NOT_FOUND`, `DEVICE_NOT_FOUND`, `COMPANY_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`, `NO_PENDING_CHANGE`, `TENANT_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `PLAN_NOT_FOUND`, `MATERIAL_NOT_FOUND`, `PLATFORM_MATERIAL_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `TEMPLATE_NOT_FOUND`, `SUPPLIER_NOT_FOUND`, `WORKER_NOT_FOUND`, `SUBCONTRACTOR_NOT_FOUND`, `CLIENT_NOT_FOUND`, `PROJECT_NOT_FOUND`, `FLOOR_NOT_FOUND`, `ROOM_NOT_FOUND`, `OPENING_NOT_FOUND`, `LOCATION_NOT_FOUND`, `STORE_NOT_FOUND`, `PURCHASE_NOT_FOUND`, `PURCHASE_ORDER_NOT_FOUND`, `DISPATCH_NOT_FOUND`, `SHORTAGE_NOT_FOUND` |
+| 409 | `ALREADY_EXISTS`, `PHONE_TAKEN`, `EMAIL_TAKEN`, `MULTIPLE_COMPANIES`, `INVITE_ALREADY_ACCEPTED`, `INVITE_CANCELLED`, `INVITE_PENDING`, `ALREADY_MEMBER`, `HOLIDAY_EXISTS`, `USER_ALREADY_ACTIVE`, `PAYMENT_PENDING`, `DUPLICATE_TRANSACTION`, `SLUG_TAKEN`, `PLAN_CODE_TAKEN`, `LAST_ACTIVE_PLAN`, `ALREADY_PROCESSED`, `CANNOT_EXTEND_TRIAL`, `TENANT_CLOSED`, `MATERIAL_EXISTS`, `MATERIAL_IN_USE`, `PLATFORM_MATERIAL_EXISTS`, `CATEGORY_EXISTS`, `TEMPLATE_EXISTS`, `SUPPLIER_EXISTS`, `WORKER_PHONE_TAKEN`, `SUBCONTRACTOR_EXISTS`, `CLIENT_PHONE_TAKEN`, `PROJECT_CODE_TAKEN`, `PROJECT_NOT_DRAFT`, `PROJECT_LOCKED`, `INVALID_STATUS_TRANSITION`, `SUPPLY_RULE_LOCKED`, `BILLING_STAGES_LOCKED`, `FLOOR_HAS_ROOMS`, `FLOOR_NOT_EMPTY`, `PROJECT_IS_DRAFT`, `PO_CLOSED`, `PURCHASE_ORDER_LOCKED`, `PURCHASE_ORDER_HAS_RECEIPTS`, `PURCHASE_ORDER_CANCELLED`, `RATES_ALREADY_SET`, `PURCHASE_NOT_FINAL`, `ALREADY_RECEIVED`, `DISPATCH_NOT_CANCELLABLE`, `DISPATCH_CANCELLED`, `SHORTAGE_RESOLVED`, `NOT_A_CHEQUE`, `CHEQUE_ALREADY_SETTLED`, `CASH_BALANCE_OPEN` (future) |
 | 410 | `OTP_EXPIRED`, `INVITE_EXPIRED`, `INVITE_CANCELLED` |
 | 423 | `ACCOUNT_LOCKED` |
 | 429 | `RATE_LIMITED`, `OTP_RESEND_WAIT`, `OTP_LIMIT_REACHED`, `OTP_TOO_MANY_ATTEMPTS`, `INVITE_RESEND_WAIT` |
+| 503 | `SERVICE_BUSY` (no database connection / transaction slot in time; `Retry-After: 1`, safe to retry) |
 
 ## Migrations
 
@@ -446,6 +499,7 @@ Audit actions: `client.create`, `client.update`, `project.create`, `project.dele
 | `20261006090000_master_data` | Platform `MaterialGroup` + `PlatformMaterial` (app_user SELECT only); tenant `Material`, `QualityCategory`, `MaterialRate`, `LaborRate`, `Supplier`, `SupplierRate`, `Worker`, `Subcontractor`, `PaymentScheduleTemplate` with RLS (ENABLE + FORCE + `tenant_isolation`), grants and composite FKs. Existing companies: run `npm run backfill:master-data` once. |
 | `20261007090000_clients` | `Client` (tenant, RLS, unique phone per company) |
 | `20261007100000_projects` | `ProjectStatus` → DRAFT / ACTIVE / CLOSEOUT / HANDED_OVER / CLOSED / READ_ONLY (old ON_HOLD → ACTIVE, COMPLETED → HANDED_OVER, ARCHIVED → CLOSED; default DRAFT); Project wizard columns (code backfilled as `PRJ-<year>-NNN` for existing rows, then NOT NULL + unique per company); `ProjectSupplyRule`, `ProjectBillingStage`, `Floor`, `Room`, `Opening` with RLS, grants and composite FKs |
+| `20261008090000_procurement_inventory` | `TenantCounter`, `StockLocation` (+ backfill: Central Store + transit per company, a site per non-draft project), append-only `StockMovement` and `SupplierLedgerEntry` (app_user SELECT + INSERT only), `LowStockLevel`, purchase orders, purchases (+ items, corrections, returns), supplier payments, dispatches (+ items), shortages, owner deliveries, material usage, stock counts — all with RLS, grants and composite FKs; `AttachmentKind.CHALLAN`; `TenantSettings.blindCountEnabled` |
 
 Prisma's `migrate dev` refuses to run non-interactively when a change has warnings (enum value removed). Generate SQL with `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, hand-edit renames (e.g. `ALTER TYPE … RENAME VALUE`, `RENAME COLUMN`) so data is kept, save it as a new migration folder and run `npx prisma migrate deploy`.
 

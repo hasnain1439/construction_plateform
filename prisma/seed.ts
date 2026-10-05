@@ -13,6 +13,7 @@ import type { Prisma, PrismaClient, UserRole } from '../src/generated/prisma/cli
 import { MATERIAL_GROUPS, PLATFORM_MATERIALS } from '../src/modules/master-data/catalog.js';
 import { provisionMasterData } from '../src/modules/master-data/provision.js';
 import { seedMalikMasterData } from './seedMasterData.js';
+import { seedMalikInventory } from './seedInventory.js';
 import { ensureProjectRow, seedAhmedProject, seedMalikClients, seedMalikProjects } from './seedProjects.js';
 
 export const SEED = {
@@ -198,7 +199,8 @@ async function upsertUser(
   });
 }
 
-export async function seed(db: PrismaClient = prismaAdmin) {
+/** `inventory: false` skips the procurement & inventory demo (the test suite seeds it only where needed). */
+export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: boolean } = {}) {
   // Platform admin
   await db.platformAdmin.upsert({
     where: { email: SEED.admin.email },
@@ -331,6 +333,9 @@ export async function seed(db: PrismaClient = prismaAdmin) {
     clients,
   });
   const ahmedProject = await seedAhmedProject(db, ahmed.id, ahmedOwner.id, rafaqatAhmed.id);
+  if (opts.inventory !== false) {
+    await seedMalikInventory(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, projects: malikProjects });
+  }
 
   return {
     malik,
@@ -356,6 +361,7 @@ Seed complete.
     THEKEDAR  Khalid Malik  ${SEED.malik.owner.phone} / ${SEED.malik.owner.password}
     PM        Bilal Ahmed   ${SEED.malik.pm.phone} / ${SEED.malik.pm.password}   (no financials)
     MUNSHI    Rafaqat Ali   ${SEED.malik.munshi.phone}  (OTP only)
+    Stock     store purchases + GP-0140…0144 (GP-0143 / GP-0144 on the way), 2 open shortages on GP-0142, CB-1190 waiting at Bahria
 
   Ahmed Constructions (Starter, ACTIVE — Easypaisa EP2610010042 pending review)
     THEKEDAR  Ahmed Raza    ${SEED.ahmed.owner.phone} / ${SEED.ahmed.owner.password}

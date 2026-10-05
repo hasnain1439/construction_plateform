@@ -17,6 +17,10 @@ export const envSchema = z
   DATABASE_URL: z.string().startsWith('postgres', 'DATABASE_URL must be a PostgreSQL URL'),
   /** app_admin — BYPASSRLS. Auth lookups and platform-admin code only. */
   DATABASE_ADMIN_URL: z.string().startsWith('postgres', 'DATABASE_ADMIN_URL must be a PostgreSQL URL'),
+  /** Max connections per pool (app_user and app_admin each get one). Keep under Postgres max_connections. */
+  DB_POOL_MAX: z.coerce.number().int().min(2).max(200).default(20),
+  /** How long a request may wait for a free connection before its transaction gives up (→ 503). */
+  DB_TX_MAX_WAIT_MS: z.coerce.number().int().min(500).max(60_000).default(10_000),
 
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
   JWT_REFRESH_PEPPER: z.string().min(32, 'JWT_REFRESH_PEPPER must be at least 32 characters'),
