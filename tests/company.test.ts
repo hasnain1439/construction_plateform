@@ -102,6 +102,10 @@ describe('company settings', () => {
       hoursPerDay: 8,
       overtimeMultiplier: null,
       subcontractPaymentsByPm: false,
+      paymentTermsDays: 7,
+      taxRatePercent: 0,
+      taxLabel: null,
+      pmCanRecordPayments: false,
       defaultLanguage: 'ROMAN_URDU',
     });
   });
@@ -120,6 +124,8 @@ describe('company settings', () => {
       { hoursPerDay: 30 },
       { overtimeMultiplier: 5 },
       { settlementWeekStart: 'FUNDAY' },
+      { paymentTermsDays: 120 },
+      { taxRatePercent: 45 },
       {},
     ]) {
       const res = await api().patch('/api/v1/company/settings').set(bearer(s.accessToken)).send(body);

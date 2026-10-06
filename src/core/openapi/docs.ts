@@ -2,6 +2,7 @@ import { Router } from 'express';
 import swaggerUi from 'swagger-ui-express';
 import { registerAttachmentsDocs } from '../../modules/attachments/attachments.docs.js';
 import { registerAuthDocs } from '../../modules/auth/auth.docs.js';
+import { registerBillingDocs } from '../../modules/billing/billing.docs.js';
 import { registerCashbookDocs } from '../../modules/cashbook/cashbook.docs.js';
 import { registerClientsDocs } from '../../modules/clients/clients.docs.js';
 import { registerCompanyDocs } from '../../modules/company/company.docs.js';
@@ -37,6 +38,7 @@ export function openApiDocument() {
     registerDispatchDocs();
     registerLaborDocs();
     registerCashbookDocs();
+    registerBillingDocs();
     registerPlatformAdminDocs();
     document = buildOpenApiDocument();
   }

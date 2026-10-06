@@ -49,6 +49,10 @@ const settingsExample = {
     hoursPerDay: 8,
     overtimeMultiplier: null,
     subcontractPaymentsByPm: false,
+    paymentTermsDays: 7,
+    taxRatePercent: 0,
+    taxLabel: null,
+    pmCanRecordPayments: false,
     defaultLanguage: 'ROMAN_URDU',
   },
 };
@@ -110,7 +114,8 @@ export function registerCompanyDocs(): void {
     description:
       'THEKEDAR only.\n\n- `kharchaApprovalLimitPaisa` ≥ 0 (paisa string)\n- `overuseAlertPercent` 1–20\n- `missingLogAlertTime` HH:MM\n- `quoteValidityDays` 1–90\n\n' +
       '`pmCanSeeFinancials` is the default for new PM invitations. `blindCountEnabled` hides sent / challan quantities while a site counts a delivery.\n\n' +
-      'Labour: `settlementWeekStart`, `workingDays`, `hoursPerDay` (1–16), `overtimeMultiplier` (1–3, null = the DAILY labour rate multiplier) and `subcontractPaymentsByPm`.',
+      'Labour: `settlementWeekStart`, `workingDays`, `hoursPerDay` (1–16), `overtimeMultiplier` (1–3, null = the DAILY labour rate multiplier) and `subcontractPaymentsByPm`.\n\n' +
+      'Billing: `paymentTermsDays` (0–90), `taxRatePercent` (0–30) and `taxLabel` (used only when `taxEnabled`), `pmCanRecordPayments`.',
     security: companySecurity,
     request: {
       body: jsonBody(updateSettingsBody, {

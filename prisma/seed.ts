@@ -14,6 +14,7 @@ import { MATERIAL_GROUPS, PLATFORM_MATERIALS } from '../src/modules/master-data/
 import { provisionMasterData } from '../src/modules/master-data/provision.js';
 import { seedMalikMasterData } from './seedMasterData.js';
 import { seedMalikInventory } from './seedInventory.js';
+import { seedMalikBilling } from './seedBilling.js';
 import { seedMalikLabor } from './seedLabor.js';
 import { ensureProjectRow, seedAhmedProject, seedMalikClients, seedMalikProjects } from './seedProjects.js';
 
@@ -200,8 +201,8 @@ async function upsertUser(
   });
 }
 
-/** `inventory` / `labor: false` skip the Step 6 / Step 7 demos (the test suite seeds them only where needed). */
-export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: boolean; labor?: boolean } = {}) {
+/** `inventory` / `labor` / `billing: false` skip the Step 6 / 7 / 8 demos (the test suite seeds them only where needed). */
+export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: boolean; labor?: boolean; billing?: boolean } = {}) {
   // Platform admin
   await db.platformAdmin.upsert({
     where: { email: SEED.admin.email },
@@ -339,6 +340,9 @@ export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: b
   }
   if (opts.labor !== false) {
     await seedMalikLabor(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, asifId: asif.id, projects: malikProjects });
+  }
+  if (opts.billing !== false) {
+    await seedMalikBilling(db, { tenantId: malik.id, ownerId: khalid.id, projects: malikProjects });
   }
 
   return {

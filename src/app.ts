@@ -21,6 +21,15 @@ import {
   projectCashbookRouter,
   topupsRouter,
 } from './modules/cashbook/cashbook.routes.js';
+import {
+  billingEventsRouter,
+  billingProgressRouter,
+  billingStagesRouter,
+  clientPaymentsRouter,
+  invoicesRouter,
+  projectBillingRouter,
+  receivablesRouter,
+} from './modules/billing/billing.routes.js';
 import { clientsRouter } from './modules/clients/clients.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 import { floorsRouter, openingsRouter, projectsRouter, roomsRouter, supplyPresetsRouter } from './modules/projects/projects.routes.js';
@@ -130,7 +139,14 @@ export function createApp(options: CreateAppOptions = {}): Express {
   api.use('/projects', projectDispatchRouter); // /projects/:id/incoming, /owner-deliveries (per-route auth)
   api.use('/projects', projectLaborRouter); // /projects/:id/labor/*, /attendance, /advances, /settlements, ... (per-route auth)
   api.use('/projects', projectCashbookRouter); // /projects/:id/cashbook (per-route auth)
+  api.use('/projects', projectBillingRouter); // /projects/:id/billing-stages, /invoices, /payments, /receivables, ... (per-route auth)
   api.use('/projects', projectsRouter);
+  api.use('/billing-stages', billingStagesRouter);
+  api.use('/billing-progress', billingProgressRouter);
+  api.use('/invoices', invoicesRouter);
+  api.use('/payments', clientPaymentsRouter);
+  api.use('/receivables', receivablesRouter);
+  api.use('/billing-events', billingEventsRouter);
   api.use('/project-workers', projectWorkersRouter);
   api.use('/subcontract-assignments', subcontractAssignmentsRouter);
   api.use('/work-measurements', workMeasurementsRouter);
