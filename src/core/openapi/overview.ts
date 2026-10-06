@@ -128,6 +128,12 @@ export const TAGS = [
   { name: 'Settlements', description: 'Weekly wage settlements: generate from hazri, adjust peshgi, submit → approve (locks the week) → pay' },
   { name: 'Subcontract Accounts', description: 'Sub-contractor running accounts: value, retention, payments, deductions and balance due (THEKEDAR, PM)' },
   { name: 'Cash Book', description: 'Site cash: floats (acknowledged by the holder), kharcha with approval above the limit, top-ups, counts and handovers' },
+  { name: 'Billing Stages', description: 'Owner payment schedule: mark a stage ready (proof photos), expected dates' },
+  { name: 'Invoices', description: 'Owner invoices: stage, running bill, recoverable, retention, manual. Draft → issue (numbered, locked, PDF) → cancel with a reason' },
+  { name: 'Running Bills', description: 'Sq ft progress for labour-only running bills' },
+  { name: 'Client Payments', description: 'Money received from the owner (RV receipts), allocation to invoices, project credit, cheque clearing / bouncing' },
+  { name: 'Receivables', description: 'Project and company receivables, own money invested, billing alerts' },
+  { name: 'Statements', description: 'Owner statement for a period (JSON and PDF) with a WhatsApp share text' },
   { name: 'Platform admin auth', description: 'Platform owners only — separate accounts and tokens' },
   { name: 'Platform admin', description: 'Platform console: dashboard, companies, payment review, plans, holidays, material catalog, audit log (platform token)' },
 ];

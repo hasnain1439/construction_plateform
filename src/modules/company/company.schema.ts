@@ -95,6 +95,10 @@ export const updateSettingsBody = z
     hoursPerDay: z.number().min(1, 'Must be between 1 and 16').max(16, 'Must be between 1 and 16').multipleOf(0.25).optional(),
     overtimeMultiplier: z.number().min(1, 'Must be between 1 and 3').max(3, 'Must be between 1 and 3').multipleOf(0.05).nullable().optional(),
     subcontractPaymentsByPm: z.boolean().optional(),
+    paymentTermsDays: z.number().int().min(0, 'Must be between 0 and 90').max(90, 'Must be between 0 and 90').optional(),
+    taxRatePercent: z.number().min(0, 'Must be between 0 and 30').max(30, 'Must be between 0 and 30').multipleOf(0.01).optional(),
+    taxLabel: z.string().trim().max(20).nullable().optional(),
+    pmCanRecordPayments: z.boolean().optional(),
     defaultLanguage: languageSchema.optional(),
   })
   .refine((value) => Object.values(value).some((v) => v !== undefined), { message: 'Nothing to update' });
@@ -113,6 +117,10 @@ export const settingsDto = z
     hoursPerDay: z.number().meta({ example: 8 }),
     overtimeMultiplier: z.number().nullable().meta({ description: 'null = the DAILY labour rate multiplier (×1.5 by default)' }),
     subcontractPaymentsByPm: z.boolean().meta({ description: 'A PM may pay sub-contractors (THEKEDAR always can)' }),
+    paymentTermsDays: z.number().meta({ description: 'Invoice due date = issue date + this many days', example: 7 }),
+    taxRatePercent: z.number().meta({ description: 'Sales tax on invoices (only when taxEnabled)', example: 16 }),
+    taxLabel: z.string().nullable().meta({ example: 'PRA' }),
+    pmCanRecordPayments: z.boolean().meta({ description: 'A PM with billing.view may record owner payments' }),
     defaultLanguage: languageSchema,
   })
   .meta({ id: 'CompanySettings' });

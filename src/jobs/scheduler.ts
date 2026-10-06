@@ -2,6 +2,7 @@ import pg from 'pg';
 import { env, isTest } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { trackJobRun } from './jobRuns.js';
+import { runBillingOverdueCheck } from './billingOverdue.js';
 import { runSubscriptionLifecycle } from './subscriptionLifecycle.js';
 
 /** Karachi is UTC+5 all year (no DST). */
@@ -62,12 +63,27 @@ export async function runSubscriptionJob(): Promise<void> {
   }
 }
 
+export async function runBillingJob(): Promise<void> {
+  try {
+    const result = await runExclusive('billing-overdue', () => trackJobRun('billing-overdue', () => runBillingOverdueCheck()));
+    if (result) logger.info({ job: 'billing-overdue', checked: result.checked, marked: result.marked.length }, 'billing overdue check finished');
+  } catch (err) {
+    logger.error({ err, job: 'billing-overdue' }, 'billing overdue check failed');
+  }
+}
+
 const timers: NodeJS.Timeout[] = [];
 
 /** On startup + daily at 02:00 Asia/Karachi. Disabled in tests. */
 export function startScheduledJobs(): void {
   if (isTest) return;
   timers.push(setTimeout(() => void runSubscriptionJob(), 5_000).unref());
+  timers.push(setTimeout(() => void runBillingJob(), 15_000).unref());
+  const scheduleBilling = () => {
+    const wait = msUntilNextPkt(2) + 30 * 60_000;
+    timers.push(setTimeout(() => void runBillingJob().finally(scheduleBilling), wait).unref());
+  };
+  scheduleBilling();
   const scheduleNext = () => {
     const wait = msUntilNextPkt(2);
     timers.push(

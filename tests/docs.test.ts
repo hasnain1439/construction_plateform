@@ -24,6 +24,7 @@ import * as proc from '../src/modules/procurement/procurement.schema.js';
 import * as dsp from '../src/modules/dispatch/dispatch.schema.js';
 import * as lab from '../src/modules/labor/labor.schema.js';
 import * as cb from '../src/modules/cashbook/cashbook.schema.js';
+import * as bl from '../src/modules/billing/billing.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
@@ -128,6 +129,16 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/topup-requests/{id}/reject': cb.rejectBody,
   'post /api/v1/cash-counts': cb.countBody,
   'post /api/v1/cash-handovers': cb.handoverBody,
+  'post /api/v1/billing-stages/{id}/mark-ready': bl.markReadyBody,
+  'patch /api/v1/billing-stages/{id}': bl.updateStageBody,
+  'post /api/v1/projects/{id}/billing-progress': bl.progressBody,
+  'patch /api/v1/billing-progress/{id}': bl.updateProgressBody,
+  'post /api/v1/projects/{id}/invoices': bl.createInvoiceBody,
+  'patch /api/v1/invoices/{id}': bl.updateInvoiceBody,
+  'post /api/v1/invoices/{id}/issue': bl.issueBody,
+  'post /api/v1/invoices/{id}/cancel': bl.cancelBody,
+  'post /api/v1/projects/{id}/payments': bl.paymentBody,
+  'patch /api/v1/payments/{id}/cheque-status': bl.chequeStatusBody,
 };
 
 type Spec = {
@@ -177,10 +188,16 @@ describe('API docs', () => {
       'Settlements',
       'Subcontract Accounts',
       'Cash Book',
+      'Billing Stages',
+      'Invoices',
+      'Running Bills',
+      'Client Payments',
+      'Receivables',
+      'Statements',
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(171);
+    expect(Object.keys(res.body.paths)).toHaveLength(190);
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

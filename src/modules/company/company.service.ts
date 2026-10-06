@@ -101,6 +101,10 @@ function toSettingsDto(s: SettingsRow): SettingsDto {
     hoursPerDay: Number(s.hoursPerDay),
     overtimeMultiplier: s.overtimeMultiplier === null ? null : Number(s.overtimeMultiplier),
     subcontractPaymentsByPm: s.subcontractPaymentsByPm,
+    paymentTermsDays: s.paymentTermsDays,
+    taxRatePercent: Number(s.taxRatePercent),
+    taxLabel: s.taxLabel,
+    pmCanRecordPayments: s.pmCanRecordPayments,
     defaultLanguage: s.defaultLanguage,
   };
 }

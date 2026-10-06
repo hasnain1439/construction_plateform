@@ -55,6 +55,10 @@ enum AttachmentKind {
   PAYMENT_SLIP
   /// Supplier's delivery challan (purchases).
   CHALLAN
+  /// Generated PDFs (billing)
+  INVOICE_PDF
+  RECEIPT_PDF
+  STATEMENT_PDF
 }
 
 enum HolidayType {
@@ -310,6 +314,12 @@ model Tenant {
   cashEntries            CashEntry[]
   topupRequests          TopupRequest[]
   cashCounts             CashCount[]
+  billingProgress        BillingProgress[]
+  invoices               Invoice[]
+  invoiceLines           InvoiceLine[]
+  clientPayments         ClientPayment[]
+  paymentAllocations     PaymentAllocation[]
+  billingEvents          BillingEvent[]
 }
 
 model TenantSettings {
@@ -340,6 +350,13 @@ model TenantSettings {
   overtimeMultiplier        Decimal?  @db.Decimal(4, 2)
   /// Whether a PM may pay sub-contractors (THEKEDAR always can).
   subcontractPaymentsByPm   Boolean   @default(false)
+  /// Invoice due date = issue date + this many days.
+  paymentTermsDays          Int       @default(7)
+  /// Sales tax on invoices when taxEnabled (e.g. 16 for PRA).
+  taxRatePercent            Decimal   @default(0) @db.Decimal(5, 2)
+  taxLabel                  String?
+  /// Whether a PM with billing.view may record client payments.
+  pmCanRecordPayments       Boolean   @default(false)
   createdAt                 DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt                 DateTime  @updatedAt @db.Timestamptz(3)
   tenant                    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -522,6 +539,10 @@ model Project {
   userAccess             UserProjectAccess[]
   supplyRules            ProjectSupplyRule[]
   billingStages          ProjectBillingStage[]
+  billingProgress        BillingProgress[]
+  invoices               Invoice[]
+  clientPayments         ClientPayment[]
+  billingEvents          BillingEvent[]
   floors                 Floor[]
   rooms                  Room[]
   stockLocation          StockLocation?
@@ -987,20 +1008,22 @@ model PaymentScheduleTemplate {
 
 /// Project owner (the customer). No login.
 model Client {
-  id          String    @id @default(uuid(7)) @db.Uuid
-  tenantId    String    @db.Uuid
+  id          String          @id @default(uuid(7)) @db.Uuid
+  tenantId    String          @db.Uuid
   name        String
   /// E.164 (mobile or landline)
   phone       String
   email       String?
   address     String?
   notes       String?
-  createdById String?   @db.Uuid
-  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
-  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  createdBy   User?     @relation("ClientCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdById String?         @db.Uuid
+  createdAt   DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @db.Timestamptz(3)
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy   User?           @relation("ClientCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
   projects    Project[]
+  invoices    Invoice[]
+  payments    ClientPayment[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -1036,7 +1059,10 @@ enum SuppliedBy {
 
 enum BillingStageStatus {
   UPCOMING
+  /// Work done, proof attached, waiting for an invoice
+  READY
   INVOICED
+  PARTLY_PAID
   PAID
 }
 
@@ -1094,19 +1120,27 @@ model ProjectSupplyRule {
 }
 
 model ProjectBillingStage {
-  id          String             @id @default(uuid(7)) @db.Uuid
-  tenantId    String             @db.Uuid
-  projectId   String             @db.Uuid
-  sortOrder   Int
-  label       String
-  percent     Decimal            @db.Decimal(5, 2)
-  isRetention Boolean            @default(false)
-  amountPaisa BigInt             @default(0)
-  status      BillingStageStatus @default(UPCOMING)
-  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime           @updatedAt @db.Timestamptz(3)
-  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  project     Project            @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade)
+  id                 String             @id @default(uuid(7)) @db.Uuid
+  tenantId           String             @db.Uuid
+  projectId          String             @db.Uuid
+  sortOrder          Int
+  label              String
+  percent            Decimal            @db.Decimal(5, 2)
+  isRetention        Boolean            @default(false)
+  amountPaisa        BigInt             @default(0)
+  status             BillingStageStatus @default(UPCOMING)
+  readyAt            DateTime?          @db.Timestamptz(3)
+  readyById          String?            @db.Uuid
+  readyNote          String?
+  proofAttachmentIds String[]           @default([]) @db.Uuid
+  expectedDate       DateTime?          @db.Date
+  /// Phase 2 (schedule milestones)
+  milestoneId        String?            @db.Uuid
+  createdAt          DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime           @updatedAt @db.Timestamptz(3)
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project            Project            @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade)
+  invoices           Invoice[]
 
   @@unique([tenantId, id])
   @@index([tenantId, projectId, sortOrder])
@@ -2221,6 +2255,8 @@ model CashEntry {
   recoverableFromHolder Boolean          @default(false)
   refType               String?
   refId                 String?          @db.Uuid
+  /// RECOVERABLE_FROM_OWNER kharcha put on an owner invoice (issued)
+  billedInvoiceId       String?          @db.Uuid
   clientId              String?          @db.Uuid
   deviceCreatedAt       DateTime?        @db.Timestamptz(3)
   occurredAt            DateTime         @db.Timestamptz(3)
@@ -2276,4 +2312,213 @@ model CashCount {
 
   @@unique([tenantId, id])
   @@index([tenantId, accountId, countedAt])
+}
+
+// ─── Billing & receivables (Phase 1 · Step 8) ───────────────────────────────
+
+enum InvoiceType {
+  STAGE
+  RUNNING_BILL
+  RECOVERABLE
+  RETENTION
+  OTHER
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTLY_PAID
+  PAID
+  CANCELLED
+}
+
+enum InvoiceLineSource {
+  BILLING_STAGE
+  BILLING_PROGRESS
+  CASH_ENTRY
+  /// Retention held back on a running bill (negative)
+  RETENTION
+  MANUAL
+}
+
+enum ClientPaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CHEQUE
+  JAZZCASH
+  EASYPAISA
+  RAAST
+}
+
+enum ClientPaymentStatus {
+  CLEARED
+  PENDING
+  BOUNCED
+}
+
+enum BillingEventType {
+  INVOICE_OVERDUE
+  CHEQUE_BOUNCED
+  STAGE_READY_UNBILLED
+  PREVIOUS_STAGE_UNPAID
+}
+
+/// Running-bill progress (sq ft done), billed by a RUNNING_BILL invoice.
+model BillingProgress {
+  id              String   @id @default(uuid(7)) @db.Uuid
+  tenantId        String   @db.Uuid
+  projectId       String   @db.Uuid
+  date            DateTime @db.Date
+  quantity        Decimal  @db.Decimal(14, 3)
+  description     String
+  attachmentIds   String[] @default([]) @db.Uuid
+  billedInvoiceId String?  @db.Uuid
+  createdById     String?  @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project         Project  @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, projectId, date])
+}
+
+model Invoice {
+  id              String               @id @default(uuid(7)) @db.Uuid
+  tenantId        String               @db.Uuid
+  projectId       String               @db.Uuid
+  clientId        String?              @db.Uuid
+  /// INV-2026-0001, assigned on issue
+  number          String?
+  type            InvoiceType
+  status          InvoiceStatus        @default(DRAFT)
+  billingStageId  String?              @db.Uuid
+  issueDate       DateTime?            @db.Date
+  dueDate         DateTime?            @db.Date
+  subtotalPaisa   BigInt               @default(0)
+  taxPaisa        BigInt               @default(0)
+  taxLabel        String?
+  taxRatePercent  Decimal?             @db.Decimal(5, 2)
+  totalPaisa      BigInt               @default(0)
+  /// Cleared allocations (incl. WHT)
+  paidPaisa       BigInt               @default(0)
+  /// Allocations from cheques not yet cleared
+  pendingPaisa    BigInt               @default(0)
+  /// total − paid
+  balancePaisa    BigInt               @default(0)
+  notes           String?
+  /// STAGE invoiced before the stage was marked ready
+  forceNote       String?
+  cancelReason    String?
+  cancelledAt     DateTime?            @db.Timestamptz(3)
+  cancelledById   String?              @db.Uuid
+  pdfAttachmentId String?              @db.Uuid
+  createdById     String?              @db.Uuid
+  issuedById      String?              @db.Uuid
+  issuedAt        DateTime?            @db.Timestamptz(3)
+  createdAt       DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @db.Timestamptz(3)
+  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project         Project              @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  client          Client?              @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  billingStage    ProjectBillingStage? @relation(fields: [tenantId, billingStageId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  lines           InvoiceLine[]
+  allocations     PaymentAllocation[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@index([tenantId, projectId, status])
+  @@index([tenantId, status, dueDate])
+}
+
+model InvoiceLine {
+  id          String            @id @default(uuid(7)) @db.Uuid
+  tenantId    String            @db.Uuid
+  invoiceId   String            @db.Uuid
+  sortOrder   Int
+  description String
+  quantity    Decimal?          @db.Decimal(14, 3)
+  unit        String?
+  ratePaisa   BigInt?
+  /// Signed (retention held back on a running bill is negative)
+  amountPaisa BigInt
+  sourceType  InvoiceLineSource
+  sourceId    String?           @db.Uuid
+  tenant      Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invoice     Invoice           @relation(fields: [tenantId, invoiceId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, invoiceId])
+}
+
+/// Money received from the owner (receipt voucher RV-…). Locked once recorded.
+model ClientPayment {
+  id                  String              @id @default(uuid(7)) @db.Uuid
+  tenantId            String              @db.Uuid
+  projectId           String              @db.Uuid
+  clientId            String?             @db.Uuid
+  number              String
+  receivedOn          DateTime            @db.Date
+  amountPaisa         BigInt
+  method              ClientPaymentMethod
+  bankName            String?
+  reference           String?
+  chequeNo            String?
+  chequeDate          DateTime?           @db.Date
+  status              ClientPaymentStatus
+  /// Tax withheld by the owner (counts towards the invoices)
+  whtDeductedPaisa    BigInt              @default(0)
+  receivedById        String?             @db.Uuid
+  attachmentId        String?             @db.Uuid
+  receiptAttachmentId String?             @db.Uuid
+  note                String?
+  bounceReason        String?
+  clearedAt           DateTime?           @db.Timestamptz(3)
+  bouncedAt           DateTime?           @db.Timestamptz(3)
+  createdAt           DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime            @updatedAt @db.Timestamptz(3)
+  tenant              Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project             Project             @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  client              Client?             @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  allocations         PaymentAllocation[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@index([tenantId, projectId, receivedOn])
+}
+
+/// Which invoices a payment settles. Append-only (project credit is applied by adding rows).
+model PaymentAllocation {
+  id          String        @id @default(uuid(7)) @db.Uuid
+  tenantId    String        @db.Uuid
+  paymentId   String        @db.Uuid
+  invoiceId   String        @db.Uuid
+  amountPaisa BigInt
+  createdAt   DateTime      @default(now()) @db.Timestamptz(3)
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  payment     ClientPayment @relation(fields: [tenantId, paymentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  invoice     Invoice       @relation(fields: [tenantId, invoiceId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, invoiceId])
+  @@index([tenantId, paymentId])
+}
+
+/// Things the owner should act on (dashboard alerts). One row per (type, ref).
+model BillingEvent {
+  id         String           @id @default(uuid(7)) @db.Uuid
+  tenantId   String           @db.Uuid
+  projectId  String           @db.Uuid
+  type       BillingEventType
+  refType    String
+  refId      String           @db.Uuid
+  details    Json?
+  occurredAt DateTime         @default(now()) @db.Timestamptz(3)
+  resolvedAt DateTime?        @db.Timestamptz(3)
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project    Project          @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, type, refId])
+  @@index([tenantId, resolvedAt])
 }

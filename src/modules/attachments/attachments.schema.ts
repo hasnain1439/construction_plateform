@@ -6,6 +6,9 @@ export const attachmentKindSchema = z
   })
   .meta({ example: 'LOGO' });
 
+/** Every stored kind, including the PDFs the server generates (they can't be uploaded). */
+export const storedKindSchema = z.enum(['LOGO', 'PROFILE_PHOTO', 'SITE_PHOTO', 'RECEIPT', 'DOCUMENT', 'VOICE_NOTE', 'PAYMENT_SLIP', 'CHALLAN', 'INVOICE_PDF', 'RECEIPT_PDF', 'STATEMENT_PDF']);
+
 /** Multipart text fields (the file itself is the `file` part). */
 export const uploadAttachmentBody = z.object({ kind: attachmentKindSchema });
 
@@ -20,7 +23,7 @@ export const fileQuery = z.object({
 export const attachmentDto = z
   .object({
     id: z.uuid(),
-    kind: attachmentKindSchema,
+    kind: storedKindSchema,
     fileName: z.string(),
     mimeType: z.string().meta({ example: 'image/png' }),
     sizeBytes: z.number().int().meta({ example: 48213 }),
