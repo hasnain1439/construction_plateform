@@ -42,6 +42,7 @@ import type {
   UpdateMeInput,
   UserDto,
 } from './auth.schema.js';
+import * as alerts from '../notifications/alerts.js';
 import { mailProvider } from './mail.provider.js';
 import { checkOtp, consumeCheckedOtp, issueOtp, OTP_RESEND_SECONDS, otpMatches } from './otp.service.js';
 import {
@@ -731,6 +732,7 @@ export async function acceptInvitation(token: string, input: AcceptInvitationInp
       entityId: invitation.id,
       details: { role: invitation.role, projects: projectIds.length },
     });
+    await alerts.inviteAccepted(tx, { tenantId, userId: user.id, name: user.name, role: invitation.role, at: now });
     const { dto } = await loadProfileDtos(tx, user.id, tenantId);
     return { tokens: session.tokens, permissions: session.permissions, ...dto };
   });

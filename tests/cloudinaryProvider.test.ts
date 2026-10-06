@@ -65,6 +65,9 @@ describe('CloudinaryStorageProvider (mocked SDK)', () => {
     await p.put(`${TENANT}/2026/10/${ID}.ogg`, Buffer.from('OggS'), 'audio/ogg');
     await p.put(`${TENANT}/2026/10/${ID}.pdf`, Buffer.from('%PDF-'), 'application/pdf');
     expect(calls.uploads.map((u) => u.options['resource_type'])).toEqual(['video', 'raw']);
+    // Raw files keep their extension (the download opens in the right app); media do not.
+    expect(calls.uploads.map((u) => u.options['public_id'])).toEqual([ID, `${ID}.pdf`]);
+    expect(parseCloudinaryKey(`cloudinary:raw:construction/${TENANT}/2026/10/${ID}.xlsx`).publicId).toBe(`construction/${TENANT}/2026/10/${ID}.xlsx`);
     expect(calls.uploads.every((u) => u.options['type'] === 'authenticated')).toBe(true);
     expect(resourceTypeFor('image/webp')).toBe('image');
     expect(resourceTypeFor('audio/mpeg')).toBe('video');

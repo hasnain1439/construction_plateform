@@ -134,6 +134,11 @@ export const TAGS = [
   { name: 'Client Payments', description: 'Money received from the owner (RV receipts), allocation to invoices, project credit, cheque clearing / bouncing' },
   { name: 'Receivables', description: 'Project and company receivables, own money invested, billing alerts' },
   { name: 'Statements', description: 'Owner statement for a period (JSON and PDF) with a WhatsApp share text' },
+  { name: 'Approvals', description: 'My approvals: everything waiting on the office in one list, with bulk quick actions' },
+  { name: 'Notifications', description: 'In-app notifications for the signed-in user (bell), with SMS for critical ones' },
+  { name: 'Dashboard', description: 'Company overview (money keys only with billing.view) and the site dashboard (munshi landing page, no rates or values)' },
+  { name: 'Finance', description: 'Receivables ageing, cash-flow outlook (estimate), profit & loss to date and cash with site staff' },
+  { name: 'Reports', description: 'Seven reports as JSON for screens, or CSV / Excel / PDF via a signed link' },
   { name: 'Platform admin auth', description: 'Platform owners only — separate accounts and tokens' },
   { name: 'Platform admin', description: 'Platform console: dashboard, companies, payment review, plans, holidays, material catalog, audit log (platform token)' },
 ];

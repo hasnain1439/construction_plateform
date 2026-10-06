@@ -14,6 +14,8 @@ import { Prisma } from '../../core/db/prisma.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
 import type { SettlementStatus } from '../../generated/prisma/client.js';
 import { assertCash, cashMethodOf, lockAccount, payingAccount, postEntry } from '../cashbook/cash.js';
+import { dayMonth } from '../../core/pdf/templates.js';
+import * as alerts from '../notifications/alerts.js';
 import { projectScope } from '../projects/access.js';
 import type { LineInput, PayInput, SettlementsQuery } from './labor.schema.js';
 import { actor, addDays, assertOffice, assertWeekStart, audit, laborSettings, num, projectFor, times, today, type Actor, type LaborSettings } from './labor.shared.js';
@@ -302,6 +304,7 @@ export async function submitTx(tx: Tx, a: Actor, id: string, opts: { at?: Date }
   if (!s.lines.length) throw new BadRequest('EMPTY_SETTLEMENT', 'Nobody worked this week — nothing to submit');
   await tx.wageSettlement.update({ where: { id }, data: { status: 'SUBMITTED', submittedById: a.userId, submittedAt: opts.at ?? new Date(), returnComment: null } });
   await audit(tx, a, 'settlement.submit', 'WageSettlement', id, { netPaisa: s.netPaisa.toString() });
+  await alerts.settlementSubmitted(tx, { tenantId: a.tenantId, projectId: s.projectId, projectName: s.project.name, settlementId: s.id, week: `${dayMonth(formatDateOnly(s.weekStart))} – ${dayMonth(formatDateOnly(s.weekEnd))}`, netPaisa: s.netPaisa, ...(opts.at ? { at: opts.at } : {}) });
   return toDto(tx, a, await load(tx, id));
 }
 
@@ -333,6 +336,7 @@ export async function returnSettlement(id: string, comment: string) {
     if (s.lines.some((l) => l.paymentStatus === 'PAID')) throw new Conflict('SETTLEMENT_PAID', 'Some wages are already paid — this week can no longer be returned');
     await tx.wageSettlement.update({ where: { id }, data: { status: 'RETURNED', returnComment: comment, approvedById: null, approvedAt: null } });
     await audit(tx, a, 'settlement.return', 'WageSettlement', id, { from: s.status, comment });
+    await alerts.settlementReturned(tx, { tenantId: a.tenantId, projectId: s.projectId, projectName: s.project.name, settlementId: s.id, week: `${dayMonth(formatDateOnly(s.weekStart))} – ${dayMonth(formatDateOnly(s.weekEnd))}`, comment, submittedById: s.submittedById });
     return toDto(tx, a, await load(tx, id));
   });
 }

@@ -17,6 +17,7 @@ import { formatDisplayDate } from '../core/utils/dates.js';
 import { maskPhone } from '../core/utils/phone.js';
 import type { Prisma, SubscriptionStatus } from '../generated/prisma/client.js';
 import { smsProvider } from '../modules/auth/sms.provider.js';
+import * as alerts from '../modules/notifications/alerts.js';
 import { parkProjectsOverLimit } from '../modules/subscription/subscription.rules.js';
 import { syncTenantStatus } from '../modules/subscription/subscription.status.js';
 
@@ -111,9 +112,10 @@ async function remind(
       logger.error({ err, phone: maskPhone(owner.phone) }, 'subscription reminder sms failed');
     }
   }
-  await prismaAdmin.$transaction((tx) =>
-    auditSystem(tx, sub.tenantId, sub.id, 'subscription.reminder_sent', { daysBefore: reminder.days, recipients: owners.length }),
-  );
+  await prismaAdmin.$transaction(async (tx) => {
+    await auditSystem(tx, sub.tenantId, sub.id, 'subscription.reminder_sent', { daysBefore: reminder.days, recipients: owners.length });
+    await alerts.subscriptionRenewal(tx, { tenantId: sub.tenantId, subscriptionId: sub.id, plan: sub.planName, endsOn: formatDisplayDate(endsAt), days: reminder.days, at: now });
+  });
   return true;
 }
 

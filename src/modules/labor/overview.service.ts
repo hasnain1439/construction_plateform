@@ -3,7 +3,7 @@
  * and the dashboard overview (hazri today, peshgi and kharcha this week, cash with site
  * staff, what waits for approval). PM: only their projects.
  */
-import { withTenant } from '../../core/db/withTenant.js';
+import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { NotFound } from '../../core/errors/AppError.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
 import { totalsOf } from '../cashbook/cash.js';
@@ -11,7 +11,7 @@ import { pktDayEnd, pktDayStart } from '../inventory/inventory.service.js';
 import { projectScope } from '../projects/access.js';
 import { advanceState } from './advances.service.js';
 import { toAssignmentDto } from './assignments.service.js';
-import { actor, addDays, assertOffice, laborSettings, today, weekOf } from './labor.shared.js';
+import { actor, addDays, assertOffice, laborSettings, today, weekOf, type Actor } from './labor.shared.js';
 import { accountDto, subAccounts } from './subcontractLedger.js';
 
 const projectRef = { select: { id: true, code: true, name: true, status: true } } as const;
@@ -91,36 +91,40 @@ export async function laborOverview() {
   assertOffice(a);
   return withTenant(a.tenantId, async (tx) => {
     const projects = await tx.project.findMany({ where: { tenantId: a.tenantId, status: { in: ['ACTIVE', 'CLOSEOUT'] }, ...projectScope(a) }, select: { id: true } });
-    const ids = projects.map((p) => p.id);
-    const date = today();
-    const s = await laborSettings(tx, a.tenantId);
-    const week = weekOf(date, s.weekStart);
-    const assigned = await tx.projectWorker.count({ where: { tenantId: a.tenantId, projectId: { in: ids }, isActive: true } });
-    const marks = await tx.attendance.groupBy({ by: ['status'], where: { tenantId: a.tenantId, projectId: { in: ids }, date: dateOnly(date) }, _count: true });
-    const count = (st: string) => marks.find((m) => m.status === st)?._count ?? 0;
-    const peshgi = await tx.advance.aggregate({ where: { tenantId: a.tenantId, projectId: { in: ids }, date: { gte: dateOnly(week.weekStart), lte: dateOnly(week.weekEnd) } }, _sum: { amountPaisa: true } });
-    const kharcha = await tx.cashEntry.aggregate({
-      where: { tenantId: a.tenantId, projectId: { in: ids }, type: 'EXPENSE', occurredAt: { gte: pktDayStart(week.weekStart), lt: pktDayEnd(week.weekEnd) } },
-      _sum: { amountPaisa: true },
-    });
-    const accountWhere = a.role === 'THEKEDAR' ? { tenantId: a.tenantId, isActive: true } : { tenantId: a.tenantId, isActive: true, OR: [{ holderUserId: a.userId }, { holder: { projectAccess: { some: { projectId: { in: ids } } } } }] };
-    const accounts = await tx.cashAccount.findMany({ where: accountWhere, select: { id: true } });
-    const totals = [...(await totalsOf(tx, a.tenantId, accounts.map((x) => x.id))).values()];
-    const pending = {
-      settlements: await tx.wageSettlement.count({ where: { tenantId: a.tenantId, projectId: { in: ids }, status: 'SUBMITTED' } }),
-      kharcha: await tx.cashEntry.count({ where: { tenantId: a.tenantId, type: 'EXPENSE', status: 'PENDING_APPROVAL', OR: [{ projectId: { in: ids } }, ...(a.role === 'THEKEDAR' ? [{ projectId: null }] : [])] } }),
-      topups: a.role === 'THEKEDAR' ? await tx.topupRequest.count({ where: { tenantId: a.tenantId, status: 'PENDING' } }) : 0,
-      measurements: await tx.workMeasurement.count({ where: { tenantId: a.tenantId, projectId: { in: ids }, status: 'RECORDED' } }),
-    };
-    return {
-      date,
-      week: { weekStart: week.weekStart, weekEnd: week.weekEnd },
-      hazriToday: { assigned, full: count('FULL'), half: count('HALF'), absent: count('ABSENT'), unmarked: Math.max(0, assigned - count('FULL') - count('HALF') - count('ABSENT')) },
-      peshgiThisWeekPaisa: (peshgi._sum.amountPaisa ?? 0n).toString(),
-      kharchaThisWeekPaisa: (-(kharcha._sum.amountPaisa ?? 0n)).toString(),
-      cashWithSiteStaffPaisa: totals.reduce((sum, t) => sum + t.balancePaisa, 0n).toString(),
-      pending,
-      lastWeekStart: addDays(week.weekStart, -7),
-    };
+    return laborOverviewTx(tx, a, projects.map((p) => p.id));
   });
+}
+
+/** The overview for given projects (also used by the company dashboard). */
+export async function laborOverviewTx(tx: Tx, a: Actor, ids: string[]) {
+  const date = today();
+  const s = await laborSettings(tx, a.tenantId);
+  const week = weekOf(date, s.weekStart);
+  const assigned = await tx.projectWorker.count({ where: { tenantId: a.tenantId, projectId: { in: ids }, isActive: true } });
+  const marks = await tx.attendance.groupBy({ by: ['status'], where: { tenantId: a.tenantId, projectId: { in: ids }, date: dateOnly(date) }, _count: true });
+  const count = (st: string) => marks.find((m) => m.status === st)?._count ?? 0;
+  const peshgi = await tx.advance.aggregate({ where: { tenantId: a.tenantId, projectId: { in: ids }, date: { gte: dateOnly(week.weekStart), lte: dateOnly(week.weekEnd) } }, _sum: { amountPaisa: true } });
+  const kharcha = await tx.cashEntry.aggregate({
+    where: { tenantId: a.tenantId, projectId: { in: ids }, type: 'EXPENSE', occurredAt: { gte: pktDayStart(week.weekStart), lt: pktDayEnd(week.weekEnd) } },
+    _sum: { amountPaisa: true },
+  });
+  const accountWhere = a.role === 'THEKEDAR' ? { tenantId: a.tenantId, isActive: true } : { tenantId: a.tenantId, isActive: true, OR: [{ holderUserId: a.userId }, { holder: { projectAccess: { some: { projectId: { in: ids } } } } }] };
+  const accounts = await tx.cashAccount.findMany({ where: accountWhere, select: { id: true } });
+  const totals = [...(await totalsOf(tx, a.tenantId, accounts.map((x) => x.id))).values()];
+  const pending = {
+    settlements: await tx.wageSettlement.count({ where: { tenantId: a.tenantId, projectId: { in: ids }, status: 'SUBMITTED' } }),
+    kharcha: await tx.cashEntry.count({ where: { tenantId: a.tenantId, type: 'EXPENSE', status: 'PENDING_APPROVAL', OR: [{ projectId: { in: ids } }, ...(a.role === 'THEKEDAR' ? [{ projectId: null }] : [])] } }),
+    topups: a.role === 'THEKEDAR' ? await tx.topupRequest.count({ where: { tenantId: a.tenantId, status: 'PENDING' } }) : 0,
+    measurements: await tx.workMeasurement.count({ where: { tenantId: a.tenantId, projectId: { in: ids }, status: 'RECORDED' } }),
+  };
+  return {
+    date,
+    week: { weekStart: week.weekStart, weekEnd: week.weekEnd },
+    hazriToday: { assigned, full: count('FULL'), half: count('HALF'), absent: count('ABSENT'), unmarked: Math.max(0, assigned - count('FULL') - count('HALF') - count('ABSENT')) },
+    peshgiThisWeekPaisa: (peshgi._sum.amountPaisa ?? 0n).toString(),
+    kharchaThisWeekPaisa: (-(kharcha._sum.amountPaisa ?? 0n)).toString(),
+    cashWithSiteStaffPaisa: totals.reduce((sum, t) => sum + t.balancePaisa, 0n).toString(),
+    pending,
+    lastWeekStart: addDays(week.weekStart, -7),
+  };
 }

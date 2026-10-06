@@ -15,6 +15,7 @@ import { provisionMasterData } from '../src/modules/master-data/provision.js';
 import { seedMalikMasterData } from './seedMasterData.js';
 import { seedMalikInventory } from './seedInventory.js';
 import { seedMalikBilling } from './seedBilling.js';
+import { seedMalikNotifications } from './seedNotifications.js';
 import { seedMalikLabor } from './seedLabor.js';
 import { ensureProjectRow, seedAhmedProject, seedMalikClients, seedMalikProjects } from './seedProjects.js';
 
@@ -342,7 +343,9 @@ export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: b
     await seedMalikLabor(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, asifId: asif.id, projects: malikProjects });
   }
   if (opts.billing !== false) {
-    await seedMalikBilling(db, { tenantId: malik.id, ownerId: khalid.id, projects: malikProjects });
+    const billing = await seedMalikBilling(db, { tenantId: malik.id, ownerId: khalid.id, projects: malikProjects });
+    // Notifications point at stock, labour and billing records — only with the full demo, written now.
+    if (!billing.skipped && opts.inventory !== false && opts.labor !== false) await seedMalikNotifications(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, projects: malikProjects });
   }
 
   return {

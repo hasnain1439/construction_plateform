@@ -12,7 +12,7 @@ import { BadRequest, Conflict, Forbidden, NotFound } from '../../core/errors/App
 import { receiptHtml, rs } from '../../core/pdf/templates.js';
 import { dateOnly } from '../../core/utils/dates.js';
 import type { Prisma as P } from '../../generated/prisma/client.js';
-import { smsProvider } from '../auth/sms.provider.js';
+import * as alerts from '../notifications/alerts.js';
 import type { ChequeStatusInput, PaymentInput, PaymentsQuery } from './billing.schema.js';
 import { actor, assertOwner, audit, billingProject, billingSettings, NUMBER, today, ymd, type BillingActor } from './billing.shared.js';
 import { letterhead, salutation, shareOf, storePdf, withinOrBackground } from './documents.js';
@@ -181,11 +181,18 @@ export async function chequeStatusTx(tx: Tx, a: BillingActor, id: string, input:
       details: { number: p.number, chequeNo: p.chequeNo, bankName: p.bankName, amountPaisa: p.amountPaisa.toString(), reason: input.reason! },
       occurredAt: at,
     });
-    if (opts.sms !== false) {
-      const owners = await tx.user.findMany({ where: { tenantId: a.tenantId, role: 'THEKEDAR', status: 'ACTIVE' }, select: { phone: true } });
-      const text = `${[p.bankName, 'cheque', p.chequeNo].filter(Boolean).join(' ')} (${rs(p.amountPaisa)}) ${p.project.name} bounce ho gaya.`;
-      for (const o of owners) await smsProvider().send({ to: o.phone, body: text }).catch((err: unknown) => logger.warn({ err }, 'bounce sms failed'));
-    }
+    const cheque = [p.bankName, 'cheque', p.chequeNo].filter(Boolean).join(' ');
+    await alerts.chequeBounced(tx, {
+      tenantId: a.tenantId,
+      projectId: p.projectId,
+      projectName: p.project.name,
+      paymentId: p.id,
+      cheque,
+      amountPaisa: p.amountPaisa,
+      reason: input.reason!,
+      sms: opts.sms !== false ? `${cheque} (${rs(p.amountPaisa)}) ${p.project.name} bounce ho gaya.` : false,
+      at,
+    });
   }
   await audit(tx, a, input.status === 'CLEARED' ? 'payment.cheque_cleared' : 'payment.cheque_bounced', 'ClientPayment', p.id, { number: p.number, chequeNo: p.chequeNo, ...(input.reason ? { reason: input.reason } : {}) });
   return paymentDto(await load(tx, p.id));

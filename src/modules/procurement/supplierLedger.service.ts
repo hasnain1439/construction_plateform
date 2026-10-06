@@ -50,11 +50,13 @@ export interface SupplierBalance {
   /** Days since the oldest debit that is not paid off yet (null when nothing is owed). */
   oldestUnpaidDays: number | null;
   oldestUnpaidSince: Date | null;
+  /** Debits not yet paid off (FIFO), oldest first — for ageing and the cash-flow outlook. */
+  openDebits: Array<{ at: Date; leftPaisa: bigint }>;
 }
 
 /** Balance + FIFO ageing for each supplier. */
 export async function supplierBalances(tx: Tx, tenantId: string, supplierIds: string[], now = new Date()): Promise<Map<string, SupplierBalance>> {
-  const out = new Map<string, SupplierBalance>(supplierIds.map((id) => [id, { balancePaisa: 0n, oldestUnpaidDays: null, oldestUnpaidSince: null }]));
+  const out = new Map<string, SupplierBalance>(supplierIds.map((id) => [id, { balancePaisa: 0n, oldestUnpaidDays: null, oldestUnpaidSince: null, openDebits: [] }]));
   if (!supplierIds.length) return out;
   const entries = await tx.supplierLedgerEntry.findMany({
     where: { tenantId, supplierId: { in: supplierIds } },
@@ -81,6 +83,7 @@ export async function supplierBalances(tx: Tx, tenantId: string, supplierIds: st
       balancePaisa: balance,
       oldestUnpaidSince: oldest?.at ?? null,
       oldestUnpaidDays: oldest ? Math.max(0, Math.floor((now.getTime() - oldest.at.getTime()) / DAY_MS)) : null,
+      openDebits: balance > 0n ? debits.filter((d) => d.left > 0n).map((d) => ({ at: d.at, leftPaisa: d.left })) : [],
     });
   }
   return out;

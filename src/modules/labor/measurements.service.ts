@@ -8,6 +8,7 @@ import { occurredAtFor } from '../inventory/stock.js';
 import { findAssignment, UNIT_OF } from './assignments.service.js';
 import type { MeasurementInput, MeasurementsQuery } from './labor.schema.js';
 import { actor, assertOffice, audit, num, projectFor, times, today, type Actor, type Created } from './labor.shared.js';
+import * as alerts from '../notifications/alerts.js';
 import { postSubLedger } from './subcontractLedger.js';
 
 const include = {
@@ -81,6 +82,16 @@ export async function recordMeasurementTx(tx: Tx, a: Actor, projectId: string, i
     include,
   });
   await audit(tx, a, 'measurement.record', 'WorkMeasurement', m.id, { assignmentId: s.id, quantity: num(m.quantity), unit: m.unit });
+  await alerts.measurementRecorded(tx, {
+    tenantId: a.tenantId,
+    projectId: project.id,
+    projectName: project.name,
+    measurementId: m.id,
+    subcontractor: s.subcontractor.name,
+    quantity: String(num(m.quantity)),
+    unit: m.unit,
+    ...(opts.at ? { at: opts.at } : {}),
+  });
   return { created: true, data: toDto(m, a) };
 }
 

@@ -17,6 +17,8 @@ import {
   assertAttachment,
   assertAvailable,
   audit,
+  balanceOf,
+  D,
   findLocation,
   loadMaterials,
   lockLocations,
@@ -35,6 +37,7 @@ import {
 } from '../inventory/stock.js';
 import { STOCK_OPEN_STATUSES } from '../inventory/usage.service.js';
 import { assertEditable, findProjectFor, projectNotFound } from '../projects/access.js';
+import * as alerts from '../notifications/alerts.js';
 import { resultOf } from '../procurement/purchases.service.js';
 import type { CreateDispatchInput, ListDispatchesQuery, ReceiveDispatchInput } from './dispatch.schema.js';
 
@@ -162,6 +165,19 @@ async function notifySite(tx: Tx, tenantId: string, projectId: string, text: str
   }
 }
 
+/** LOW_STOCK when a dispatch takes a store material below its minimum level. */
+async function warnLowStock(tx: Tx, tenantId: string, store: StockLocation, items: Array<{ materialId: string; qty: Dec }>, materials: Map<string, MaterialInfo>, at: Date) {
+  const levels = await tx.lowStockLevel.findMany({ where: { tenantId, locationId: store.id, materialId: { in: items.map((i) => i.materialId) } } });
+  for (const level of levels) {
+    const left = (await balanceOf(tx, tenantId, { locationId: store.id, materialId: level.materialId, ownerSupplied: false })).qty;
+    const sent = items.filter((i) => i.materialId === level.materialId).reduce((s, i) => s.add(i.qty), D(0));
+    if (left.lt(level.minQty) && left.add(sent).gte(level.minQty)) {
+      const m = materials.get(level.materialId)!;
+      await alerts.lowStock(tx, { tenantId, materialId: m.id, material: m.name, unit: m.unit, left: String(qn(left)), min: String(qn(level.minQty)), store: store.name, at });
+    }
+  }
+}
+
 // ─── Create / cancel ────────────────────────────────────────────────────────
 
 interface DispatchPlan {
@@ -212,7 +228,17 @@ export async function writeDispatch(tx: Tx, a: Pick<Actor, 'tenantId' | 'userId'
   if (plan.to.type === 'SITE' && plan.to.projectId) {
     const text = dispatchSms(number, plan.items.map((i) => smsLine(materials.get(i.materialId)!, i.qty)), plan.vehicleNo ?? null);
     await notifySite(tx, a.tenantId, plan.to.projectId, text);
+    await alerts.dispatchCreated(tx, {
+      tenantId: a.tenantId,
+      projectId: plan.to.projectId,
+      projectName: plan.to.name,
+      dispatchId: dispatch.id,
+      number,
+      lines: plan.items.map((i) => smsLine(materials.get(i.materialId)!, i.qty)),
+      at: plan.at,
+    });
   }
+  if (plan.from.type === 'STORE') await warnLowStock(tx, a.tenantId, plan.from, plan.items, materials, plan.at);
   return dispatch;
 }
 
@@ -353,6 +379,7 @@ export async function receiveDispatchTx(tx: Tx, a: Actor, id: string, input: Rec
   const ref = { refType: 'DISPATCH', refId: d.id, occurredAt: at, createdById: a.userId, note: d.number };
   const projectId = d.toLocation.projectId ?? d.fromLocation.projectId;
   let short = false;
+  let shortRows = 0;
   let excess = false;
   const comparison = [];
   for (const item of d.items) {
@@ -380,7 +407,10 @@ export async function receiveDispatchTx(tx: Tx, a: Actor, id: string, input: Rec
     if (c.receivedQty.gt(item.sentQty)) rows.push({ kind: 'EXCESS', qty: c.receivedQty.sub(item.sentQty) });
     for (const r of rows) {
       if (r.kind === 'EXCESS') excess = true;
-      else short = true;
+      else {
+        short = true;
+        shortRows += 1;
+      }
       await tx.shortage.create({
         data: {
           tenantId: a.tenantId,
@@ -408,6 +438,7 @@ export async function receiveDispatchTx(tx: Tx, a: Actor, id: string, input: Rec
   }
   const status: DispatchStatus = short ? 'RECEIVED_WITH_SHORTAGE' : excess ? 'RECEIVED_WITH_EXCESS' : 'RECEIVED';
   await tx.dispatch.update({ where: { id }, data: { status, receivedById: a.userId, receivedAt: at, receiveNote: input.note ?? null } });
+  if (shortRows) await alerts.shortageCreated(tx, { tenantId: a.tenantId, projectId, refType: 'DISPATCH', refId: d.id, number: d.number, where: d.toLocation.name, count: shortRows, at });
   await audit(tx, a, 'dispatch.receive', 'Dispatch', id, {
     number: d.number,
     status,
