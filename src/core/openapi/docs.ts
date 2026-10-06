@@ -1,8 +1,12 @@
 import { Router } from 'express';
 import swaggerUi from 'swagger-ui-express';
+import { registerApprovalsDocs } from '../../modules/approvals/approvals.docs.js';
 import { registerAttachmentsDocs } from '../../modules/attachments/attachments.docs.js';
 import { registerAuthDocs } from '../../modules/auth/auth.docs.js';
 import { registerBillingDocs } from '../../modules/billing/billing.docs.js';
+import { registerDashboardDocs } from '../../modules/dashboard/dashboard.docs.js';
+import { registerFinanceDocs } from '../../modules/finance/finance.docs.js';
+import { registerReportsDocs } from '../../modules/reports/reports.docs.js';
 import { registerCashbookDocs } from '../../modules/cashbook/cashbook.docs.js';
 import { registerClientsDocs } from '../../modules/clients/clients.docs.js';
 import { registerCompanyDocs } from '../../modules/company/company.docs.js';
@@ -11,6 +15,7 @@ import { registerHealthDocs } from '../../modules/health/health.routes.js';
 import { registerInventoryDocs } from '../../modules/inventory/inventory.docs.js';
 import { registerLaborDocs } from '../../modules/labor/labor.docs.js';
 import { registerMasterDataDocs } from '../../modules/master-data/master-data.docs.js';
+import { registerNotificationsDocs } from '../../modules/notifications/notifications.docs.js';
 import { registerPlatformAdminDocs } from '../../modules/platform-admin/platformAdmin.docs.js';
 import { registerProcurementDocs } from '../../modules/procurement/procurement.docs.js';
 import { registerProjectsDocs } from '../../modules/projects/projects.docs.js';
@@ -39,6 +44,11 @@ export function openApiDocument() {
     registerLaborDocs();
     registerCashbookDocs();
     registerBillingDocs();
+    registerNotificationsDocs();
+    registerApprovalsDocs();
+    registerDashboardDocs();
+    registerFinanceDocs();
+    registerReportsDocs();
     registerPlatformAdminDocs();
     document = buildOpenApiDocument();
   }

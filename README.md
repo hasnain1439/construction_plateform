@@ -575,15 +575,107 @@ Audit actions: `billing.stage_ready|stage_update|progress_add|progress_update|pr
 
 **Seed (`prisma/seedBilling.ts`, one transaction, skipped when invoices exist; tests seed it on demand).** DHA Phase 6 (1,85,00,000; 15/15/20/15/10/10/10/5): advance 27,75,000 issued 12 Mar, paid by HBL cheque 004512 (cleared); plinth 27,75,000 issued 10 Jun, Meezan IBFT FT26165 on 14 Jun; ground-floor slab 37,00,000 issued 27 Aug, due 3 Sep — MCB cheque 118830 15,00,000 cleared 2 Sep, cash 11,00,000 on 12 Sep, MCB cheque 118845 11,00,000 bounced 24 Sep ("insufficient funds") → 11,00,000 overdue; first-floor slab UPCOMING, expected 19 Nov; the tile samples (2,800, Step 7) stay unbilled. Johar Town: invoiced 88,30,000, received 79,00,000, outstanding 9,30,000 (4,50,000 overdue 21 days). Bahria Town: invoiced 1,10,40,000, received 1,02,00,000, outstanding 8,40,000 (not due). Valencia (labour-only, rate set to Rs 1,500 / sq ft on its 2,800 sq ft): four running bills, 42,00,000 gross less 5% retention → 39,90,000 billed and received, retention 2,10,000 held.
 
+## Dashboard, Finance, Reports & Notifications
+
+Read models over the existing modules — they never re-derive business maths: owner money from billing (`moneyOf`, `companyReceivables`), cost from the cost engine (`billing/projectCost.service.ts`), supplier dues from the FIFO supplier balances, stock from the ledger, labour from settlements / advances / sub-contract accounts, cash from the cash book. New modules: `notifications`, `approvals`, `dashboard`, `finance`, `reports`. New table `Notification` (RLS, SELECT / INSERT / UPDATE only) and `AttachmentKind.REPORT`.
+
+**Access.** Money needs `billing.view` (P&L also `profit.view`); a PM sees only assigned projects (outside → 404); a MUNSHI gets only the site dashboard and their own notifications (403 elsewhere). Without `billing.view` the money keys are left out of the dashboard entirely.
+
+**Cache.** Dashboard overview, cash-flow and P&L are cached in memory for 60 s per tenant + user + query; any successful POST / PUT / PATCH / DELETE of the tenant clears it (`invalidateOnWrite` on the API router). One process only (each instance has its own cache). Off in tests unless switched on. On the seed every endpoint answers in about 200 ms uncached (< 500 ms is tested).
+
+### Cost engine
+
+`costRows(tx, tenantId, { projectIds, from, to })` reads every cost in one SQL query, grouped by project × Karachi month × source. `projectCost()` (Step 8 receivables), `projectCosts()` (many projects) and the P&L buckets all add up the same rows:
+
+| P&L bucket | Sources |
+|---|---|
+| MATERIALS | contractor material that reached the site (RECEIPT_IN + PURCHASE_IN − returns) + kharcha marked MATERIAL (urgent material) |
+| LABOR_WAGES | wages paid (settlement lines) + worker peshgi + kharcha marked LABOR (unloading) |
+| SUBCONTRACT | sub-contract running payments + retention released + sub-contractor advances |
+| SITE_OVERHEAD | other kharcha (tea / water, transport, other) |
+| EQUIPMENT | kharcha marked EQUIPMENT (fuel, repairs, small tools) |
+| LOSSES | shortages written off (ACCEPT_LOSS) |
+
+Owner-recoverable and rejected kharcha are never cost. Dates: movement / payment / entry time; wages use the paid time (or the week end); peshgi its date; losses when written off.
+
+### Notifications
+
+`notify(tx, { recipients, type, severity, title, body, projectId, ref, actionUrl, sms })` (`notifications.service.ts`) is called inside the module's transaction; `alerts.ts` holds every event's recipients, text and link.
+
+- Recipients: `'THEKEDAR'`, `{ userIds }` or `{ projectRoles, projectId }` (active users only). The person who caused it is skipped unless CRITICAL.
+- A MUNSHI only receives DISPATCH_CREATED, FLOAT_SENT and SETTLEMENT_RETURNED (never money); a PM without financials gets no billing or subscription notifications.
+- Dedupe: the same (type, refId, user) at most once per 24 h. CRITICAL + `sms` also sends an SMS (the bounced-cheque SMS now goes through here).
+
+| Event | Who | Severity |
+|---|---|---|
+| Dispatch created (to a site) | site PM + munshis | INFO |
+| Shortage found on receiving (dispatch or purchase) | THEKEDAR | WARNING |
+| Store stock falls below its low-stock level (dispatch) | THEKEDAR | WARNING |
+| Munshi purchase waiting for rates (PENDING_RATE) | THEKEDAR + project PM | INFO |
+| Settlement submitted / returned | THEKEDAR + project PM / the submitter | INFO / WARNING |
+| Kharcha above the approval limit | THEKEDAR + project PM | WARNING |
+| Top-up requested / float sent | THEKEDAR / the holder | INFO |
+| Measurement recorded / sub-contractor becomes overpaid | project PM / THEKEDAR | INFO / WARNING |
+| Invoice overdue (daily job) / stage ready but unbilled 3+ days (daily job, re-sent at most daily) / earlier stage unpaid | THEKEDAR + PM with financials | WARNING |
+| Cheque bounced | THEKEDAR + PM with financials | CRITICAL + SMS |
+| Plan ends in 3 / 1 days (job) / subscription payment approved / rejected | THEKEDAR | WARNING (CRITICAL at 1 day) / INFO / WARNING |
+| Invitation accepted | THEKEDAR | INFO |
+
+### My Approvals
+
+`GET /approvals` groups everything waiting on the office: SETTLEMENT_SUBMITTED, EXPENSE_PENDING_APPROVAL, TOPUP_PENDING (owner), MEASUREMENT_TO_VERIFY, SHORTAGE_OPEN, PURCHASE_PENDING_RATE and, with `billing.view`, STAGE_READY_UNBILLED, INVOICE_DRAFT, CHEQUE_PENDING. Each item: title, project, amount (when allowed), age, `actionUrl` and the `quickActions` the caller may run (`needsNote` / `needsMethod`). `POST /approvals/bulk` runs each item through the owning service (approve / return settlements, approve / reject kharcha, send / reject top-ups, verify / reject measurements, issue drafts, clear / bounce cheques) and reports a result per item — one failure doesn't stop the rest.
+
+### Dashboard
+
+`GET /dashboard/overview?from&to&projectId` (default the last 30 days): KPIs (active projects + at risk = overdue invoice or own money > 10 % of contract; `delayed` 0 until the schedule exists; pending approvals; open shortages; dispatches on the way; and with `billing.view` receivables outstanding + collected %, overdue, supplier udhaar + oldest days + paid %, store stock value, cash with site staff, own money invested), project rows, site stats (hazri today by mistri / mazdoor / other, peshgi and kharcha this week, deliveries today, open shortages), labour (wages by worker type from the settlements of weeks starting in the period; sub-contractors overpaid), payments received by method (cheques cleared / pending / bounced) and alerts (latest open billing events + unread critical notifications).
+
+`GET /dashboard/site/:projectId` (MUNSHI landing page; PM / THEKEDAR too): today's hazri, material on the way (quantities only), the caller's own cash + open top-up, to-dos (mark hazri, receive, confirm a float, submit / fix wages) and recent usage / own kharcha. No rates, values or company money.
+
+### Finance
+
+- `GET /finance/receivables` (THEKEDAR) — Step 8 company receivables + `ageing` (0–15 / 16–30 / 31–60 / 60+ days since the invoice was issued), per project and in total.
+- `GET /finance/cash-flow?months=6` (THEKEDAR) — an **estimate**, with `assumptions[]`:
+  - receipts = unpaid invoice balances by due date (overdue → this month) + stages with an expected date;
+  - outflows = supplier udhaar due 30 days after each unpaid purchase (FIFO; past-due → this month) + the average weekly wages / sub-contract / kharcha of the last 8 weeks on running projects × days in the month (this month: days left);
+  - new purchases, contracts and change orders are not included; own money invested starts at today's figure and goes down by each month's net.
+- `GET /finance/pnl?projectId&from&to` (THEKEDAR; PM with `profit.view`, own projects) — per project revised contract, billed (live invoices before sales tax; recoverable invoices excluded — they pass the owner's purchases through), received, cost by bucket, gross profit = billed − cost, margin = gross profit ÷ billed, % billed, % cost of contract; `projectedMarginPercent: null` ("Available after the estimate engine (Phase 2)"); company totals; 12-month trend (billed by issue month vs cost by month).
+- `GET /finance/cash-floats` (THEKEDAR / PM) — the Step 7 accounts + phone, active projects, total floated, spent this week, last count difference and pending top-up, with totals.
+
+### Reports
+
+`GET /reports/<name>?format=json|csv|xlsx|pdf&projectId&from&to` (THEKEDAR / PM; MUNSHI 403). JSON = `{ columns (key, label, type), rows, totals, notes }` for the screens (money in paisa). CSV (UTF-8 with BOM), Excel (exceljs) and PDF (the letterhead PDF service) are stored as a `REPORT` attachment and answer `{ url, expiresAt, fileName, … }` — a signed link, never the raw file; money is in rupees in files. Files are rendered outside the database transaction. Cloudinary raw files keep their extension in the public id so downloads open in the right app.
+
+| Report | Who | What |
+|---|---|---|
+| `project-summary` | THEKEDAR, PM with `billing.view` | contract, billed, received, outstanding, cost by bucket, own money |
+| `material-audit` | THEKEDAR, PM (value with `rates.view`) | per project × material: delivered (contractor / owner), used, sent away, count adjustments, losses, in stock, value |
+| `labor-peshgi` | THEKEDAR, PM | per worker / sub-contractor: days, wages / work value, peshgi given / adjusted / outstanding, paid, retention, balance due |
+| `cash-book` | THEKEDAR, PM | per holder × project: floats, kharcha by category, other payments, waiting approval, owed back, count differences, net |
+| `supplier-ageing` | THEKEDAR | udhaar per supplier in 0–15 / 16–30 / 31–60 / 60+ (FIFO), oldest days, last payment |
+| `receivables-ageing` | THEKEDAR | outstanding per project / client in the same buckets, overdue, pending cheques |
+| `stock-valuation` | THEKEDAR | store + sites + transit: quantity × weighted-average cost (owner stock without value) |
+
+### Endpoints
+
+| Area | Endpoints |
+|---|---|
+| Notifications | `GET /notifications` (`unreadOnly`, `type`, `severity`, `projectId`, `page`, `limit`), `GET /notifications/unread-count`, `PATCH /notifications/:id/read`, `PATCH /notifications/read-all` |
+| Approvals | `GET /approvals`, `POST /approvals/bulk` |
+| Dashboard | `GET /dashboard/overview`, `GET /dashboard/site/:projectId` |
+| Finance | `GET /finance/receivables`, `GET /finance/cash-flow`, `GET /finance/pnl`, `GET /finance/cash-floats` |
+| Reports | `GET /reports/project-summary`, `/material-audit`, `/labor-peshgi`, `/cash-book`, `/supplier-ageing`, `/receivables-ageing`, `/stock-valuation` |
+
+**Seed (`prisma/seedNotifications.ts`, with the full demo only, written in the same run as the billing seed).** Replaces the notifications the demo seeds raised with a set pointing at real records, backdated: MCB cheque 118845 bounced (CRITICAL, SMS sent, unread), DHA and Johar invoices overdue (the older one read), GP-0142 shortages, Asif's Rs 32,000 water-pump kharcha waiting for approval (the only kharcha above the limit in the demo), wages 21–27 Sep submitted (Khalid read, Bilal unread), Rafaqat's Rs 40,000 top-up, Chenab sand below its store minimum (read), Latif overpaid Rs 23,590 (read), Sharif's mumty-slab measurement to verify (Bilal) and GP-0144 on the way to DHA (Rafaqat + Bilal). On a database that already has the demo, run `npm run db:seed:notifications` (replaces Malik's notifications).
+
 ## Error codes
 
 | HTTP | Codes |
 |---|---|
-| 400 | `VALIDATION_ERROR`, `INVALID_JSON`, `USE_OTP_LOGIN`, `OTP_INVALID`, `CURRENT_PASSWORD_WRONG`, `FILE_REQUIRED`, `FILE_TOO_LARGE`, `INVALID_FILE_TYPE`, `INVALID_UPLOAD`, `HOLIDAY_IN_PAST`, `FINANCIALS_PM_ONLY`, `INVALID_PROJECT`, `THEKEDAR_HAS_ALL_PROJECTS`, `CANNOT_REVOKE_CURRENT_DEVICE`, `AMOUNT_MISMATCH`, `INVALID_PLAN`, `PLAN_REQUIRED`, `PAID_ON_IN_FUTURE`, `PAID_ON_TOO_OLD`, `SAME_PLAN`, `DOWNGRADE_USERS_OVER_LIMIT`, `KEEP_PROJECTS_REQUIRED`, `TOO_MANY_PROJECTS`, `INVALID_GROUP`, `UNIT_LOCKED`, `CATEGORY_ARCHIVED`, `CATEGORY_IS_DEFAULT`, `LAST_ACTIVE_CATEGORY`, `INVALID_MATERIAL`, `INVALID_LABOR_KEY`, `INVALID_LABOR_UNIT`, `PERCENT_TOTAL_INVALID`, `RETENTION_STAGE_INVALID`, `TEMPLATE_IS_DEFAULT`, `DAILY_RATE_REQUIRED`, `INVALID_CLIENT`, `INVALID_PM`, `INVALID_MUNSHI`, `INVALID_DATES`, `CONTRACT_VALUE_REQUIRED`, `RATE_REQUIRED`, `INVALID_TEMPLATE`, `QUALITY_CATEGORY_REQUIRED`, `QUALITY_CATEGORY_NOT_ALLOWED`, `INVALID_QUALITY_CATEGORY`, `OPENINGS_EXCEED_WALL`, `INVALID_TARGET_FLOOR`, `PROJECT_NOT_READY`, `INSUFFICIENT_STOCK`, `DATE_IN_FUTURE`, `REASON_REQUIRED`, `INVALID_LOCATION`, `SAME_LOCATION`, `SHORTAGE_NOTE_REQUIRED`, `DAMAGED_EXCEEDS_COUNTED`, `ITEMS_MISMATCH`, `INVALID_PAID_AMOUNT`, `CHALLAN_REQUIRED`, `INVALID_ATTACHMENT`, `RATES_NOT_ALLOWED`, `NOT_IN_PURCHASE`, `NOTHING_TO_CORRECT`, `RETURN_EXCEEDS_PURCHASE`, `RETURN_EXCEEDS_STOCK`, `PO_SUPPLIER_MISMATCH`, `SUPPLIER_INACTIVE`, `RESOLUTION_NOT_ALLOWED`, `NOT_OWNER_SUPPLIED`, `INVALID_WORKER`, `INVALID_SUBCONTRACTOR`, `WORKER_NOT_ASSIGNED`, `FUTURE_DATE`, `DATE_TOO_OLD`, `RANGE_TOO_LONG`, `INVALID_ASSIGNMENT`, `LUMPSUM_USES_PROGRESS`, `LUMPSUM_HAS_NO_RATE`, `NOT_LUMPSUM`, `PROGRESS_NOT_AHEAD`, `INVALID_WEEK_START`, `FUTURE_WEEK`, `ADVANCE_TOO_HIGH`, `EMPTY_SETTLEMENT`, `LINE_NOT_FOUND`, `EXCEEDS_BALANCE`, `EXCEEDS_RETENTION`, `NOTHING_TO_CHARGE`, `INSUFFICIENT_CASH`, `NO_CASH_ACCOUNT`, `INVALID_HOLDER`, `INVALID_RECEIVER`, `NOTE_REQUIRED`, `INVALID_END_DATE`, `NOT_RUNNING_BILLS`, `USE_RETENTION_INVOICE`, `NOTHING_TO_BILL`, `INVALID_RECOVERABLE`, `NO_RETENTION_STAGE`, `LINE_AMOUNT_REQUIRED`, `LINES_LOCKED`, `EMPTY_INVOICE`, `WHT_NOT_ENABLED`, `INVALID_ALLOCATION`, `ALLOCATION_EXCEEDS_BALANCE`, `ALLOCATION_EXCEEDS_PAYMENT` |
+| 400 | `VALIDATION_ERROR`, `INVALID_JSON`, `USE_OTP_LOGIN`, `OTP_INVALID`, `CURRENT_PASSWORD_WRONG`, `FILE_REQUIRED`, `FILE_TOO_LARGE`, `INVALID_FILE_TYPE`, `INVALID_UPLOAD`, `HOLIDAY_IN_PAST`, `FINANCIALS_PM_ONLY`, `INVALID_PROJECT`, `THEKEDAR_HAS_ALL_PROJECTS`, `CANNOT_REVOKE_CURRENT_DEVICE`, `AMOUNT_MISMATCH`, `INVALID_PLAN`, `PLAN_REQUIRED`, `PAID_ON_IN_FUTURE`, `PAID_ON_TOO_OLD`, `SAME_PLAN`, `DOWNGRADE_USERS_OVER_LIMIT`, `KEEP_PROJECTS_REQUIRED`, `TOO_MANY_PROJECTS`, `INVALID_GROUP`, `UNIT_LOCKED`, `CATEGORY_ARCHIVED`, `CATEGORY_IS_DEFAULT`, `LAST_ACTIVE_CATEGORY`, `INVALID_MATERIAL`, `INVALID_LABOR_KEY`, `INVALID_LABOR_UNIT`, `PERCENT_TOTAL_INVALID`, `RETENTION_STAGE_INVALID`, `TEMPLATE_IS_DEFAULT`, `DAILY_RATE_REQUIRED`, `INVALID_CLIENT`, `INVALID_PM`, `INVALID_MUNSHI`, `INVALID_DATES`, `CONTRACT_VALUE_REQUIRED`, `RATE_REQUIRED`, `INVALID_TEMPLATE`, `QUALITY_CATEGORY_REQUIRED`, `QUALITY_CATEGORY_NOT_ALLOWED`, `INVALID_QUALITY_CATEGORY`, `OPENINGS_EXCEED_WALL`, `INVALID_TARGET_FLOOR`, `PROJECT_NOT_READY`, `INSUFFICIENT_STOCK`, `DATE_IN_FUTURE`, `REASON_REQUIRED`, `INVALID_LOCATION`, `SAME_LOCATION`, `SHORTAGE_NOTE_REQUIRED`, `DAMAGED_EXCEEDS_COUNTED`, `ITEMS_MISMATCH`, `INVALID_PAID_AMOUNT`, `CHALLAN_REQUIRED`, `INVALID_ATTACHMENT`, `RATES_NOT_ALLOWED`, `NOT_IN_PURCHASE`, `NOTHING_TO_CORRECT`, `RETURN_EXCEEDS_PURCHASE`, `RETURN_EXCEEDS_STOCK`, `PO_SUPPLIER_MISMATCH`, `SUPPLIER_INACTIVE`, `RESOLUTION_NOT_ALLOWED`, `NOT_OWNER_SUPPLIED`, `INVALID_WORKER`, `INVALID_SUBCONTRACTOR`, `WORKER_NOT_ASSIGNED`, `FUTURE_DATE`, `DATE_TOO_OLD`, `RANGE_TOO_LONG`, `INVALID_ASSIGNMENT`, `LUMPSUM_USES_PROGRESS`, `LUMPSUM_HAS_NO_RATE`, `NOT_LUMPSUM`, `PROGRESS_NOT_AHEAD`, `INVALID_WEEK_START`, `FUTURE_WEEK`, `ADVANCE_TOO_HIGH`, `EMPTY_SETTLEMENT`, `LINE_NOT_FOUND`, `EXCEEDS_BALANCE`, `EXCEEDS_RETENTION`, `NOTHING_TO_CHARGE`, `INSUFFICIENT_CASH`, `NO_CASH_ACCOUNT`, `INVALID_HOLDER`, `INVALID_RECEIVER`, `NOTE_REQUIRED`, `INVALID_END_DATE`, `NOT_RUNNING_BILLS`, `USE_RETENTION_INVOICE`, `NOTHING_TO_BILL`, `INVALID_RECOVERABLE`, `NO_RETENTION_STAGE`, `LINE_AMOUNT_REQUIRED`, `LINES_LOCKED`, `EMPTY_INVOICE`, `WHT_NOT_ENABLED`, `INVALID_ALLOCATION`, `ALLOCATION_EXCEEDS_BALANCE`, `ALLOCATION_EXCEEDS_PAYMENT`, `METHOD_REQUIRED`, `UNSUPPORTED_ACTION` |
 | 401 | `UNAUTHENTICATED`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `SESSION_REVOKED`, `ACCOUNT_DISABLED`, `INVALID_CREDENTIALS`, `REFRESH_INVALID`, `REFRESH_TOKEN_REUSED`, `DEVICE_REVOKED` |
 | 402 | `PLAN_LIMIT_REACHED` |
 | 403 | `FORBIDDEN`, `COMPANY_SUSPENDED`, `ACCOUNT_READ_ONLY`, `INVALID_SIGNATURE`, `LINK_EXPIRED`, `CANNOT_CHANGE_OWN_ROLE`, `CANNOT_CHANGE_OWNER_ROLE`, `CANNOT_DEACTIVATE_SELF`, `LAST_THEKEDAR`, `RATE_CHANGE_NOT_ALLOWED`, `PAID_FROM_NOT_ALLOWED`, `OWN_EXPENSE` |
-| 404 | `ROUTE_NOT_FOUND`, `NOT_FOUND`, `PHONE_NOT_REGISTERED`, `INVITE_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `HOLIDAY_NOT_FOUND`, `USER_NOT_FOUND`, `DEVICE_NOT_FOUND`, `COMPANY_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`, `NO_PENDING_CHANGE`, `TENANT_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `PLAN_NOT_FOUND`, `MATERIAL_NOT_FOUND`, `PLATFORM_MATERIAL_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `TEMPLATE_NOT_FOUND`, `SUPPLIER_NOT_FOUND`, `WORKER_NOT_FOUND`, `SUBCONTRACTOR_NOT_FOUND`, `CLIENT_NOT_FOUND`, `PROJECT_NOT_FOUND`, `FLOOR_NOT_FOUND`, `ROOM_NOT_FOUND`, `OPENING_NOT_FOUND`, `LOCATION_NOT_FOUND`, `STORE_NOT_FOUND`, `PURCHASE_NOT_FOUND`, `PURCHASE_ORDER_NOT_FOUND`, `DISPATCH_NOT_FOUND`, `SHORTAGE_NOT_FOUND`, `PROJECT_WORKER_NOT_FOUND`, `ASSIGNMENT_NOT_FOUND`, `MEASUREMENT_NOT_FOUND`, `SETTLEMENT_NOT_FOUND`, `CASH_ACCOUNT_NOT_FOUND`, `FLOAT_NOT_FOUND`, `EXPENSE_NOT_FOUND`, `TOPUP_NOT_FOUND`, `STAGE_NOT_FOUND`, `PROGRESS_NOT_FOUND`, `INVOICE_NOT_FOUND`, `PAYMENT_NOT_FOUND` |
+| 404 | `ROUTE_NOT_FOUND`, `NOT_FOUND`, `PHONE_NOT_REGISTERED`, `INVITE_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `HOLIDAY_NOT_FOUND`, `USER_NOT_FOUND`, `DEVICE_NOT_FOUND`, `COMPANY_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`, `NO_PENDING_CHANGE`, `TENANT_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `PLAN_NOT_FOUND`, `MATERIAL_NOT_FOUND`, `PLATFORM_MATERIAL_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `TEMPLATE_NOT_FOUND`, `SUPPLIER_NOT_FOUND`, `WORKER_NOT_FOUND`, `SUBCONTRACTOR_NOT_FOUND`, `CLIENT_NOT_FOUND`, `PROJECT_NOT_FOUND`, `FLOOR_NOT_FOUND`, `ROOM_NOT_FOUND`, `OPENING_NOT_FOUND`, `LOCATION_NOT_FOUND`, `STORE_NOT_FOUND`, `PURCHASE_NOT_FOUND`, `PURCHASE_ORDER_NOT_FOUND`, `DISPATCH_NOT_FOUND`, `SHORTAGE_NOT_FOUND`, `PROJECT_WORKER_NOT_FOUND`, `ASSIGNMENT_NOT_FOUND`, `MEASUREMENT_NOT_FOUND`, `SETTLEMENT_NOT_FOUND`, `CASH_ACCOUNT_NOT_FOUND`, `FLOAT_NOT_FOUND`, `EXPENSE_NOT_FOUND`, `TOPUP_NOT_FOUND`, `STAGE_NOT_FOUND`, `PROGRESS_NOT_FOUND`, `INVOICE_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND` |
 | 409 | `ALREADY_EXISTS`, `PHONE_TAKEN`, `EMAIL_TAKEN`, `MULTIPLE_COMPANIES`, `INVITE_ALREADY_ACCEPTED`, `INVITE_CANCELLED`, `INVITE_PENDING`, `ALREADY_MEMBER`, `HOLIDAY_EXISTS`, `USER_ALREADY_ACTIVE`, `PAYMENT_PENDING`, `DUPLICATE_TRANSACTION`, `SLUG_TAKEN`, `PLAN_CODE_TAKEN`, `LAST_ACTIVE_PLAN`, `ALREADY_PROCESSED`, `CANNOT_EXTEND_TRIAL`, `TENANT_CLOSED`, `MATERIAL_EXISTS`, `MATERIAL_IN_USE`, `PLATFORM_MATERIAL_EXISTS`, `CATEGORY_EXISTS`, `TEMPLATE_EXISTS`, `SUPPLIER_EXISTS`, `WORKER_PHONE_TAKEN`, `SUBCONTRACTOR_EXISTS`, `CLIENT_PHONE_TAKEN`, `PROJECT_CODE_TAKEN`, `PROJECT_NOT_DRAFT`, `PROJECT_LOCKED`, `INVALID_STATUS_TRANSITION`, `SUPPLY_RULE_LOCKED`, `BILLING_STAGES_LOCKED`, `FLOOR_HAS_ROOMS`, `FLOOR_NOT_EMPTY`, `PROJECT_IS_DRAFT`, `PO_CLOSED`, `PURCHASE_ORDER_LOCKED`, `PURCHASE_ORDER_HAS_RECEIPTS`, `PURCHASE_ORDER_CANCELLED`, `RATES_ALREADY_SET`, `PURCHASE_NOT_FINAL`, `ALREADY_RECEIVED`, `DISPATCH_NOT_CANCELLABLE`, `DISPATCH_CANCELLED`, `SHORTAGE_RESOLVED`, `NOT_A_CHEQUE`, `CHEQUE_ALREADY_SETTLED`, `CASH_BALANCE_OPEN`, `WORKER_ALREADY_ASSIGNED`, `WEEK_LOCKED`, `SETTLEMENT_LOCKED`, `SETTLEMENT_NOT_SUBMITTED`, `SETTLEMENT_NOT_APPROVED`, `SETTLEMENT_PAID`, `ALREADY_PAID`, `MEASUREMENT_NOT_PENDING`, `ALREADY_ACKNOWLEDGED`, `EXPENSE_NOT_PENDING`, `TOPUP_PENDING`, `TOPUP_DECIDED`, `STAGE_NOT_READY`, `STAGE_ALREADY_INVOICED`, `SOURCE_ALREADY_BILLED`, `RETENTION_NOT_DUE`, `PROGRESS_BILLED`, `PROGRESS_ON_DRAFT`, `INVOICE_LOCKED`, `INVOICE_NOT_DRAFT`, `INVOICE_NOT_ISSUED`, `INVOICE_CANCELLED`, `INVOICE_HAS_PAYMENTS` |
 | 410 | `OTP_EXPIRED`, `INVITE_EXPIRED`, `INVITE_CANCELLED` |
 | 423 | `ACCOUNT_LOCKED` |
@@ -606,6 +698,7 @@ Audit actions: `billing.stage_ready|stage_update|progress_add|progress_update|pr
 | `20261008090000_procurement_inventory` | `TenantCounter`, `StockLocation` (+ backfill: Central Store + transit per company, a site per non-draft project), append-only `StockMovement` and `SupplierLedgerEntry` (app_user SELECT + INSERT only), `LowStockLevel`, purchase orders, purchases (+ items, corrections, returns), supplier payments, dispatches (+ items), shortages, owner deliveries, material usage, stock counts — all with RLS, grants and composite FKs; `AttachmentKind.CHALLAN`; `TenantSettings.blindCountEnabled` |
 | `20261009090000_labor_cashbook` | `TenantSettings` labour fields (`settlementWeekStart`, `workingDays`, `hoursPerDay`, `overtimeMultiplier`, `subcontractPaymentsByPm`); `ProjectWorker`, `SubcontractAssignment`, `Attendance`, `WorkMeasurement`, `Advance`, `WageSettlement` (+ lines, `SettlementAdvance` allocations), append-only `SubcontractLedgerEntry` (SELECT + INSERT), `CashAccount` (partial unique: one active per holder), `CashEntry` (SELECT / INSERT / UPDATE, no DELETE), `TopupRequest`, `CashCount` — RLS, grants, composite FKs, `(tenantId, clientId)` uniques for offline creates |
 | `20261010090000_billing_receivables` | `TenantSettings` billing fields (`paymentTermsDays`, `taxRatePercent`, `taxLabel`, `pmCanRecordPayments`); `BillingStageStatus` + READY / PARTLY_PAID; stage `readyAt`, `readyById`, `readyNote`, `proofAttachmentIds`, `expectedDate`, `milestoneId`; `AttachmentKind` + INVOICE_PDF / RECEIPT_PDF / STATEMENT_PDF; `CashEntry.billedInvoiceId`; `BillingProgress`, `Invoice` (+ lines), `ClientPayment`, append-only `PaymentAllocation`, `BillingEvent` — RLS, grants, composite FKs |
+| `20261015090000_notifications_reports` | `NotificationSeverity`, `NotificationType`, `Notification` (RLS, SELECT / INSERT / UPDATE; indexes for the inbox and the 24 h dedupe); `AttachmentKind.REPORT` |
 
 Prisma's `migrate dev` refuses to run non-interactively when a change has warnings (enum value removed). Generate SQL with `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, hand-edit renames (e.g. `ALTER TYPE … RENAME VALUE`, `RENAME COLUMN`) so data is kept, save it as a new migration folder and run `npx prisma migrate deploy`.
 

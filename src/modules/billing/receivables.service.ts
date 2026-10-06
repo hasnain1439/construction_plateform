@@ -6,18 +6,20 @@
  *                part of it and also shown on their own
  *   overdue      outstanding of invoices past their due date
  *   own money    spent to date − received (negative = the owner has paid ahead)
+ *   ageing       outstanding by days since the invoice was issued (0–15 / 16–30 / 31–60 / 60+)
  */
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import type { Project } from '../../generated/prisma/client.js';
 import { projectScope } from '../projects/access.js';
 import type { ReceivablesQuery } from './billing.schema.js';
-import { actor, assertOwner, billingProject, today, ymd } from './billing.shared.js';
+import { actor, assertOwner, billingProject, daysBetween, today, ymd } from './billing.shared.js';
 import { overdueOf } from './invoices.service.js';
 import { LIVE, projectCredit } from './ledger.js';
 import { costDto, projectCost } from './projectCost.service.js';
+import { ageing, ageingDto, addAgeing } from '../finance/ageing.js';
 import { stageDto } from './stages.service.js';
 
-async function moneyOf(tx: Tx, tenantId: string, project: Project) {
+export async function moneyOf(tx: Tx, tenantId: string, project: Project) {
   const stages = await tx.projectBillingStage.findMany({ where: { tenantId, projectId: project.id }, orderBy: { sortOrder: 'asc' } });
   const invoices = await tx.invoice.findMany({ where: { tenantId, projectId: project.id, status: { in: LIVE } }, orderBy: { issueDate: 'asc' } });
   const payments = await tx.clientPayment.groupBy({ by: ['status'], where: { tenantId, projectId: project.id }, _sum: { amountPaisa: true, whtDeductedPaisa: true } });
@@ -75,6 +77,7 @@ async function moneyOf(tx: Tx, tenantId: string, project: Project) {
     credit: await projectCredit(tx, tenantId, project.id),
     readyStagesCount: stages.filter((s) => s.status === 'READY').length,
     next,
+    ageing: ageing(invoices.filter((i) => i.balancePaisa > 0n).map((i) => ({ days: daysBetween(ymd(i.issueDate) ?? today(), today()), amountPaisa: i.balancePaisa }))),
   };
 }
 
@@ -149,10 +152,13 @@ export async function companyReceivables(query: ReceivablesQuery) {
         oldestOverdueDays: m.oldestOverdueDays,
         creditPaisa: m.credit.toString(),
         retentionHeldPaisa: m.retentionHeld.toString(),
+        ageing: m.ageing,
         nextBillableStage: m.next ? { id: m.next.id, label: m.next.label, status: m.next.status, amountPaisa: m.next.amountPaisa.toString() } : null,
       });
     }
-    const items = query.overdueOnly ? rows.filter((r) => r.overduePaisa !== '0') : rows;
+    const filtered = query.overdueOnly ? rows.filter((r) => r.overduePaisa !== '0') : rows;
+    const totalAgeing = filtered.reduce((s, r) => addAgeing(s, r.ageing), ageing([]));
+    const items = filtered.map((r) => ({ ...r, ageing: ageingDto(r.ageing) }));
     const total = (k: 'revisedContractPaisa' | 'invoicedPaisa' | 'receivedPaisa' | 'pendingChequesPaisa' | 'outstandingPaisa' | 'overduePaisa' | 'retentionHeldPaisa') =>
       items.reduce((s, r) => s + BigInt(r[k]), 0n).toString();
     return {
@@ -167,6 +173,7 @@ export async function companyReceivables(query: ReceivablesQuery) {
         overduePaisa: total('overduePaisa'),
         retentionHeldPaisa: total('retentionHeldPaisa'),
         overdueProjects: items.filter((r) => r.overduePaisa !== '0').length,
+        ageing: ageingDto(totalAgeing),
       },
     };
   });

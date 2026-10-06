@@ -36,6 +36,7 @@ import {
   type MaterialInfo,
 } from '../inventory/stock.js';
 import * as mdRepo from '../master-data/master-data.repository.js';
+import * as alerts from '../notifications/alerts.js';
 import { findProjectFor, projectScope } from '../projects/access.js';
 import type { CorrectionInput, CreatePurchaseInput, ListPurchasesQuery, ListReturnsQuery, PurchaseReturnInput, ReceivePurchaseInput, SetRatesInput } from './procurement.schema.js';
 import { activeSupplier, deliveryLocation, refreshOrderStatus } from './purchaseOrders.service.js';
@@ -281,12 +282,12 @@ function checkCounted(lines: Array<Omit<CountedLine, 'itemId'>>, materials: Map<
   }
 }
 
-async function writeShortages(tx: Tx, a: Actor, p: { id: string; projectId: string | null; locationId: string }, lines: CountedLine[]) {
-  let any = false;
+async function writeShortages(tx: Tx, a: Actor, p: { id: string; projectId: string | null; locationId: string }, lines: CountedLine[], at: Date) {
+  let rows = 0;
   for (const l of lines) {
     const short = l.challanQty.sub(l.countedQty);
     if (short.gt(0)) {
-      any = true;
+      rows += 1;
       await tx.shortage.create({
         data: {
           tenantId: a.tenantId,
@@ -303,7 +304,7 @@ async function writeShortages(tx: Tx, a: Actor, p: { id: string; projectId: stri
       });
     }
     if (l.damagedQty.gt(0)) {
-      any = true;
+      rows += 1;
       await tx.shortage.create({
         data: {
           tenantId: a.tenantId,
@@ -320,7 +321,11 @@ async function writeShortages(tx: Tx, a: Actor, p: { id: string; projectId: stri
       });
     }
   }
-  return any;
+  if (rows) {
+    const purchase = await tx.purchase.findUniqueOrThrow({ where: { id: p.id }, select: { number: true, location: { select: { name: true } } } });
+    await alerts.shortageCreated(tx, { tenantId: a.tenantId, projectId: p.projectId, refType: 'PURCHASE', refId: p.id, number: purchase.number, where: purchase.location.name, count: rows, at });
+  }
+  return rows > 0;
 }
 
 /**
@@ -428,7 +433,7 @@ export async function createPurchaseTx(tx: Tx, a: Actor, input: CreatePurchaseIn
         });
       }
     }
-    await writeShortages(tx, a, { id: purchase.id, projectId: project?.id ?? null, locationId: location.id }, counted);
+    await writeShortages(tx, a, { id: purchase.id, projectId: project?.id ?? null, locationId: location.id }, counted, at);
   }
   if (!munshi) {
     await postBill(tx, a, { id: purchase.id, number, supplierId: supplier.id, projectId: project?.id ?? null, purchaseDate: input.purchaseDate, paidFrom: input.paidFrom ?? null }, total, paidNow, at);
@@ -443,6 +448,9 @@ export async function createPurchaseTx(tx: Tx, a: Actor, input: CreatePurchaseIn
     challanNo: input.challanNo,
     ...(munshi ? {} : { totalPaisa: total.toString(), paymentMode: input.paymentMode, paidNowPaisa: paidNow.toString() }),
   });
+  if (status === 'PENDING_RATE') {
+    await alerts.purchasePendingRate(tx, { tenantId: a.tenantId, projectId: project?.id ?? null, purchaseId: purchase.id, number, supplier: supplier.name, where: location.name, at });
+  }
   return purchaseDetail(tx, a, purchase.id);
 }
 
@@ -597,7 +605,7 @@ export async function receivePurchaseTx(tx: Tx, a: Actor, id: string, input: Rec
       });
     }
   }
-  const short = await writeShortages(tx, a, { id: p.id, projectId: p.projectId, locationId: p.locationId }, lines);
+  const short = await writeShortages(tx, a, { id: p.id, projectId: p.projectId, locationId: p.locationId }, lines, at);
   const status: PurchaseStatus = short ? 'RECEIVED_WITH_SHORTAGE' : 'RECEIVED';
   await tx.purchase.update({ where: { id }, data: { status, receivedById: a.userId, receivedAt: at, ...(input.note ? { note: p.note ? `${p.note}\n${input.note}` : input.note } : {}) } });
   if (p.purchaseOrderId) await refreshOrderStatus(tx, a.tenantId, p.purchaseOrderId);

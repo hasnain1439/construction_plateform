@@ -6,6 +6,7 @@ import { dateOnly, formatDateOnly, formatDisplayDate } from '../../core/utils/da
 import { optionalSignedUrl } from '../attachments/attachments.service.js';
 import { assertPlanFits, parkProjectsOverLimit } from '../subscription/subscription.rules.js';
 import { syncTenantStatus } from '../subscription/subscription.status.js';
+import * as alerts from '../notifications/alerts.js';
 import { adminId, auditAdmin, nextReceiptNo, smsOwners } from './platformAdmin.shared.js';
 import type { ApprovePaymentInput, PaymentsQuery, RejectPaymentInput } from './platformAdmin.schema.js';
 
@@ -220,6 +221,7 @@ export async function approvePayment(id: string, input: ApprovePaymentInput) {
         ...(input.note ? { note: input.note } : {}),
       },
     });
+    await alerts.subscriptionPayment(tx, { tenantId: sub.tenantId, paymentId: id, approved: true, detail: `${payment.plan.name} is active until ${formatDisplayDate(end)} (receipt ${receiptNo}).` });
     return { tenantId: sub.tenantId, planName: payment.plan.name, receiptNo, start, end };
   });
 
@@ -248,6 +250,7 @@ export async function rejectPayment(id: string, input: RejectPaymentInput) {
       entityId: id,
       details: { reason: input.reason, transactionId: payment.transactionId },
     });
+    await alerts.subscriptionPayment(tx, { tenantId: payment.tenantId, paymentId: id, approved: false, detail: `Payment ${payment.transactionId} was rejected: ${input.reason}` });
     return payment;
   });
   await smsOwners(prismaAdmin, result.tenantId, `Aap ki payment (${result.transactionId}) reject ho gayi: ${input.reason}`);

@@ -59,6 +59,8 @@ enum AttachmentKind {
   INVOICE_PDF
   RECEIPT_PDF
   STATEMENT_PDF
+  /// Generated report exports (CSV / Excel / PDF)
+  REPORT
 }
 
 enum HolidayType {
@@ -320,6 +322,7 @@ model Tenant {
   clientPayments         ClientPayment[]
   paymentAllocations     PaymentAllocation[]
   billingEvents          BillingEvent[]
+  notifications          Notification[]
 }
 
 model TenantSettings {
@@ -479,6 +482,7 @@ model User {
   materialUsages       MaterialUsage[]       @relation("MaterialUsageCreatedBy")
   stockCounts          StockCount[]          @relation("StockCountCreatedBy")
   cashAccounts         CashAccount[]         @relation("CashAccountHolder")
+  notifications        Notification[]        @relation("NotificationRecipient")
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -560,6 +564,7 @@ model Project {
   advances               Advance[]
   wageSettlements        WageSettlement[]
   cashEntries            CashEntry[]
+  notifications          Notification[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
@@ -2521,4 +2526,60 @@ model BillingEvent {
   @@unique([tenantId, id])
   @@unique([tenantId, type, refId])
   @@index([tenantId, resolvedAt])
+}
+
+// ─── Notifications (Phase 1 · Step 9) ───────────────────────────────────────
+
+enum NotificationSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum NotificationType {
+  DISPATCH_CREATED
+  SHORTAGE_CREATED
+  LOW_STOCK
+  PURCHASE_PENDING_RATE
+  SETTLEMENT_SUBMITTED
+  SETTLEMENT_RETURNED
+  EXPENSE_PENDING_APPROVAL
+  TOPUP_REQUESTED
+  FLOAT_SENT
+  MEASUREMENT_RECORDED
+  SUBCONTRACTOR_OVERPAID
+  INVOICE_OVERDUE
+  CHEQUE_BOUNCED
+  STAGE_READY_UNBILLED
+  PREVIOUS_STAGE_UNPAID
+  SUBSCRIPTION_RENEWAL
+  SUBSCRIPTION_PAYMENT_APPROVED
+  SUBSCRIPTION_PAYMENT_REJECTED
+  INVITE_ACCEPTED
+}
+
+/// One in-app message for one user. Same (type, refId, user) is sent at most once per 24 h.
+model Notification {
+  id        String               @id @default(uuid(7)) @db.Uuid
+  tenantId  String               @db.Uuid
+  userId    String               @db.Uuid
+  type      NotificationType
+  severity  NotificationSeverity
+  title     String
+  body      String
+  projectId String?              @db.Uuid
+  refType   String
+  refId     String               @db.Uuid
+  /// Frontend route to open
+  actionUrl String?
+  readAt    DateTime?            @db.Timestamptz(3)
+  smsSentAt DateTime?            @db.Timestamptz(3)
+  createdAt DateTime             @default(now()) @db.Timestamptz(3)
+  tenant    Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User                 @relation("NotificationRecipient", fields: [tenantId, userId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  project   Project?             @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, userId, readAt, createdAt])
+  @@index([tenantId, type, refId, userId, createdAt])
 }

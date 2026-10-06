@@ -195,3 +195,44 @@ export function statementHtml(d: StatementPdfData): string {
   </table>`;
   return shell(d.company, 'STATEMENT', `Owner account<br>${day(d.to)}`, body);
 }
+
+export type ReportColumnType = 'text' | 'money' | 'qty' | 'int' | 'percent' | 'date';
+export interface ReportPdfData {
+  company: Letterhead;
+  title: string;
+  subtitle: string;
+  generatedOn: string;
+  columns: Array<{ key: string; label: string; type: ReportColumnType }>;
+  rows: Array<Record<string, string | number | null>>;
+  totals: Record<string, string | number | null> | null;
+}
+
+function cell(type: ReportColumnType, v: string | number | null | undefined): string {
+  if (v === null || v === undefined || v === '') return '';
+  switch (type) {
+    case 'money':
+      return rs(BigInt(v));
+    case 'percent':
+      return `${v}%`;
+    case 'date':
+      return day(String(v));
+    case 'qty':
+    case 'int':
+      return Number(v).toLocaleString('en-PK', { maximumFractionDigits: 3 });
+    default:
+      return esc(v);
+  }
+}
+
+/** Generic report table (letterhead, filters line, rows, totals). */
+export function reportHtml(d: ReportPdfData): string {
+  const right = (t: ReportColumnType) => (t === 'text' || t === 'date' ? '' : ' class="r"');
+  const head = d.columns.map((c) => `<th${right(c.type)}>${esc(c.label)}</th>`).join('');
+  const body = d.rows.map((r) => `<tr>${d.columns.map((c) => `<td${right(c.type)}>${cell(c.type, r[c.key])}</td>`).join('')}</tr>`).join('');
+  const totals = d.totals ? `<tr class="total">${d.columns.map((c, i) => `<td${right(c.type)}><strong>${i === 0 ? 'Total' : cell(c.type, d.totals![c.key])}</strong></td>`).join('')}</tr>` : '';
+  const html = `
+  <style>table.report { font-size: 8.5px; } table.report th, table.report td { padding: 5px 5px; } tr.total td { border-top: 2px solid #0f172a; }</style>
+  <div class="muted" style="margin-bottom:8px">${esc(d.subtitle)}</div>
+  <table class="report"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${d.columns.length}">No rows</td></tr>`}${totals}</tbody></table>`;
+  return shell(d.company, d.title.toUpperCase(), `Generated ${day(d.generatedOn)}`, html);
+}

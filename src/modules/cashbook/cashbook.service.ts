@@ -14,6 +14,7 @@ import type { CashAccount, CashEntry, Prisma } from '../../generated/prisma/clie
 import { smsProvider } from '../auth/sms.provider.js';
 import { pktDayEnd, pktDayStart } from '../inventory/inventory.service.js';
 import { assertAttachment, occurredAtFor } from '../inventory/stock.js';
+import * as alerts from '../notifications/alerts.js';
 import { createPurchaseTx } from '../procurement/purchases.service.js';
 import { actor, audit, laborSettings, projectFor, today, weekOf, type Actor, type Created } from '../labor/labor.shared.js';
 import { accountOf, CATEGORY_BUCKET, lockAccount, postEntry, rupees, spend, totalsOf } from './cash.js';
@@ -178,6 +179,9 @@ export async function sendFloatTx(tx: Tx, a: Actor, input: FloatInput, opts: { a
   });
   if (opts.acknowledged) await tx.cashEntry.update({ where: { id: entry.id }, data: { approvedById: holder.id, approvedAt: at } });
   await audit(tx, a, 'cash.float_sent', 'CashEntry', entry.id, { holder: holder.name, amountPaisa: input.amountPaisa.toString(), method: input.method, reference: input.reference ?? null });
+  if (!opts.acknowledged) {
+    await alerts.floatSent(tx, { tenantId: a.tenantId, holderUserId: holder.id, entryId: entry.id, amountPaisa: input.amountPaisa, projectId: input.projectId ?? null, method: input.method, at });
+  }
   if (!opts.at) {
     await notify(holder.phone, `${rupees(input.amountPaisa)} bheje gaye (${input.method}${input.reference ? ` ${input.reference}` : ''}). App mein "Mil gaye" dabayen.`);
   }
@@ -264,6 +268,10 @@ export async function createExpenseTx(tx: Tx, a: Actor, input: ExpenseInput, opt
     needsApproval,
     ...(purchaseId ? { purchaseId } : {}),
   });
+  if (needsApproval) {
+    const holder = await tx.user.findUniqueOrThrow({ where: { id: a.userId }, select: { name: true } });
+    await alerts.expensePending(tx, { tenantId: a.tenantId, projectId: project.id, entryId: entry.id, holder: holder.name, amountPaisa: input.amountPaisa, description: input.description, at });
+  }
   return { created: true, data: entryDto(await tx.cashEntry.findUniqueOrThrow({ where: { id: entry.id }, include: projectRef })) };
 }
 
@@ -378,6 +386,8 @@ export async function requestTopupTx(tx: Tx, a: Actor, input: TopupInput, opts: 
     include: topupInclude,
   });
   await audit(tx, a, 'cash.topup_requested', 'TopupRequest', t.id, { amountPaisa: input.amountPaisa.toString() });
+  const holder = await tx.user.findUniqueOrThrow({ where: { id: a.userId }, select: { name: true } });
+  await alerts.topupRequested(tx, { tenantId: a.tenantId, topupId: t.id, holder: holder.name, amountPaisa: input.amountPaisa, ...(opts.at ? { at: opts.at } : {}) });
   return { created: true, data: topupDto(t) };
 }
 

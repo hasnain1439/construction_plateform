@@ -25,6 +25,7 @@ import * as dsp from '../src/modules/dispatch/dispatch.schema.js';
 import * as lab from '../src/modules/labor/labor.schema.js';
 import * as cb from '../src/modules/cashbook/cashbook.schema.js';
 import * as bl from '../src/modules/billing/billing.schema.js';
+import * as ap from '../src/modules/approvals/approvals.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
@@ -139,6 +140,7 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/invoices/{id}/cancel': bl.cancelBody,
   'post /api/v1/projects/{id}/payments': bl.paymentBody,
   'patch /api/v1/payments/{id}/cheque-status': bl.chequeStatusBody,
+  'post /api/v1/approvals/bulk': ap.bulkBody,
 };
 
 type Spec = {
@@ -194,10 +196,15 @@ describe('API docs', () => {
       'Client Payments',
       'Receivables',
       'Statements',
+      'Approvals',
+      'Notifications',
+      'Dashboard',
+      'Finance',
+      'Reports',
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(190);
+    expect(Object.keys(res.body.paths)).toHaveLength(209);
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

@@ -6,7 +6,7 @@ type ResourceType = 'image' | 'video' | 'raw';
 
 const KEY_PREFIX = 'cloudinary:';
 /** Canonical key handed to put(): tenantId/yyyy/mm/<attachmentId>.<ext> */
-const CANONICAL_KEY = /^([0-9a-f-]{36})\/(\d{4})\/(\d{2})\/([0-9a-f-]{36})\.[a-z0-9]{1,5}$/;
+const CANONICAL_KEY = /^([0-9a-f-]{36})\/(\d{4})\/(\d{2})\/([0-9a-f-]{36})\.([a-z0-9]{1,5})$/;
 
 export interface CloudinaryConfig {
   cloudName: string;
@@ -33,7 +33,7 @@ export function cloudinaryKey(resourceType: ResourceType, publicId: string): str
 }
 
 export function parseCloudinaryKey(key: string): { resourceType: ResourceType; publicId: string } {
-  const match = /^cloudinary:(image|video|raw):(construction\/[0-9a-f-]{36}\/\d{4}\/\d{2}\/[0-9a-f-]{36})$/.exec(key);
+  const match = /^cloudinary:(image|video|raw):(construction\/[0-9a-f-]{36}\/\d{4}\/\d{2}\/[0-9a-f-]{36}(?:\.[a-z0-9]{1,5})?)$/.exec(key);
   if (!match) throw new Error(`Invalid Cloudinary storage key: ${key}`);
   return { resourceType: match[1] as ResourceType, publicId: match[2]! };
 }
@@ -64,15 +64,17 @@ export class CloudinaryStorageProvider implements StorageProvider {
   async put(key: string, buffer: Buffer, mime: string): Promise<string> {
     const match = CANONICAL_KEY.exec(key);
     if (!match) throw new Error(`Invalid storage key: ${key}`);
-    const [, tenantId, yyyy, mm, attachmentId] = match;
+    const [, tenantId, yyyy, mm, attachmentId, ext] = match;
     const resourceType = resourceTypeFor(mime);
+    // Raw files (PDF, CSV, Excel) keep their extension so the download opens in the right app.
+    const publicId = resourceType === 'raw' ? `${attachmentId}.${ext}` : attachmentId;
 
     const result = await new Promise<UploadApiResponse>((resolve, reject) => {
       const stream = this.sdk.uploader.upload_stream(
         {
           type: 'authenticated',
           folder: `construction/${tenantId}/${yyyy}/${mm}`,
-          public_id: attachmentId,
+          public_id: publicId,
           resource_type: resourceType,
           overwrite: false,
           unique_filename: false,

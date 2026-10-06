@@ -7,6 +7,7 @@ import { occurredAtFor } from '../inventory/stock.js';
 import { findAssignment, toAssignmentDto, UNIT_OF } from './assignments.service.js';
 import type { DeductionInput, ProgressInput, SubcontractPaymentInput } from './labor.schema.js';
 import { actor, assertOffice, audit, laborSettings, num, projectFor, today, type Actor } from './labor.shared.js';
+import * as alerts from '../notifications/alerts.js';
 import { accountDto, postSubLedger, subAccounts } from './subcontractLedger.js';
 
 const OFFICE_ONLY = 'Only the owner or a project manager can see sub-contract accounts';
@@ -166,6 +167,10 @@ export async function payTx(tx: Tx, a: Actor, id: string, input: SubcontractPaym
     method: cashMethodOf(input.paidFrom),
     advance: input.amountPaisa > acc.balanceDuePaisa && input.type !== 'RETENTION_RELEASE',
   });
+  const after = (await subAccounts(tx, a.tenantId, [s])).get(s.id)!;
+  if (after.overpaid && !acc.overpaid) {
+    await alerts.subcontractorOverpaid(tx, { tenantId: a.tenantId, projectId: s.projectId, assignmentId: s.id, subcontractor: s.subcontractor.name, overpaidPaisa: -after.balanceDuePaisa, at });
+  }
   return ledgerOf(tx, a, s.id);
 }
 

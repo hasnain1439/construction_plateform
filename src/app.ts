@@ -31,6 +31,12 @@ import {
   receivablesRouter,
 } from './modules/billing/billing.routes.js';
 import { clientsRouter } from './modules/clients/clients.routes.js';
+import { notificationsRouter } from './modules/notifications/notifications.routes.js';
+import { approvalsRouter } from './modules/approvals/approvals.routes.js';
+import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
+import { invalidateOnWrite } from './modules/dashboard/dashboard.cache.js';
+import { financeRouter } from './modules/finance/finance.routes.js';
+import { reportsRouter } from './modules/reports/reports.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 import { floorsRouter, openingsRouter, projectsRouter, roomsRouter, supplyPresetsRouter } from './modules/projects/projects.routes.js';
 import { dispatchesRouter, projectDispatchRouter, shortagesRouter } from './modules/dispatch/dispatch.routes.js';
@@ -104,6 +110,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
 
   const api = express.Router();
   api.use(generalRateLimit);
+  api.use(invalidateOnWrite); // clears cached dashboard / finance numbers after any write
   api.use('/auth', authRouter);
   api.use('/invitations', invitationRouter); // public: POST /:token/accept
   api.use('/invitations', teamInvitationsRouter); // THEKEDAR: list / create / resend / cancel
@@ -147,6 +154,11 @@ export function createApp(options: CreateAppOptions = {}): Express {
   api.use('/payments', clientPaymentsRouter);
   api.use('/receivables', receivablesRouter);
   api.use('/billing-events', billingEventsRouter);
+  api.use('/notifications', notificationsRouter);
+  api.use('/approvals', approvalsRouter);
+  api.use('/dashboard', dashboardRouter);
+  api.use('/finance', financeRouter);
+  api.use('/reports', reportsRouter);
   api.use('/project-workers', projectWorkersRouter);
   api.use('/subcontract-assignments', subcontractAssignmentsRouter);
   api.use('/work-measurements', workMeasurementsRouter);

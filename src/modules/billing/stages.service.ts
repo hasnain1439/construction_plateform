@@ -5,6 +5,7 @@ import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
 import type { ProjectBillingStage } from '../../generated/prisma/client.js';
 import type { MarkReadyInput, ProgressInput, UpdateProgressInput, UpdateStageInput } from './billing.schema.js';
 import { actor, assertOwner, audit, billingProject, daysBetween, paisa, today, ymd, type BillingActor } from './billing.shared.js';
+import * as alerts from '../notifications/alerts.js';
 import { recordEvent } from './ledger.js';
 
 const num = (d: { toFixed: (n: number) => string } | null) => (d === null ? null : Number(d.toFixed(3)));
@@ -89,6 +90,7 @@ export async function markReadyTx(tx: Tx, a: BillingActor, id: string, input: Ma
   const unpaid = await unpaidEarlier(tx, a.tenantId, stage);
   if (unpaid.length) {
     await recordEvent(tx, { tenantId: a.tenantId, projectId: project.id, type: 'PREVIOUS_STAGE_UNPAID', refType: 'STAGE', refId: stage.id, details: { stages: unpaid }, occurredAt: at });
+    await alerts.previousStageUnpaid(tx, { tenantId: a.tenantId, projectId: project.id, projectName: project.name, stageId: stage.id, label: stage.label, unpaid: unpaid.length, at });
   }
   await audit(tx, a, 'billing.stage_ready', 'ProjectBillingStage', stage.id, { label: stage.label, proofs: input.proofAttachmentIds.length });
   return {
