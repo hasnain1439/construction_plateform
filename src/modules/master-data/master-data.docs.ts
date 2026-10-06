@@ -359,7 +359,7 @@ export function registerMasterDataDocs(): void {
   const S = 'Suppliers';
   path(S, 'get', '/api/v1/suppliers', {
     summary: 'List suppliers',
-    description: 'THEKEDAR, PM. Search matches name, city or phone.',
+    description: 'All roles (MUNSHI picks the seller of urgent material bought with site cash). Udhaar balances only with rates.view. Search matches name, city or phone.',
     request: { query: listSuppliersQuery },
     responses: { ...ok('Suppliers', [sampleSupplier], page(5)), ...errors({ 400: ['VALIDATION_ERROR'], ...AUTH, 403: READ_403 }) },
   });

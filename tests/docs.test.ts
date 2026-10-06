@@ -22,6 +22,8 @@ import * as pr from '../src/modules/projects/projects.schema.js';
 import * as inv from '../src/modules/inventory/inventory.schema.js';
 import * as proc from '../src/modules/procurement/procurement.schema.js';
 import * as dsp from '../src/modules/dispatch/dispatch.schema.js';
+import * as lab from '../src/modules/labor/labor.schema.js';
+import * as cb from '../src/modules/cashbook/cashbook.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
@@ -102,6 +104,30 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/dispatches/{id}/receive': dsp.receiveDispatchBody,
   'post /api/v1/shortages/{id}/resolve': dsp.resolveShortageBody,
   'post /api/v1/projects/{id}/owner-deliveries': dsp.ownerDeliveryBody,
+  'post /api/v1/projects/{id}/labor/workers': lab.assignWorkerBody,
+  'patch /api/v1/project-workers/{id}': lab.updateProjectWorkerBody,
+  'post /api/v1/projects/{id}/labor/subcontracts': lab.assignSubcontractBody,
+  'patch /api/v1/subcontract-assignments/{id}': lab.updateSubcontractBody,
+  'post /api/v1/projects/{id}/attendance': lab.attendanceBody,
+  'post /api/v1/projects/{id}/work-measurements': lab.measurementBody,
+  'post /api/v1/work-measurements/{id}/reject': lab.rejectBody,
+  'post /api/v1/projects/{id}/advances': lab.advanceBody,
+  'post /api/v1/projects/{id}/settlements/generate': lab.generateBody,
+  'patch /api/v1/settlements/{id}/lines/{lineId}': lab.lineBody,
+  'post /api/v1/settlements/{id}/return': lab.returnBody,
+  'post /api/v1/settlements/{id}/pay': lab.payBody,
+  'post /api/v1/subcontract-assignments/{id}/progress': lab.progressBody,
+  'post /api/v1/subcontract-assignments/{id}/payments': lab.subcontractPaymentBody,
+  'post /api/v1/subcontract-assignments/{id}/deductions': lab.deductionBody,
+  'post /api/v1/cash-floats': cb.floatBody,
+  'post /api/v1/cash-expenses': cb.expenseBody,
+  'post /api/v1/cash-expenses/{id}/approve': cb.decisionBody,
+  'post /api/v1/cash-expenses/{id}/reject': cb.rejectBody,
+  'post /api/v1/topup-requests': cb.topupBody,
+  'post /api/v1/topup-requests/{id}/approve': cb.approveTopupBody,
+  'post /api/v1/topup-requests/{id}/reject': cb.rejectBody,
+  'post /api/v1/cash-counts': cb.countBody,
+  'post /api/v1/cash-handovers': cb.handoverBody,
 };
 
 type Spec = {
@@ -144,10 +170,17 @@ describe('API docs', () => {
       'Owner Deliveries',
       'Material Usage',
       'Stock Counts',
+      'Labor Assignments',
+      'Attendance',
+      'Work Measurements',
+      'Advances',
+      'Settlements',
+      'Subcontract Accounts',
+      'Cash Book',
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(130);
+    expect(Object.keys(res.body.paths)).toHaveLength(171);
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

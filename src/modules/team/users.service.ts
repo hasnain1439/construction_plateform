@@ -7,6 +7,7 @@ import { assertWithinLimit, lockPlanUsage } from '../../core/plan/planLimits.js'
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import * as repo from './team.repository.js';
 import type { ListUsersQuery, SetUserProjectsInput, TeamUserDto, UpdateUserInput, UserDetailDto } from './team.schema.js';
+import { assertNoOpenCashBalance as assertCashSettled } from '../cashbook/cash.js';
 
 function current() {
   const ctx = getCtx();
@@ -18,10 +19,10 @@ const userNotFound = () => new NotFound('USER_NOT_FOUND', 'User not found');
 /**
  * Hook for the cash module: a user holding company cash (petty cash / advances) must
  * settle it before being deactivated.
- * TODO(cash module): throw new Conflict('CASH_BALANCE_OPEN', …) when the balance ≠ 0.
+ * Throws 409 CASH_BALANCE_OPEN (with the account id) when it isn't settled.
  */
-export async function assertNoOpenCashBalance(_tx: Tx, _userId: string): Promise<void> {
-  return;
+export async function assertNoOpenCashBalance(tx: Tx, userId: string): Promise<void> {
+  await assertCashSettled(tx, current().tenantId, userId);
 }
 
 function toListDto(u: repo.UserListRow, includeFinancials: boolean): TeamUserDto {

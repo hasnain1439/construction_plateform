@@ -2,11 +2,13 @@ import { Router } from 'express';
 import swaggerUi from 'swagger-ui-express';
 import { registerAttachmentsDocs } from '../../modules/attachments/attachments.docs.js';
 import { registerAuthDocs } from '../../modules/auth/auth.docs.js';
+import { registerCashbookDocs } from '../../modules/cashbook/cashbook.docs.js';
 import { registerClientsDocs } from '../../modules/clients/clients.docs.js';
 import { registerCompanyDocs } from '../../modules/company/company.docs.js';
 import { registerDispatchDocs } from '../../modules/dispatch/dispatch.docs.js';
 import { registerHealthDocs } from '../../modules/health/health.routes.js';
 import { registerInventoryDocs } from '../../modules/inventory/inventory.docs.js';
+import { registerLaborDocs } from '../../modules/labor/labor.docs.js';
 import { registerMasterDataDocs } from '../../modules/master-data/master-data.docs.js';
 import { registerPlatformAdminDocs } from '../../modules/platform-admin/platformAdmin.docs.js';
 import { registerProcurementDocs } from '../../modules/procurement/procurement.docs.js';
@@ -33,6 +35,8 @@ export function openApiDocument() {
     registerInventoryDocs();
     registerProcurementDocs();
     registerDispatchDocs();
+    registerLaborDocs();
+    registerCashbookDocs();
     registerPlatformAdminDocs();
     document = buildOpenApiDocument();
   }

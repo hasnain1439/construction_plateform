@@ -12,11 +12,29 @@ import { docsRouter } from './core/openapi/docs.js';
 import { jsonReplacer } from './core/utils/json.js';
 import { attachmentsRouter } from './modules/attachments/attachments.routes.js';
 import { adminAuthRouter, authRouter, invitationRouter } from './modules/auth/auth.routes.js';
+import {
+  cashAccountsRouter,
+  cashCountsRouter,
+  cashExpensesRouter,
+  cashFloatsRouter,
+  cashHandoversRouter,
+  projectCashbookRouter,
+  topupsRouter,
+} from './modules/cashbook/cashbook.routes.js';
 import { clientsRouter } from './modules/clients/clients.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 import { floorsRouter, openingsRouter, projectsRouter, roomsRouter, supplyPresetsRouter } from './modules/projects/projects.routes.js';
 import { dispatchesRouter, projectDispatchRouter, shortagesRouter } from './modules/dispatch/dispatch.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
+import {
+  projectLaborRouter,
+  laborOverviewRouter,
+  projectWorkersRouter,
+  settlementsRouter,
+  subcontractAssignmentsRouter,
+  workforceLaborRouter,
+  workMeasurementsRouter,
+} from './modules/labor/labor.routes.js';
 import { projectStockRouter, stockCountsRouter, stockLocationsRouter, stockRouter, storesRouter } from './modules/inventory/inventory.routes.js';
 import {
   purchaseOrdersRouter,
@@ -98,6 +116,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   api.use('/purchase-orders', purchaseOrdersRouter);
   api.use('/purchases', purchasesRouter);
   api.use('/purchase-returns', purchaseReturnsRouter);
+  api.use('/', workforceLaborRouter); // /workers/:id/labor-summary, /subcontractors/:id/labor-summary (per-route auth)
   api.use('/workers', workersRouter);
   api.use('/subcontractors', subcontractorsRouter);
   api.use('/clients', clientsRouter);
@@ -109,7 +128,20 @@ export function createApp(options: CreateAppOptions = {}): Express {
   api.use('/shortages', shortagesRouter);
   api.use('/projects', projectStockRouter); // /projects/:id/stock, /material-usage (per-route auth)
   api.use('/projects', projectDispatchRouter); // /projects/:id/incoming, /owner-deliveries (per-route auth)
+  api.use('/projects', projectLaborRouter); // /projects/:id/labor/*, /attendance, /advances, /settlements, ... (per-route auth)
+  api.use('/projects', projectCashbookRouter); // /projects/:id/cashbook (per-route auth)
   api.use('/projects', projectsRouter);
+  api.use('/project-workers', projectWorkersRouter);
+  api.use('/subcontract-assignments', subcontractAssignmentsRouter);
+  api.use('/work-measurements', workMeasurementsRouter);
+  api.use('/settlements', settlementsRouter);
+  api.use('/labor', laborOverviewRouter);
+  api.use('/cash-accounts', cashAccountsRouter);
+  api.use('/cash-floats', cashFloatsRouter);
+  api.use('/cash-expenses', cashExpensesRouter);
+  api.use('/topup-requests', topupsRouter);
+  api.use('/cash-counts', cashCountsRouter);
+  api.use('/cash-handovers', cashHandoversRouter);
   api.use('/supply-presets', supplyPresetsRouter);
   api.use('/floors', floorsRouter);
   api.use('/rooms', roomsRouter);

@@ -8,10 +8,11 @@
  *   SUPPLIER_CREDIT     — purchase shortages: the supplier's ledger is credited with the value
  */
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
-import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
+import { BadRequest, Conflict, Forbidden, NotFound } from '../../core/errors/AppError.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import type { Prisma, ShortageResolution } from '../../generated/prisma/client.js';
 import { actor, audit, avgOf, balanceOf, lockLocations, materialRef, postIn, postOut, qn, type Actor } from '../inventory/stock.js';
+import { chargeShortageToAssignment } from '../labor/subcontracts.service.js';
 import { postLedger } from '../procurement/supplierLedger.service.js';
 import { projectScope } from '../projects/access.js';
 import type { ListShortagesQuery, ResolveShortageInput } from './dispatch.schema.js';
@@ -144,6 +145,17 @@ export async function resolveShortageTx(tx: Tx, a: Actor, id: string, input: Res
       break;
     }
     case 'ACCEPT_LOSS':
+      if (input.chargeToAssignmentId) {
+        if (a.role !== 'THEKEDAR') throw new Forbidden('FORBIDDEN', 'Only the owner can charge a loss to a sub-contractor');
+        await chargeShortageToAssignment(tx, a, {
+          assignmentId: input.chargeToAssignmentId,
+          projectId: s.projectId,
+          shortageId: s.id,
+          amountPaisa: s.valuePaisa,
+          note: `${qn(s.qty)} ${s.material.unit} ${s.material.name} — ${input.note}`,
+        });
+      }
+      break;
     case 'RECOVER_FROM_DRIVER':
       // No stock movement: the loss stays where the count put it. Cash recovered is recorded here
       // (the cash book, Phase 1 · Step 7, will post it).
@@ -169,6 +181,7 @@ export async function resolveShortageTx(tx: Tx, a: Actor, id: string, input: Res
     qty: qn(s.qty),
     valuePaisa: s.valuePaisa.toString(),
     ...(input.recoveredAmountPaisa !== undefined ? { recoveredAmountPaisa: input.recoveredAmountPaisa.toString() } : {}),
+    ...(input.chargeToAssignmentId ? { chargedToAssignmentId: input.chargeToAssignmentId } : {}),
   });
   return toShortageDto(await tx.shortage.findUniqueOrThrow({ where: { id }, include: shortageInclude }), a);
 }

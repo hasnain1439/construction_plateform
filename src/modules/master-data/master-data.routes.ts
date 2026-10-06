@@ -92,7 +92,8 @@ paymentTemplatesRouter.delete('/:id', owner, validate({ params: idParams }), h(c
 /** Mounted at /api/v1/suppliers */
 export const suppliersRouter = Router();
 suppliersRouter.use(...company);
-suppliersRouter.get('/', office, validate({ query: listSuppliersQuery }), h(c.listSuppliers));
+// MUNSHI may list (urgent material bought with site cash); balances need rates.view.
+suppliersRouter.get('/', validate({ query: listSuppliersQuery }), h(c.listSuppliers));
 suppliersRouter.post('/', office, validate({ body: createSupplierBody }), h(c.createSupplier));
 suppliersRouter.get('/:id', office, validate({ params: idParams }), h(c.getSupplier));
 suppliersRouter.patch('/:id', office, validate({ params: idParams, body: updateSupplierBody }), h(c.updateSupplier));

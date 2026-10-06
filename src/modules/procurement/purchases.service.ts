@@ -323,8 +323,13 @@ async function writeShortages(tx: Tx, a: Actor, p: { id: string; projectId: stri
   return any;
 }
 
-export async function createPurchaseTx(tx: Tx, a: Actor, input: CreatePurchaseInput, opts: { at?: Date } = {}) {
-  const munshi = a.role === 'MUNSHI';
+/**
+ * `opts.kharcha`: urgent material bought with site cash (cash book). It is entered like a
+ * munshi's site purchase — counted now, rates later — whoever records it, and the receipt
+ * photo may stand in for the challan. The cash already left with the kharcha entry.
+ */
+export async function createPurchaseTx(tx: Tx, a: Actor, input: CreatePurchaseInput, opts: { at?: Date; kharcha?: boolean } = {}) {
+  const munshi = a.role === 'MUNSHI' || opts.kharcha === true;
   if (munshi && input.deliverTo !== 'SITE') throw new Forbidden('FORBIDDEN', 'A munshi can only record purchases delivered to their site');
   if (munshi && (input.items.some((i) => i.ratePaisa !== undefined) || input.paymentMode !== 'UDHAAR' || input.paidNowPaisa !== undefined)) {
     throw new BadRequest('RATES_NOT_ALLOWED', 'Leave rates and payment empty — the office adds them');
@@ -332,7 +337,7 @@ export async function createPurchaseTx(tx: Tx, a: Actor, input: CreatePurchaseIn
   const supplier = await activeSupplier(tx, a.tenantId, input.supplierId);
   const { location, project } = await deliveryLocation(tx, a, input.deliverTo, input.projectId);
   const materials = await loadMaterials(tx, a.tenantId, input.items.map((i) => i.materialId));
-  await assertAttachment(tx, a.tenantId, input.challanAttachmentId, ['CHALLAN'], 'CHALLAN_REQUIRED', 'Challan photo');
+  await assertAttachment(tx, a.tenantId, input.challanAttachmentId, opts.kharcha ? ['CHALLAN', 'RECEIPT'] : ['CHALLAN'], 'CHALLAN_REQUIRED', 'Challan photo');
   if (input.billAttachmentId) await assertAttachment(tx, a.tenantId, input.billAttachmentId, ['CHALLAN', 'RECEIPT', 'DOCUMENT'], 'INVALID_ATTACHMENT', 'Bill');
 
   let poRates = new Map<string, bigint>();
@@ -515,6 +520,13 @@ export async function setRatesTx(tx: Tx, a: Actor, id: string, input: SetRatesIn
   const rates = await resolveRates(tx, a, p.supplierId, p.items.map((i) => ({ materialId: i.materialId, ratePaisa: given.get(i.materialId) })), new Map(), materials);
 
   const total = p.items.reduce((s, i) => s + valueOf(i.challanQty, rates.get(i.materialId)!), 0n);
+  // Bought with site cash (kharcha): that cash is the payment, whatever the form says.
+  const kharcha = await tx.cashEntry.findFirst({ where: { tenantId: a.tenantId, refType: 'PURCHASE', refId: p.id }, select: { amountPaisa: true } });
+  if (kharcha) {
+    const cash = -kharcha.amountPaisa;
+    const paid = cash < total ? cash : total;
+    input = { ...input, paymentMode: paid >= total ? 'CASH' : 'PARTIAL', paidNowPaisa: paid, paidFrom: 'SITE_CASH' };
+  }
   const paidNow = paymentSplit(input.paymentMode, total, input.paidNowPaisa);
   const at = opts.at ?? new Date();
   for (const i of p.items) {
