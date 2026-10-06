@@ -45,7 +45,11 @@ describe('suppliers', () => {
 
     const munshi = bearer((await loginMunshi(seeded().malik.id)).accessToken);
     expect((await api().post('/api/v1/suppliers').set(munshi).send(body)).status).toBe(403);
-    expect((await api().get('/api/v1/suppliers').set(munshi)).status).toBe(403);
+    // A munshi may list suppliers (urgent material from site cash) but never sees udhaar balances
+    const list = await api().get('/api/v1/suppliers').set(munshi);
+    expect(list.status).toBe(200);
+    expect(list.body.data[0]).not.toHaveProperty('udhaarBalancePaisa');
+    expect((await api().get(`/api/v1/suppliers/${list.body.data[0].id}`).set(munshi)).status).toBe(403);
   });
 
   it('PATCH edits and clears fields; renaming onto another supplier → 409', async () => {

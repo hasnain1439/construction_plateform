@@ -4,10 +4,11 @@
  * (payment, return, credit). Balance = SUM; ageing pays off the oldest debits first (FIFO).
  */
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
-import { Conflict, NotFound } from '../../core/errors/AppError.js';
+import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
 import { pageMeta } from '../../core/http/pagination.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
 import type { PaidFrom, Prisma, SupplierLedgerType, SupplierPaymentMethod } from '../../generated/prisma/client.js';
+import { accountOf, spend } from '../cashbook/cash.js';
 import { pktDayEnd, pktDayStart } from '../inventory/inventory.service.js';
 import { actor, audit, occurredAtFor, type Actor } from '../inventory/stock.js';
 import { findProjectFor } from '../projects/access.js';
@@ -305,12 +306,36 @@ export async function listPayments(query: ListPaymentsQuery) {
 }
 
 /**
- * Step 7 hook: a purchase paid from SITE_CASH must also leave the site cash book. The cash
- * module (Phase 1 · Step 7) implements it; until then this records nothing.
+ * A purchase paid from SITE_CASH also leaves the site cash book (a PURCHASE entry). Whose
+ * cash: the person recording it, else the one munshi holding cash on that project. Skipped
+ * when the purchase was itself entered as a kharcha (its cash already left).
  */
 export async function postCashPurchaseFromSiteCash(
-  _tx: Tx,
-  _entry: { tenantId: string; projectId: string | null; purchaseId: string; amountPaisa: bigint; occurredAt: Date; createdById: string },
+  tx: Tx,
+  entry: { tenantId: string; projectId: string | null; purchaseId: string; amountPaisa: bigint; occurredAt: Date; createdById: string },
 ): Promise<void> {
-  // Intentionally empty until the cash book exists.
+  const linked = await tx.cashEntry.findFirst({ where: { tenantId: entry.tenantId, refType: 'PURCHASE', refId: entry.purchaseId }, select: { id: true } });
+  if (linked || entry.amountPaisa <= 0n) return;
+  let account = await accountOf(tx, entry.tenantId, entry.createdById);
+  if (!account && entry.projectId) {
+    const onSite = await tx.cashAccount.findMany({
+      where: { tenantId: entry.tenantId, isActive: true, holder: { role: 'MUNSHI', status: 'ACTIVE', projectAccess: { some: { projectId: entry.projectId } } } },
+    });
+    if (onSite.length === 1) account = onSite[0]!;
+  }
+  if (!account) throw new BadRequest('NO_CASH_ACCOUNT', 'Nobody holds site cash for this — pay it another way or send a float first');
+  const purchase = await tx.purchase.findUniqueOrThrow({ where: { id: entry.purchaseId }, select: { number: true, supplier: { select: { name: true } } } });
+  await spend(tx, entry.tenantId, {
+    accountId: account.id,
+    projectId: entry.projectId,
+    type: 'PURCHASE',
+    amountPaisa: entry.amountPaisa,
+    description: `${purchase.number} — ${purchase.supplier.name}`,
+    status: 'POSTED',
+    costBucket: 'MATERIAL',
+    refType: 'PURCHASE',
+    refId: entry.purchaseId,
+    occurredAt: entry.occurredAt,
+    createdById: entry.createdById,
+  });
 }

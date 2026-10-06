@@ -231,97 +231,118 @@ model OtpCode {
 // ─── Tenant core ────────────────────────────────────────────────────────────
 
 model Tenant {
-  id                   String                    @id @default(uuid(7)) @db.Uuid
-  name                 String
-  slug                 String                    @unique
-  status               TenantStatus              @default(ACTIVE)
-  region               Region
+  id                     String                    @id @default(uuid(7)) @db.Uuid
+  name                   String
+  slug                   String                    @unique
+  status                 TenantStatus              @default(ACTIVE)
+  region                 Region
   /// National Tax Number, e.g. 1234567-8
-  ntn                  String?
-  address              String?
+  ntn                    String?
+  address                String?
   /// E.164 office phone
-  phone                String?
-  email                String?
-  logoAttachmentId     String?                   @db.Uuid
-  createdAt            DateTime                  @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime                  @updatedAt @db.Timestamptz(3)
+  phone                  String?
+  email                  String?
+  logoAttachmentId       String?                   @db.Uuid
+  createdAt              DateTime                  @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime                  @updatedAt @db.Timestamptz(3)
   /// Same-tenant + kind LOGO is enforced by the company service (RLS lookup). A composite
   /// (id, logoAttachmentId) FK would stop Prisma generating Tenant.id defaults.
-  logo                 Attachment?               @relation("TenantLogo", fields: [logoAttachmentId], references: [id], onDelete: SetNull)
-  settings             TenantSettings?
-  subscription         Subscription?
-  subscriptionPayments SubscriptionPayment[]
-  users                User[]
-  projects             Project[]
-  userProjectAccess    UserProjectAccess[]
-  invitations          Invitation[]
-  devices              Device[]
-  sessions             Session[]
-  companyHolidays      CompanyHoliday[]
-  attachments          Attachment[]
-  auditLogs            AuditLog[]
-  materials            Material[]
-  qualityCategories    QualityCategory[]
-  materialRates        MaterialRate[]
-  laborRates           LaborRate[]
-  suppliers            Supplier[]
-  supplierRates        SupplierRate[]
-  workers              Worker[]
-  subcontractors       Subcontractor[]
-  paymentTemplates     PaymentScheduleTemplate[]
-  clients              Client[]
-  projectSupplyRules   ProjectSupplyRule[]
-  projectBillingStages ProjectBillingStage[]
-  floors               Floor[]
-  rooms                Room[]
-  openings             Opening[]
-  counters             TenantCounter[]
-  stockLocations       StockLocation[]
-  stockMovements       StockMovement[]
-  lowStockLevels       LowStockLevel[]
-  purchaseOrders       PurchaseOrder[]
-  purchaseOrderItems   PurchaseOrderItem[]
-  purchases            Purchase[]
-  purchaseItems        PurchaseItem[]
-  purchaseCorrections  PurchaseCorrection[]
-  purchaseReturns      PurchaseReturn[]
-  purchaseReturnItems  PurchaseReturnItem[]
-  supplierLedger       SupplierLedgerEntry[]
-  supplierPayments     SupplierPayment[]
-  dispatches           Dispatch[]
-  dispatchItems        DispatchItem[]
-  shortages            Shortage[]
-  ownerDeliveries      OwnerDelivery[]
-  ownerDeliveryItems   OwnerDeliveryItem[]
-  materialUsages       MaterialUsage[]
-  materialUsageItems   MaterialUsageItem[]
-  stockCounts          StockCount[]
-  stockCountItems      StockCountItem[]
+  logo                   Attachment?               @relation("TenantLogo", fields: [logoAttachmentId], references: [id], onDelete: SetNull)
+  settings               TenantSettings?
+  subscription           Subscription?
+  subscriptionPayments   SubscriptionPayment[]
+  users                  User[]
+  projects               Project[]
+  userProjectAccess      UserProjectAccess[]
+  invitations            Invitation[]
+  devices                Device[]
+  sessions               Session[]
+  companyHolidays        CompanyHoliday[]
+  attachments            Attachment[]
+  auditLogs              AuditLog[]
+  materials              Material[]
+  qualityCategories      QualityCategory[]
+  materialRates          MaterialRate[]
+  laborRates             LaborRate[]
+  suppliers              Supplier[]
+  supplierRates          SupplierRate[]
+  workers                Worker[]
+  subcontractors         Subcontractor[]
+  paymentTemplates       PaymentScheduleTemplate[]
+  clients                Client[]
+  projectSupplyRules     ProjectSupplyRule[]
+  projectBillingStages   ProjectBillingStage[]
+  floors                 Floor[]
+  rooms                  Room[]
+  openings               Opening[]
+  counters               TenantCounter[]
+  stockLocations         StockLocation[]
+  stockMovements         StockMovement[]
+  lowStockLevels         LowStockLevel[]
+  purchaseOrders         PurchaseOrder[]
+  purchaseOrderItems     PurchaseOrderItem[]
+  purchases              Purchase[]
+  purchaseItems          PurchaseItem[]
+  purchaseCorrections    PurchaseCorrection[]
+  purchaseReturns        PurchaseReturn[]
+  purchaseReturnItems    PurchaseReturnItem[]
+  supplierLedger         SupplierLedgerEntry[]
+  supplierPayments       SupplierPayment[]
+  dispatches             Dispatch[]
+  dispatchItems          DispatchItem[]
+  shortages              Shortage[]
+  ownerDeliveries        OwnerDelivery[]
+  ownerDeliveryItems     OwnerDeliveryItem[]
+  materialUsages         MaterialUsage[]
+  materialUsageItems     MaterialUsageItem[]
+  stockCounts            StockCount[]
+  stockCountItems        StockCountItem[]
+  projectWorkers         ProjectWorker[]
+  subcontractAssignments SubcontractAssignment[]
+  attendance             Attendance[]
+  workMeasurements       WorkMeasurement[]
+  advances               Advance[]
+  wageSettlements        WageSettlement[]
+  wageSettlementLines    WageSettlementLine[]
+  settlementAdvances     SettlementAdvance[]
+  subcontractLedger      SubcontractLedgerEntry[]
+  cashAccounts           CashAccount[]
+  cashEntries            CashEntry[]
+  topupRequests          TopupRequest[]
+  cashCounts             CashCount[]
 }
 
 model TenantSettings {
-  tenantId                  String   @id @db.Uuid
+  tenantId                  String    @id @db.Uuid
   /// Square feet per marla: 225 (societies) or 272.25 (revenue marla).
-  marlaStandardSqft         Decimal  @default(225) @db.Decimal(6, 2)
-  currency                  String   @default("PKR")
-  timezone                  String   @default("Asia/Karachi")
-  defaultLanguage           Language @default(ROMAN_URDU)
-  weekStartsOn              Int      @default(1)
+  marlaStandardSqft         Decimal   @default(225) @db.Decimal(6, 2)
+  currency                  String    @default("PKR")
+  timezone                  String    @default("Asia/Karachi")
+  defaultLanguage           Language  @default(ROMAN_URDU)
+  weekStartsOn              Int       @default(1)
   /// Kharcha (site expense) above this needs THEKEDAR approval. Paisa. Default Rs 25,000.
-  kharchaApprovalLimitPaisa BigInt   @default(2500000)
+  kharchaApprovalLimitPaisa BigInt    @default(2500000)
   /// Alert when material use exceeds the estimate by this percent (1–20).
-  overuseAlertPercent       Int      @default(10)
+  overuseAlertPercent       Int       @default(10)
   /// Local time (HH:MM, tenant timezone) after which a missing daily site log raises an alert.
-  missingLogAlertTime       String   @default("18:00")
-  quoteValidityDays         Int      @default(15)
-  taxEnabled                Boolean  @default(false)
+  missingLogAlertTime       String    @default("18:00")
+  quoteValidityDays         Int       @default(15)
+  taxEnabled                Boolean   @default(false)
   /// Default for `canSeeFinancials` on new PM invitations.
-  pmCanSeeFinancials        Boolean  @default(false)
+  pmCanSeeFinancials        Boolean   @default(false)
   /// Site receiving hides sent / challan quantities until the count is submitted.
-  blindCountEnabled         Boolean  @default(true)
-  createdAt                 DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt                 DateTime @updatedAt @db.Timestamptz(3)
-  tenant                    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  blindCountEnabled         Boolean   @default(true)
+  /// Weekly wage settlements start on this day.
+  settlementWeekStart       WeekDay   @default(MONDAY)
+  workingDays               WeekDay[] @default([MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY])
+  hoursPerDay               Decimal   @default(8) @db.Decimal(4, 2)
+  /// null = the DAILY labour rate multiplier (×1.5 by default)
+  overtimeMultiplier        Decimal?  @db.Decimal(4, 2)
+  /// Whether a PM may pay sub-contractors (THEKEDAR always can).
+  subcontractPaymentsByPm   Boolean   @default(false)
+  createdAt                 DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime  @updatedAt @db.Timestamptz(3)
+  tenant                    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
 model Subscription {
@@ -440,6 +461,7 @@ model User {
   ownerDeliveries      OwnerDelivery[]       @relation("OwnerDeliveryCreatedBy")
   materialUsages       MaterialUsage[]       @relation("MaterialUsageCreatedBy")
   stockCounts          StockCount[]          @relation("StockCountCreatedBy")
+  cashAccounts         CashAccount[]         @relation("CashAccountHolder")
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -450,66 +472,73 @@ model User {
 
 /// Stub — the Projects module will extend this.
 model Project {
-  id                   String                @id @default(uuid(7)) @db.Uuid
-  tenantId             String                @db.Uuid
+  id                     String                  @id @default(uuid(7)) @db.Uuid
+  tenantId               String                  @db.Uuid
   /// e.g. MSB-2026-015 — unique per company, editable
-  code                 String
-  name                 String
-  clientId             String?               @db.Uuid
-  siteAddress          String?
-  city                 String?
-  startDate            DateTime?             @db.Date
-  endDate              DateTime?             @db.Date
-  status               ProjectStatus         @default(DRAFT)
+  code                   String
+  name                   String
+  clientId               String?                 @db.Uuid
+  siteAddress            String?
+  city                   String?
+  startDate              DateTime?               @db.Date
+  endDate                DateTime?               @db.Date
+  status                 ProjectStatus           @default(DRAFT)
   // Tab 2 — contract
-  contractType         ContractType?
-  billingModel         BillingModel?
-  contractValuePaisa   BigInt?
-  ratePerSqftPaisa     BigInt?
-  retentionPercent     Decimal               @default(5) @db.Decimal(5, 2)
-  defectPeriodMonths   Int                   @default(6)
+  contractType           ContractType?
+  billingModel           BillingModel?
+  contractValuePaisa     BigInt?
+  ratePerSqftPaisa       BigInt?
+  retentionPercent       Decimal                 @default(5) @db.Decimal(5, 2)
+  defectPeriodMonths     Int                     @default(6)
   // Tab 3 — plot & structure (feet)
-  plotUnit             PlotUnit?
-  plotSize             Decimal?              @db.Decimal(10, 2)
-  marlaStandard        Decimal               @default(225) @db.Decimal(6, 2)
-  frontFt              Decimal?              @db.Decimal(10, 2)
-  depthFt              Decimal?              @db.Decimal(10, 2)
-  cornerPlot           Boolean               @default(false)
-  structureType        StructureType?
-  hasBasement          Boolean               @default(false)
-  basementHeightFt     Decimal?              @db.Decimal(10, 2)
+  plotUnit               PlotUnit?
+  plotSize               Decimal?                @db.Decimal(10, 2)
+  marlaStandard          Decimal                 @default(225) @db.Decimal(6, 2)
+  frontFt                Decimal?                @db.Decimal(10, 2)
+  depthFt                Decimal?                @db.Decimal(10, 2)
+  cornerPlot             Boolean                 @default(false)
+  structureType          StructureType?
+  hasBasement            Boolean                 @default(false)
+  basementHeightFt       Decimal?                @db.Decimal(10, 2)
   // Tab 4 — coverage (sq ft / rft / ft)
-  coveredAreaSqft      Decimal?              @db.Decimal(10, 2)
-  semiCoveredSqft      Decimal               @default(0) @db.Decimal(10, 2)
-  openAreaSqft         Decimal               @default(0) @db.Decimal(10, 2)
-  boundaryWall         Boolean               @default(false)
-  boundaryLengthFt     Decimal?              @db.Decimal(10, 2)
-  boundaryHeightFt     Decimal?              @db.Decimal(10, 2)
-  boundaryThickness    BoundaryThickness?
-  boundaryPlasterSides Int?
-  wizardCompletedSteps Int[]                 @default([])
+  coveredAreaSqft        Decimal?                @db.Decimal(10, 2)
+  semiCoveredSqft        Decimal                 @default(0) @db.Decimal(10, 2)
+  openAreaSqft           Decimal                 @default(0) @db.Decimal(10, 2)
+  boundaryWall           Boolean                 @default(false)
+  boundaryLengthFt       Decimal?                @db.Decimal(10, 2)
+  boundaryHeightFt       Decimal?                @db.Decimal(10, 2)
+  boundaryThickness      BoundaryThickness?
+  boundaryPlasterSides   Int?
+  wizardCompletedSteps   Int[]                   @default([])
   /// Set by the quotations module (Phase 2).
-  createdFromQuoteId   String?               @db.Uuid
-  activatedAt          DateTime?             @db.Timestamptz(3)
-  createdById          String?               @db.Uuid
-  createdAt            DateTime              @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime              @updatedAt @db.Timestamptz(3)
-  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  client               Client?               @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
-  createdBy            User?                 @relation("ProjectCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
-  userAccess           UserProjectAccess[]
-  supplyRules          ProjectSupplyRule[]
-  billingStages        ProjectBillingStage[]
-  floors               Floor[]
-  rooms                Room[]
-  stockLocation        StockLocation?
-  purchaseOrders       PurchaseOrder[]
-  purchases            Purchase[]
-  supplierLedger       SupplierLedgerEntry[]
-  supplierPayments     SupplierPayment[]
-  shortages            Shortage[]
-  ownerDeliveries      OwnerDelivery[]
-  materialUsages       MaterialUsage[]
+  createdFromQuoteId     String?                 @db.Uuid
+  activatedAt            DateTime?               @db.Timestamptz(3)
+  createdById            String?                 @db.Uuid
+  createdAt              DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime                @updatedAt @db.Timestamptz(3)
+  tenant                 Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client                 Client?                 @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy              User?                   @relation("ProjectCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  userAccess             UserProjectAccess[]
+  supplyRules            ProjectSupplyRule[]
+  billingStages          ProjectBillingStage[]
+  floors                 Floor[]
+  rooms                  Room[]
+  stockLocation          StockLocation?
+  purchaseOrders         PurchaseOrder[]
+  purchases              Purchase[]
+  supplierLedger         SupplierLedgerEntry[]
+  supplierPayments       SupplierPayment[]
+  shortages              Shortage[]
+  ownerDeliveries        OwnerDelivery[]
+  materialUsages         MaterialUsage[]
+  projectWorkers         ProjectWorker[]
+  subcontractAssignments SubcontractAssignment[]
+  attendance             Attendance[]
+  workMeasurements       WorkMeasurement[]
+  advances               Advance[]
+  wageSettlements        WageSettlement[]
+  cashEntries            CashEntry[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
@@ -897,19 +926,23 @@ model SupplierRate {
 
 /// Daily-wage site workers (not app users).
 model Worker {
-  id             String     @id @default(uuid(7)) @db.Uuid
-  tenantId       String     @db.Uuid
-  name           String
-  type           WorkerType
-  phone          String?
-  dailyRatePaisa BigInt
-  isActive       Boolean    @default(true)
-  notes          String?
-  createdById    String?    @db.Uuid
-  createdAt      DateTime   @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime   @updatedAt @db.Timestamptz(3)
-  tenant         Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  createdBy      User?      @relation("WorkerCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  id              String               @id @default(uuid(7)) @db.Uuid
+  tenantId        String               @db.Uuid
+  name            String
+  type            WorkerType
+  phone           String?
+  dailyRatePaisa  BigInt
+  isActive        Boolean              @default(true)
+  notes           String?
+  createdById     String?              @db.Uuid
+  createdAt       DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime             @updatedAt @db.Timestamptz(3)
+  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy       User?                @relation("WorkerCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  projectWorkers  ProjectWorker[]
+  attendance      Attendance[]
+  advances        Advance[]
+  settlementLines WageSettlementLine[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -917,17 +950,18 @@ model Worker {
 }
 
 model Subcontractor {
-  id        String   @id @default(uuid(7)) @db.Uuid
-  tenantId  String   @db.Uuid
-  name      String
+  id          String                  @id @default(uuid(7)) @db.Uuid
+  tenantId    String                  @db.Uuid
+  name        String
   /// A SUBCONTRACT labour key: SHUTTERING, STEEL_FIXING, ...
-  trade     String
-  phone     String?
-  notes     String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @db.Timestamptz(3)
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  trade       String
+  phone       String?
+  notes       String?
+  isActive    Boolean                 @default(true)
+  createdAt   DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime                @updatedAt @db.Timestamptz(3)
+  tenant      Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignments SubcontractAssignment[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, name])
@@ -1794,4 +1828,452 @@ model StockCountItem {
   material      Material          @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([tenantId, countId])
+}
+
+// ─── Labour & cash book (Phase 1 · Step 7) ──────────────────────────────────
+
+enum WeekDay {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+enum AttendanceStatus {
+  FULL
+  HALF
+  ABSENT
+}
+
+enum SubcontractRateType {
+  PER_SQFT
+  PER_TON
+  PER_BRICK
+  PER_RFT
+  PER_CFT
+  LUMPSUM
+}
+
+enum MeasurementStatus {
+  RECORDED
+  VERIFIED
+  REJECTED
+}
+
+enum PayeeType {
+  WORKER
+  SUBCONTRACTOR
+}
+
+enum LaborPaidFrom {
+  SITE_CASH
+  OFFICE_CASH
+  BANK
+  JAZZCASH
+  EASYPAISA
+}
+
+enum SettlementStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  RETURNED
+}
+
+enum LinePaymentStatus {
+  UNPAID
+  PAID
+}
+
+enum SubcontractEntryType {
+  WORK_VALUE
+  ADVANCE
+  RUNNING_PAYMENT
+  DEDUCTION
+  RETENTION_RELEASE
+  ADJUSTMENT
+}
+
+enum CashEntryType {
+  FLOAT_IN
+  EXPENSE
+  PESHGI
+  WAGE_PAYMENT
+  SUBCONTRACT_PAYMENT
+  PURCHASE
+  HANDOVER_OUT
+  HANDOVER_IN
+  COUNT_ADJUSTMENT
+  REFUND_IN
+}
+
+enum ExpenseCategory {
+  TEA_WATER
+  TRANSPORT
+  UNLOADING
+  FUEL
+  SMALL_TOOLS
+  URGENT_MATERIAL
+  OWNER_PURCHASE
+  REPAIRS
+  OTHER
+}
+
+enum CostBucket {
+  OVERHEAD
+  LABOR
+  MATERIAL
+  EQUIPMENT
+  RECOVERABLE_FROM_OWNER
+}
+
+enum CashEntryStatus {
+  /// Float sent, not yet acknowledged by the holder (not in the balance).
+  PENDING_ACK
+  /// Kharcha above the approval limit (in the balance — the cash is already spent).
+  PENDING_APPROVAL
+  APPROVED
+  /// Kharcha refused: still in the balance, owed back by the holder.
+  REJECTED
+  POSTED
+}
+
+enum TopupStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum FloatMethod {
+  CASH
+  BANK
+  JAZZCASH
+  EASYPAISA
+}
+
+/// A daily-wage worker on a project, with the project's rate for them.
+model ProjectWorker {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tenantId       String    @db.Uuid
+  projectId      String    @db.Uuid
+  workerId       String    @db.Uuid
+  dailyRatePaisa BigInt
+  startDate      DateTime  @db.Date
+  endDate        DateTime? @db.Date
+  isActive       Boolean   @default(true)
+  createdById    String?   @db.Uuid
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project        Project   @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  worker         Worker    @relation(fields: [tenantId, workerId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([projectId, workerId])
+  @@index([tenantId, projectId])
+}
+
+/// A sub-contractor's piece-rate (or lump-sum) work on a project.
+model SubcontractAssignment {
+  id                 String                   @id @default(uuid(7)) @db.Uuid
+  tenantId           String                   @db.Uuid
+  projectId          String                   @db.Uuid
+  subcontractorId    String                   @db.Uuid
+  scope              String
+  rateType           SubcontractRateType
+  /// Unit rate (not LUMPSUM)
+  ratePaisa          BigInt?
+  /// LUMPSUM only
+  contractValuePaisa BigInt?
+  retentionPercent   Decimal                  @default(5) @db.Decimal(5, 2)
+  /// LUMPSUM: cumulative progress posted so far
+  progressPercent    Decimal                  @default(0) @db.Decimal(5, 2)
+  startDate          DateTime                 @db.Date
+  isActive           Boolean                  @default(true)
+  createdById        String?                  @db.Uuid
+  createdAt          DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                 @updatedAt @db.Timestamptz(3)
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project            Project                  @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  subcontractor      Subcontractor            @relation(fields: [tenantId, subcontractorId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  measurements       WorkMeasurement[]
+  advances           Advance[]
+  ledger             SubcontractLedgerEntry[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, projectId])
+}
+
+/// Hazri: one row per worker per day on a project.
+model Attendance {
+  id              String           @id @default(uuid(7)) @db.Uuid
+  tenantId        String           @db.Uuid
+  projectId       String           @db.Uuid
+  workerId        String           @db.Uuid
+  date            DateTime         @db.Date
+  status          AttendanceStatus
+  overtimeHours   Decimal          @default(0) @db.Decimal(4, 2)
+  note            String?
+  markedById      String?          @db.Uuid
+  clientId        String?          @db.Uuid
+  deviceCreatedAt DateTime?        @db.Timestamptz(3)
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project         Project          @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  worker          Worker           @relation(fields: [tenantId, workerId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([projectId, workerId, date])
+  @@index([tenantId, projectId, date])
+}
+
+model WorkMeasurement {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  tenantId        String                @db.Uuid
+  projectId       String                @db.Uuid
+  assignmentId    String                @db.Uuid
+  date            DateTime              @db.Date
+  description     String
+  quantity        Decimal               @db.Decimal(14, 3)
+  unit            String
+  attachmentIds   String[]              @default([]) @db.Uuid
+  status          MeasurementStatus     @default(RECORDED)
+  verifiedById    String?               @db.Uuid
+  verifiedAt      DateTime?             @db.Timestamptz(3)
+  note            String?
+  clientId        String?               @db.Uuid
+  deviceCreatedAt DateTime?             @db.Timestamptz(3)
+  createdById     String?               @db.Uuid
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @db.Timestamptz(3)
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project         Project               @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  assignment      SubcontractAssignment @relation(fields: [tenantId, assignmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, clientId])
+  @@index([tenantId, projectId, date])
+}
+
+/// Peshgi: money given ahead of wages / sub-contract payments.
+model Advance {
+  id              String                 @id @default(uuid(7)) @db.Uuid
+  tenantId        String                 @db.Uuid
+  projectId       String                 @db.Uuid
+  payeeType       PayeeType
+  workerId        String?                @db.Uuid
+  assignmentId    String?                @db.Uuid
+  amountPaisa     BigInt
+  date            DateTime               @db.Date
+  paidFrom        LaborPaidFrom
+  cashAccountId   String?                @db.Uuid
+  reference       String?
+  note            String?
+  clientId        String?                @db.Uuid
+  deviceCreatedAt DateTime?              @db.Timestamptz(3)
+  createdById     String?                @db.Uuid
+  createdAt       DateTime               @default(now()) @db.Timestamptz(3)
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project         Project                @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  worker          Worker?                @relation(fields: [tenantId, workerId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  assignment      SubcontractAssignment? @relation(fields: [tenantId, assignmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  allocations     SettlementAdvance[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, clientId])
+  @@index([tenantId, projectId, date])
+}
+
+model WageSettlement {
+  id            String               @id @default(uuid(7)) @db.Uuid
+  tenantId      String               @db.Uuid
+  projectId     String               @db.Uuid
+  weekStart     DateTime             @db.Date
+  weekEnd       DateTime             @db.Date
+  status        SettlementStatus     @default(DRAFT)
+  grossPaisa    BigInt               @default(0)
+  advancePaisa  BigInt               @default(0)
+  netPaisa      BigInt               @default(0)
+  paidPaisa     BigInt               @default(0)
+  submittedById String?              @db.Uuid
+  submittedAt   DateTime?            @db.Timestamptz(3)
+  approvedById  String?              @db.Uuid
+  approvedAt    DateTime?            @db.Timestamptz(3)
+  returnComment String?
+  createdById   String?              @db.Uuid
+  createdAt     DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime             @updatedAt @db.Timestamptz(3)
+  tenant        Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project       Project              @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  lines         WageSettlementLine[]
+
+  @@unique([tenantId, id])
+  @@unique([projectId, weekStart])
+  @@index([tenantId, status])
+}
+
+model WageSettlementLine {
+  id                   String              @id @default(uuid(7)) @db.Uuid
+  tenantId             String              @db.Uuid
+  settlementId         String              @db.Uuid
+  workerId             String              @db.Uuid
+  fullDays             Int
+  halfDays             Int
+  daysWorked           Decimal             @db.Decimal(5, 1)
+  dailyRatePaisa       BigInt
+  overtimeHours        Decimal             @db.Decimal(6, 2)
+  overtimePaisa        BigInt
+  grossPaisa           BigInt
+  advanceAdjustedPaisa BigInt
+  /// The advance adjustment was set by hand (kept on regenerate).
+  advanceOverride      Boolean             @default(false)
+  overrideNote         String?
+  netPaisa             BigInt
+  paymentStatus        LinePaymentStatus   @default(UNPAID)
+  paidFrom             LaborPaidFrom?
+  paidAt               DateTime?           @db.Timestamptz(3)
+  paidById             String?             @db.Uuid
+  cashEntryId          String?             @db.Uuid
+  tenant               Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  settlement           WageSettlement      @relation(fields: [tenantId, settlementId], references: [tenantId, id], onDelete: Cascade)
+  worker               Worker              @relation(fields: [tenantId, workerId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  advances             SettlementAdvance[]
+
+  @@unique([tenantId, id])
+  @@unique([settlementId, workerId])
+}
+
+/// Which advances a settlement line adjusts (oldest first).
+model SettlementAdvance {
+  tenantId    String             @db.Uuid
+  lineId      String             @db.Uuid
+  advanceId   String             @db.Uuid
+  amountPaisa BigInt
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  line        WageSettlementLine @relation(fields: [tenantId, lineId], references: [tenantId, id], onDelete: Cascade)
+  advance     Advance            @relation(fields: [tenantId, advanceId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@id([lineId, advanceId])
+  @@index([tenantId, advanceId])
+}
+
+/// Sub-contractor running account. Signed: + owed to them, − paid / deducted. Append-only.
+model SubcontractLedgerEntry {
+  id           String                @id @default(uuid(7)) @db.Uuid
+  tenantId     String                @db.Uuid
+  assignmentId String                @db.Uuid
+  type         SubcontractEntryType
+  amountPaisa  BigInt
+  refType      String?
+  refId        String?               @db.Uuid
+  occurredAt   DateTime              @db.Timestamptz(3)
+  note         String?
+  createdById  String?               @db.Uuid
+  createdAt    DateTime              @default(now()) @db.Timestamptz(3)
+  tenant       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignment   SubcontractAssignment @relation(fields: [tenantId, assignmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, assignmentId, occurredAt])
+}
+
+/// Cash held by a munshi / PM. Balance = Σ entries except PENDING_ACK floats.
+model CashAccount {
+  id           String         @id @default(uuid(7)) @db.Uuid
+  tenantId     String         @db.Uuid
+  holderUserId String         @db.Uuid
+  name         String
+  isActive     Boolean        @default(true)
+  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime       @updatedAt @db.Timestamptz(3)
+  tenant       Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  holder       User           @relation("CashAccountHolder", fields: [tenantId, holderUserId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  entries      CashEntry[]
+  topups       TopupRequest[]
+  counts       CashCount[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, holderUserId])
+}
+
+model CashEntry {
+  id                    String           @id @default(uuid(7)) @db.Uuid
+  tenantId              String           @db.Uuid
+  accountId             String           @db.Uuid
+  projectId             String?          @db.Uuid
+  type                  CashEntryType
+  /// Signed: + into the holder's cash, − out of it
+  amountPaisa           BigInt
+  category              ExpenseCategory?
+  costBucket            CostBucket?
+  description           String
+  attachmentId          String?          @db.Uuid
+  status                CashEntryStatus
+  method                FloatMethod?
+  reference             String?
+  approvedById          String?          @db.Uuid
+  approvedAt            DateTime?        @db.Timestamptz(3)
+  reviewNote            String?
+  /// Rejected kharcha the holder must pay back
+  recoverableFromHolder Boolean          @default(false)
+  refType               String?
+  refId                 String?          @db.Uuid
+  clientId              String?          @db.Uuid
+  deviceCreatedAt       DateTime?        @db.Timestamptz(3)
+  occurredAt            DateTime         @db.Timestamptz(3)
+  createdById           String?          @db.Uuid
+  createdAt             DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime         @updatedAt @db.Timestamptz(3)
+  tenant                Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account               CashAccount      @relation(fields: [tenantId, accountId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  project               Project?         @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, clientId])
+  @@index([tenantId, accountId, occurredAt])
+  @@index([tenantId, projectId, occurredAt])
+  @@index([tenantId, status])
+}
+
+model TopupRequest {
+  id           String      @id @default(uuid(7)) @db.Uuid
+  tenantId     String      @db.Uuid
+  accountId    String      @db.Uuid
+  amountPaisa  BigInt
+  note         String?
+  status       TopupStatus @default(PENDING)
+  decidedById  String?     @db.Uuid
+  decidedAt    DateTime?   @db.Timestamptz(3)
+  decisionNote String?
+  floatEntryId String?     @db.Uuid
+  clientId     String?     @db.Uuid
+  createdById  String?     @db.Uuid
+  createdAt    DateTime    @default(now()) @db.Timestamptz(3)
+  tenant       Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account      CashAccount @relation(fields: [tenantId, accountId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, clientId])
+  @@index([tenantId, status])
+}
+
+model CashCount {
+  id                String      @id @default(uuid(7)) @db.Uuid
+  tenantId          String      @db.Uuid
+  accountId         String      @db.Uuid
+  systemPaisa       BigInt
+  countedPaisa      BigInt
+  differencePaisa   BigInt
+  note              String?
+  adjustmentEntryId String?     @db.Uuid
+  countedById       String?     @db.Uuid
+  countedAt         DateTime    @db.Timestamptz(3)
+  tenant            Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account           CashAccount @relation(fields: [tenantId, accountId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, accountId, countedAt])
 }

@@ -62,6 +62,8 @@ export const companyDto = z
 
 // ─── Settings ───────────────────────────────────────────────────────────────
 
+export const weekDaySchema = z.enum(['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY']);
+
 /** Money in paisa: a digit string (preferred, lossless) or a safe integer. */
 export const paisaSchema = z
   .union([
@@ -83,6 +85,16 @@ export const updateSettingsBody = z
     taxEnabled: z.boolean().optional(),
     pmCanSeeFinancials: z.boolean().optional(),
     blindCountEnabled: z.boolean().optional(),
+    settlementWeekStart: weekDaySchema.optional(),
+    workingDays: z
+      .array(weekDaySchema)
+      .min(1, 'Pick at least one working day')
+      .max(7)
+      .refine((days) => new Set(days).size === days.length, 'A day is listed twice')
+      .optional(),
+    hoursPerDay: z.number().min(1, 'Must be between 1 and 16').max(16, 'Must be between 1 and 16').multipleOf(0.25).optional(),
+    overtimeMultiplier: z.number().min(1, 'Must be between 1 and 3').max(3, 'Must be between 1 and 3').multipleOf(0.05).nullable().optional(),
+    subcontractPaymentsByPm: z.boolean().optional(),
     defaultLanguage: languageSchema.optional(),
   })
   .refine((value) => Object.values(value).some((v) => v !== undefined), { message: 'Nothing to update' });
@@ -96,6 +108,11 @@ export const settingsDto = z
     taxEnabled: z.boolean(),
     pmCanSeeFinancials: z.boolean(),
     blindCountEnabled: z.boolean().meta({ description: 'Site receiving hides sent / challan quantities until counted' }),
+    settlementWeekStart: weekDaySchema.meta({ description: 'Weekly wage settlements start on this day' }),
+    workingDays: z.array(weekDaySchema),
+    hoursPerDay: z.number().meta({ example: 8 }),
+    overtimeMultiplier: z.number().nullable().meta({ description: 'null = the DAILY labour rate multiplier (×1.5 by default)' }),
+    subcontractPaymentsByPm: z.boolean().meta({ description: 'A PM may pay sub-contractors (THEKEDAR always can)' }),
     defaultLanguage: languageSchema,
   })
   .meta({ id: 'CompanySettings' });

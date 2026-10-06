@@ -79,6 +79,9 @@ Money is integer **paisa** sent as a string (\`"950000"\` = Rs 9,500) · IDs are
 | **403** | \`ACCOUNT_READ_ONLY\` | Company is read-only — renew the subscription to make changes. |
 | **403** | \`LINK_EXPIRED\` / \`INVALID_SIGNATURE\` | File link is old or edited — fetch the attachment again for a fresh \`url\`. |
 | **404** | \`*_NOT_FOUND\` | Doesn't exist **in your company** (other companies' data is invisible). |
+| **400** | \`INSUFFICIENT_CASH\` | Not enough site cash in hand — ask for a top-up first. |
+| **409** | \`WEEK_LOCKED\` / \`SETTLEMENT_LOCKED\` | That week's wages are submitted / approved — return the settlement to change it. |
+| **409** | \`CASH_BALANCE_OPEN\` | The user still holds site cash — record a handover before deactivating. |
 | **409** | \`MULTIPLE_COMPANIES\` | Ask which company, resend with \`tenantId\`. |
 | **409** | \`PHONE_TAKEN\` / \`EMAIL_TAKEN\` / \`ALREADY_MEMBER\` / \`INVITE_PENDING\` | Person already exists or is invited — edit or resend instead. |
 | **410** | \`OTP_EXPIRED\` / \`INVITE_EXPIRED\` | Request a new code / invitation. |
@@ -118,6 +121,13 @@ export const TAGS = [
   { name: 'Owner Deliveries', description: 'Material the client delivers himself (owner-supplied categories only, cost 0)' },
   { name: 'Material Usage', description: 'Material used on site each day (all roles with project access)' },
   { name: 'Stock Counts', description: 'Physical counts; differences become stock adjustments with a reason' },
+  { name: 'Labor Assignments', description: 'Team on site: daily-wage workers (with the project rate) and sub-contracts on a project' },
+  { name: 'Attendance', description: 'Hazri: bulk marking per day (offline-safe), the weekly register and today’s summary. Submitted / approved weeks are locked' },
+  { name: 'Work Measurements', description: 'Work measured for piece-rate sub-contracts; verifying adds its value to the sub-contractor’s account' },
+  { name: 'Advances', description: 'Peshgi to workers (cut from weekly wages, oldest first) and sub-contractors (into their account). Site cash leaves the cash book' },
+  { name: 'Settlements', description: 'Weekly wage settlements: generate from hazri, adjust peshgi, submit → approve (locks the week) → pay' },
+  { name: 'Subcontract Accounts', description: 'Sub-contractor running accounts: value, retention, payments, deductions and balance due (THEKEDAR, PM)' },
+  { name: 'Cash Book', description: 'Site cash: floats (acknowledged by the holder), kharcha with approval above the limit, top-ups, counts and handovers' },
   { name: 'Platform admin auth', description: 'Platform owners only — separate accounts and tokens' },
   { name: 'Platform admin', description: 'Platform console: dashboard, companies, payment review, plans, holidays, material catalog, audit log (platform token)' },
 ];

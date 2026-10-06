@@ -96,6 +96,11 @@ function toSettingsDto(s: SettingsRow): SettingsDto {
     taxEnabled: s.taxEnabled,
     pmCanSeeFinancials: s.pmCanSeeFinancials,
     blindCountEnabled: s.blindCountEnabled,
+    settlementWeekStart: s.settlementWeekStart,
+    workingDays: s.workingDays,
+    hoursPerDay: Number(s.hoursPerDay),
+    overtimeMultiplier: s.overtimeMultiplier === null ? null : Number(s.overtimeMultiplier),
+    subcontractPaymentsByPm: s.subcontractPaymentsByPm,
     defaultLanguage: s.defaultLanguage,
   };
 }

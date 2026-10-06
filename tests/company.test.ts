@@ -97,6 +97,11 @@ describe('company settings', () => {
       taxEnabled: false,
       pmCanSeeFinancials: false,
       blindCountEnabled: true,
+      settlementWeekStart: 'MONDAY',
+      workingDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'],
+      hoursPerDay: 8,
+      overtimeMultiplier: null,
+      subcontractPaymentsByPm: false,
       defaultLanguage: 'ROMAN_URDU',
     });
   });
@@ -110,6 +115,11 @@ describe('company settings', () => {
       { missingLogAlertTime: '25:00' },
       { kharchaApprovalLimitPaisa: '-5' },
       { kharchaApprovalLimitPaisa: '12.50' },
+      { workingDays: [] },
+      { workingDays: ['MONDAY', 'MONDAY'] },
+      { hoursPerDay: 30 },
+      { overtimeMultiplier: 5 },
+      { settlementWeekStart: 'FUNDAY' },
       {},
     ]) {
       const res = await api().patch('/api/v1/company/settings').set(bearer(s.accessToken)).send(body);

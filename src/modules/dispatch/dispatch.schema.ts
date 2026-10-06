@@ -77,11 +77,17 @@ export const resolveShortageBody = z
     resolution: resolutionSchema,
     note: z.string().trim().min(3, 'Write what was decided').max(500),
     recoveredAmountPaisa: paisaSchema.optional().meta({ description: 'RECOVER_FROM_DRIVER only' }),
+    chargeToAssignmentId: uuid('chargeToAssignmentId')
+      .optional()
+      .meta({ description: 'ACCEPT_LOSS only (THEKEDAR): charge the loss to this sub-contract as a deduction' }),
     ...vehicle,
   })
   .superRefine((v, ctx) => {
     if (v.resolution === 'RECOVER_FROM_DRIVER' && (v.recoveredAmountPaisa === undefined || v.recoveredAmountPaisa <= 0n)) {
       ctx.addIssue({ code: 'custom', path: ['recoveredAmountPaisa'], message: 'Enter the amount recovered from the driver' });
+    }
+    if (v.chargeToAssignmentId && v.resolution !== 'ACCEPT_LOSS') {
+      ctx.addIssue({ code: 'custom', path: ['chargeToAssignmentId'], message: 'Only a loss can be charged to a sub-contractor' });
     }
   });
 

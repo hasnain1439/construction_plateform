@@ -43,7 +43,7 @@ export async function resetDatabase(): Promise<Seeded> {
   }
   await owner.query(`TRUNCATE ${tables.join(', ')} CASCADE`);
   invalidateTenantStatus();
-  return seed(prismaAdmin, { inventory: false });
+  return seed(prismaAdmin, { inventory: false, labor: false });
 }
 
 /** Registers a fresh database for every test in the file. Returns a getter for the seed. */
