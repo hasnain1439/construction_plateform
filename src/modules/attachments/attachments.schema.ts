@@ -10,7 +10,10 @@ export const attachmentKindSchema = z
 export const storedKindSchema = z.enum(['LOGO', 'PROFILE_PHOTO', 'SITE_PHOTO', 'RECEIPT', 'DOCUMENT', 'VOICE_NOTE', 'PAYMENT_SLIP', 'CHALLAN', 'INVOICE_PDF', 'RECEIPT_PDF', 'STATEMENT_PDF', 'REPORT']);
 
 /** Multipart text fields (the file itself is the `file` part). */
-export const uploadAttachmentBody = z.object({ kind: attachmentKindSchema });
+export const uploadAttachmentBody = z.object({
+  kind: attachmentKindSchema,
+  clientId: z.uuid({ error: 'Invalid clientId' }).optional().meta({ description: 'Mobile app id for this file: retrying the same upload returns the same attachment (200)' }),
+});
 
 export const attachmentIdParams = z.object({ id: z.uuid({ error: 'Invalid attachment id' }) });
 

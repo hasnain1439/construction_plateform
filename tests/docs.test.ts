@@ -26,6 +26,8 @@ import * as lab from '../src/modules/labor/labor.schema.js';
 import * as cb from '../src/modules/cashbook/cashbook.schema.js';
 import * as bl from '../src/modules/billing/billing.schema.js';
 import * as ap from '../src/modules/approvals/approvals.schema.js';
+import * as dl from '../src/modules/dailylogs/dailylogs.schema.js';
+import * as sy from '../src/modules/sync/sync.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
@@ -141,6 +143,9 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/projects/{id}/payments': bl.paymentBody,
   'patch /api/v1/payments/{id}/cheque-status': bl.chequeStatusBody,
   'post /api/v1/approvals/bulk': ap.bulkBody,
+  'post /api/v1/projects/{id}/daily-logs': dl.dailyLogBody,
+  'patch /api/v1/daily-logs/{id}': dl.updateDailyLogBody,
+  'post /api/v1/sync/push': sy.pushBody,
 };
 
 type Spec = {
@@ -200,11 +205,13 @@ describe('API docs', () => {
       'Notifications',
       'Dashboard',
       'Finance',
+      'Daily Logs',
+      'Sync',
       'Reports',
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(209);
+    expect(Object.keys(res.body.paths)).toHaveLength(215);
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

@@ -17,6 +17,7 @@ import { assertAttachment, occurredAtFor } from '../inventory/stock.js';
 import * as alerts from '../notifications/alerts.js';
 import { createPurchaseTx } from '../procurement/purchases.service.js';
 import { actor, audit, laborSettings, projectFor, today, weekOf, type Actor, type Created } from '../labor/labor.shared.js';
+import { isLateSync } from '../sync/lateSync.js';
 import { accountOf, CATEGORY_BUCKET, lockAccount, postEntry, rupees, spend, totalsOf } from './cash.js';
 import type {
   ApproveTopupInput,
@@ -96,6 +97,7 @@ function entryDto(e: CashEntry & { project?: { id: string; code: string; name: s
     refType: e.refType,
     refId: e.refId,
     clientId: e.clientId,
+    lateSync: isLateSync(e.deviceCreatedAt, e.createdAt),
     occurredAt: e.occurredAt.toISOString(),
     createdById: e.createdById,
     createdAt: e.createdAt.toISOString(),

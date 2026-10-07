@@ -1,6 +1,8 @@
 import type { AttachmentKind } from '../../generated/prisma/enums.js';
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+/** Voice notes always, and photos from the mobile app (uploads with a clientId), are compressed on the phone. */
+export const MOBILE_MAX_BYTES = 2 * 1024 * 1024;
 
 const IMAGES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 const PDF = ['application/pdf'] as const;

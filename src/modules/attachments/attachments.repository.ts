@@ -13,9 +13,14 @@ export function createAttachment(
     mimeType: string;
     sizeBytes: number;
     uploadedById: string;
+    clientId?: string | null;
   },
 ) {
   return tx.attachment.create({ data });
+}
+
+export function findByClientId(tx: Db, tenantId: string, clientId: string) {
+  return tx.attachment.findUnique({ where: { tenantId_clientId: { tenantId, clientId } } });
 }
 
 /** RLS limits this to the current tenant: another company's id returns null. */

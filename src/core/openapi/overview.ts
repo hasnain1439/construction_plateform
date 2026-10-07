@@ -138,6 +138,8 @@ export const TAGS = [
   { name: 'Notifications', description: 'In-app notifications for the signed-in user (bell), with SMS for critical ones' },
   { name: 'Dashboard', description: 'Company overview (money keys only with billing.view) and the site dashboard (munshi landing page, no rates or values)' },
   { name: 'Finance', description: 'Receivables ageing, cash-flow outlook (estimate), profit & loss to date and cash with site staff' },
+  { name: 'Daily Logs', description: 'Site diary: one log per person per project per day (conditions, work done, photos, voice notes) with the day’s hazri, usage and kharcha' },
+  { name: 'Sync', description: 'Offline sync for the mobile app: pull the read model since a cursor, push queued mutations, device sync status' },
   { name: 'Reports', description: 'Seven reports as JSON for screens, or CSV / Excel / PDF via a signed link' },
   { name: 'Platform admin auth', description: 'Platform owners only — separate accounts and tokens' },
   { name: 'Platform admin', description: 'Platform console: dashboard, companies, payment review, plans, holidays, material catalog, audit log (platform token)' },

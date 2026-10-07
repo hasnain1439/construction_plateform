@@ -194,6 +194,28 @@ export function registerAuthDocs(): void {
   });
 
   registry.registerPath({
+    method: 'get',
+    path: '/api/v1/auth/mobile-config',
+    tags: Auth,
+    summary: 'Mobile app start-up config (public)',
+    description: 'Called by the app on every start: below `minimumAppVersion` it shows a "please update" screen. Also the API version, OTP length / resend wait, sync interval, upload limit and feature flags.',
+    responses: {
+      200: {
+        description: 'Config',
+        content: {
+          'application/json': {
+            schema: success(z.object({ minimumAppVersion: z.string(), latestAppVersion: z.string(), apiVersion: z.string(), otpLength: z.number(), otpResendSeconds: z.number(), syncIntervalMinutes: z.number(), maxUploadBytes: z.number(), features: z.record(z.string(), z.boolean()) })),
+            example: {
+              success: true,
+              data: { minimumAppVersion: '1.0.0', latestAppVersion: '1.0.0', apiVersion: 'v1', otpLength: 6, otpResendSeconds: 60, syncIntervalMinutes: 15, maxUploadBytes: 2097152, features: { offlineSync: true, dailyLogs: true, voiceNotes: true, sitePurchases: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  registry.registerPath({
     method: 'post',
     path: '/api/v1/auth/otp/request',
     tags: Auth,

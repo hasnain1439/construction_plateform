@@ -4,6 +4,7 @@ import { BadRequest, Conflict } from '../../core/errors/AppError.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
 import { Prisma } from '../../core/db/prisma.js';
 import { assignedWorkers } from './assignments.service.js';
+import { isLateSync } from '../sync/lateSync.js';
 import type { AttendanceInput, AttendanceQuery } from './labor.schema.js';
 import { actor, addDays, audit, laborSettings, num, projectFor, today, weekdayOf, weekOf, type Actor } from './labor.shared.js';
 
@@ -96,7 +97,7 @@ async function dayOf(tx: Tx, a: Actor, projectId: string, date: string) {
   const extraWorkers = extra.length ? await tx.worker.findMany({ where: { tenantId: a.tenantId, id: { in: extra.map((m) => m.workerId) } }, select: { id: true, name: true, type: true } }) : [];
   const rows = [...workers.map((w) => w.worker), ...extraWorkers].map((w) => {
     const m = byWorker.get(w.id);
-    return { worker: w, status: m?.status ?? null, overtimeHours: m ? num(m.overtimeHours)! : 0, note: m?.note ?? null };
+    return { worker: w, status: m?.status ?? null, overtimeHours: m ? num(m.overtimeHours)! : 0, note: m?.note ?? null, lateSync: m ? isLateSync(m.deviceCreatedAt, m.updatedAt) : false };
   });
   const count = (s: string | null) => rows.filter((r) => r.status === s).length;
   return {
@@ -152,8 +153,8 @@ export async function attendanceGrid(projectId: string, query: AttendanceQuery) 
 
     const workers = assigned.map((pw) => {
       const mine = marks.filter((m) => m.workerId === pw.workerId);
-      const days: Record<string, { status: string; overtimeHours: number; note: string | null }> = {};
-      for (const m of mine) days[formatDateOnly(m.date)] = { status: m.status, overtimeHours: num(m.overtimeHours)!, note: m.note };
+      const days: Record<string, { status: string; overtimeHours: number; note: string | null; lateSync: boolean }> = {};
+      for (const m of mine) days[formatDateOnly(m.date)] = { status: m.status, overtimeHours: num(m.overtimeHours)!, note: m.note, lateSync: isLateSync(m.deviceCreatedAt, m.updatedAt) };
       const full = mine.filter((m) => m.status === 'FULL').length;
       const half = mine.filter((m) => m.status === 'HALF').length;
       return {

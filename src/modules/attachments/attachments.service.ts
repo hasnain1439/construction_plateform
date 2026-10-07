@@ -9,7 +9,7 @@ import { uuidv7 } from '../../core/utils/uuid.js';
 import type { AttachmentKind } from '../../generated/prisma/enums.js';
 import * as repo from './attachments.repository.js';
 import type { AttachmentDto, FileQuery } from './attachments.schema.js';
-import { contentMatchesMime, EXTENSIONS, KIND_MIME_TYPES, safeFileName } from './fileTypes.js';
+import { contentMatchesMime, EXTENSIONS, KIND_MIME_TYPES, MOBILE_MAX_BYTES, safeFileName } from './fileTypes.js';
 import { storage, storageForKey, verifyFileSignature, type SignedUrlOptions } from './storage.provider.js';
 
 export interface UploadedFile {
@@ -54,8 +54,20 @@ async function toDto(row: {
   };
 }
 
-export async function upload(file: UploadedFile | undefined, kind: AttachmentKind): Promise<AttachmentDto> {
+/**
+ * Stores one file. With a `clientId` (mobile app) a retry returns the attachment already
+ * stored ({ created: false }); voice notes and mobile photos must be ≤ 2 MB.
+ */
+export async function upload(file: UploadedFile | undefined, kind: AttachmentKind, clientId?: string): Promise<{ created: boolean; data: AttachmentDto }> {
+  const ctx0 = getCtx();
+  if (clientId) {
+    const existing = await withTenant(ctx0.tenantId!, (tx) => repo.findByClientId(tx, ctx0.tenantId!, clientId));
+    if (existing) return { created: false, data: await toDto(existing) };
+  }
   if (!file) throw new BadRequest('FILE_REQUIRED', 'Attach a file in the "file" field');
+  if ((kind === 'VOICE_NOTE' || clientId) && file.size > MOBILE_MAX_BYTES) {
+    throw new BadRequest('FILE_TOO_LARGE', `${kind === 'VOICE_NOTE' ? 'Voice notes' : 'Photos from the app'} must be 2 MB or less`, { maxBytes: MOBILE_MAX_BYTES });
+  }
   const allowed = KIND_MIME_TYPES[kind];
   if (!allowed.includes(file.mimetype)) {
     throw new BadRequest('INVALID_FILE_TYPE', `${kind} accepts ${allowed.join(', ')}`, { allowed });
@@ -84,6 +96,7 @@ export async function upload(file: UploadedFile | undefined, kind: AttachmentKin
         mimeType: file.mimetype,
         sizeBytes: file.size,
         uploadedById: ctx.userId!,
+        clientId: clientId ?? null,
       });
       await writeAudit(tx, {
         tenantId,
@@ -96,10 +109,15 @@ export async function upload(file: UploadedFile | undefined, kind: AttachmentKin
       });
       return created;
     });
-    return toDto(row);
+    return { created: true, data: await toDto(row) };
   } catch (err) {
     // Don't leave orphaned bytes behind when the row couldn't be written.
     await storageForKey(storedKey).delete(storedKey).catch((cleanupErr: unknown) => logger.error({ err: cleanupErr }, 'orphan cleanup failed'));
+    // Two retries of the same upload racing: the other one won — return it.
+    if (clientId) {
+      const existing = await withTenant(tenantId, (tx) => repo.findByClientId(tx, tenantId, clientId));
+      if (existing) return { created: false, data: await toDto(existing) };
+    }
     throw err;
   }
 }
