@@ -127,7 +127,7 @@ describe('B2 — hazri', () => {
     expect(grid.status).toBe(200);
     expect(grid.body.data.dates).toHaveLength(7);
     const akram = grid.body.data.workers.find((w: { worker: { id: string } }) => w.worker.id === s.akram);
-    expect(akram.days[today()]).toEqual({ status: 'FULL', overtimeHours: 2, note: null });
+    expect(akram.days[today()]).toEqual({ status: 'FULL', overtimeHours: 2, note: null, lateSync: false });
     expect(akram.totals).toMatchObject({ full: 1, daysWorked: 1, overtimeHours: 2 });
     expect((await api().get(`/api/v1/projects/${s.dha}/attendance`).set(m).query({ from: '2026-01-01', to: '2026-06-01' })).body.error.code).toBe('RANGE_TOO_LONG');
   });

@@ -43,6 +43,9 @@ export const envSchema = z
   STORAGE_DIR: z.string().default('./storage'),
   /** Lifetime of signed attachment URLs. */
   SIGNED_URL_TTL_SECONDS: z.coerce.number().int().min(30).max(86_400).default(600),
+  /** Mobile app: older builds see a "please update" screen. */
+  MOBILE_MIN_APP_VERSION: z.string().regex(/^\d+\.\d+\.\d+$/).default('1.0.0'),
+  MOBILE_LATEST_APP_VERSION: z.string().regex(/^\d+\.\d+\.\d+$/).default('1.0.0'),
   SMS_PROVIDER: z.enum(['console']).default('console'),
   MAIL_PROVIDER: z.enum(['console']).default('console'),
   ENABLE_DOCS: booleanish.optional(),

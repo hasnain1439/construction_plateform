@@ -19,6 +19,9 @@ import type {
 } from './auth.schema.js';
 import * as auth from './auth.service.js';
 import { clearAuthCookies, deliverTokens, readRefreshToken } from './token.service.js';
+import { env } from '../../config/env.js';
+import { MOBILE_MAX_BYTES } from '../attachments/fileTypes.js';
+import { OTP_RESEND_SECONDS } from './otp.service.js';
 
 function authResponse(res: Response, client: 'web' | 'mobile', result: auth.AuthResult) {
   const { tokens, ...rest } = result;
@@ -123,4 +126,18 @@ export async function adminLogout(_req: Request, res: Response) {
 
 export async function adminMe(_req: Request, res: Response) {
   return ok(res, await admin.adminMe());
+}
+
+/** Public: what the mobile app checks on start (forced update, API version, OTP timing, features). */
+export async function mobileConfig(_req: Request, res: Response) {
+  return ok(res, {
+    minimumAppVersion: env.MOBILE_MIN_APP_VERSION,
+    latestAppVersion: env.MOBILE_LATEST_APP_VERSION,
+    apiVersion: 'v1',
+    otpLength: 6,
+    otpResendSeconds: OTP_RESEND_SECONDS,
+    syncIntervalMinutes: 15,
+    maxUploadBytes: MOBILE_MAX_BYTES,
+    features: { offlineSync: true, dailyLogs: true, voiceNotes: true, sitePurchases: true },
+  });
 }

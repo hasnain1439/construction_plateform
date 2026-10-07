@@ -26,6 +26,7 @@ export const authRouter = Router();
 
 authRouter.post('/signup', authRateLimit, validate({ body: signupBody }), h(c.signup));
 authRouter.post('/login', authRateLimit, validate({ body: loginBody }), h(c.login));
+authRouter.get('/mobile-config', h(c.mobileConfig));
 authRouter.post('/otp/request', authRateLimit, validate({ body: otpRequestBody }), h(c.requestOtp));
 authRouter.post('/otp/verify', authRateLimit, validate({ body: otpVerifyBody }), h(c.verifyOtp));
 authRouter.post('/refresh', validate({ body: refreshBody }), h(c.refresh));

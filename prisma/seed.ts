@@ -16,6 +16,7 @@ import { seedMalikMasterData } from './seedMasterData.js';
 import { seedMalikInventory } from './seedInventory.js';
 import { seedMalikBilling } from './seedBilling.js';
 import { seedMalikNotifications } from './seedNotifications.js';
+import { seedMalikDailyLogs } from './seedDailyLogs.js';
 import { seedMalikLabor } from './seedLabor.js';
 import { ensureProjectRow, seedAhmedProject, seedMalikClients, seedMalikProjects } from './seedProjects.js';
 
@@ -341,6 +342,7 @@ export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: b
   }
   if (opts.labor !== false) {
     await seedMalikLabor(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, asifId: asif.id, projects: malikProjects });
+    await seedMalikDailyLogs(db, { tenantId: malik.id, rafaqatId: rafaqatMalik.id, asifId: asif.id, projects: malikProjects });
   }
   if (opts.billing !== false) {
     const billing = await seedMalikBilling(db, { tenantId: malik.id, ownerId: khalid.id, projects: malikProjects });

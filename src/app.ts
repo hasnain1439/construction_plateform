@@ -37,6 +37,8 @@ import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
 import { invalidateOnWrite } from './modules/dashboard/dashboard.cache.js';
 import { financeRouter } from './modules/finance/finance.routes.js';
 import { reportsRouter } from './modules/reports/reports.routes.js';
+import { dailyLogsRouter, projectDailyLogsRouter } from './modules/dailylogs/dailylogs.routes.js';
+import { syncRouter } from './modules/sync/sync.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 import { floorsRouter, openingsRouter, projectsRouter, roomsRouter, supplyPresetsRouter } from './modules/projects/projects.routes.js';
 import { dispatchesRouter, projectDispatchRouter, shortagesRouter } from './modules/dispatch/dispatch.routes.js';
@@ -146,7 +148,8 @@ export function createApp(options: CreateAppOptions = {}): Express {
   api.use('/projects', projectDispatchRouter); // /projects/:id/incoming, /owner-deliveries (per-route auth)
   api.use('/projects', projectLaborRouter); // /projects/:id/labor/*, /attendance, /advances, /settlements, ... (per-route auth)
   api.use('/projects', projectCashbookRouter); // /projects/:id/cashbook (per-route auth)
-  api.use('/projects', projectBillingRouter); // /projects/:id/billing-stages, /invoices, /payments, /receivables, ... (per-route auth)
+  api.use('/projects', projectBillingRouter);
+  api.use('/projects', projectDailyLogsRouter); // /projects/:id/daily-logs (per-route auth) // /projects/:id/billing-stages, /invoices, /payments, /receivables, ... (per-route auth)
   api.use('/projects', projectsRouter);
   api.use('/billing-stages', billingStagesRouter);
   api.use('/billing-progress', billingProgressRouter);
@@ -159,6 +162,8 @@ export function createApp(options: CreateAppOptions = {}): Express {
   api.use('/dashboard', dashboardRouter);
   api.use('/finance', financeRouter);
   api.use('/reports', reportsRouter);
+  api.use('/daily-logs', dailyLogsRouter);
+  api.use('/sync', syncRouter);
   api.use('/project-workers', projectWorkersRouter);
   api.use('/subcontract-assignments', subcontractAssignmentsRouter);
   api.use('/work-measurements', workMeasurementsRouter);

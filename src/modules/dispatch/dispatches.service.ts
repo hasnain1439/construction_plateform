@@ -10,6 +10,7 @@ import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { formatDateOnly } from '../../core/utils/dates.js';
 import type { DispatchStatus, Prisma, StockLocation } from '../../generated/prisma/client.js';
 import { optionalSignedUrl } from '../attachments/attachments.service.js';
+import { lateSyncedIds } from '../sync/lateSync.js';
 import { smsProvider } from '../auth/sms.provider.js';
 import { pktDayEnd, pktDayStart, visibleLocations } from '../inventory/inventory.service.js';
 import {
@@ -105,6 +106,8 @@ async function toDispatchDto(tx: Tx, d: DispatchRow, a: Actor) {
     })),
     receivedBy: d.receivedBy,
     receivedAt: d.receivedAt?.toISOString() ?? null,
+    /** Received on a phone and synced more than 48 h later. */
+    lateSync: d.receivedAt ? (await lateSyncedIds(tx, a.tenantId, [d.id])).has(d.id) : false,
     receiveNote: d.receiveNote,
     cancelledAt: d.cancelledAt?.toISOString() ?? null,
     createdBy: d.createdBy,

@@ -38,6 +38,8 @@ export interface NotifyInput {
   actorId?: string | null;
   /** Backdated creation (seed). */
   at?: Date;
+  /** Dedupe window (default 24 h); a once-a-day job uses its own "already today" check and a shorter window. */
+  dedupeMs?: number;
 }
 
 /** Site notifications a MUNSHI may receive (nothing with company money in it). */
@@ -92,7 +94,7 @@ export async function notify(tx: Tx, input: NotifyInput): Promise<string[]> {
     input.type,
     input.ref.id,
     users.map((u) => u.id),
-    new Date(at.getTime() - DEDUPE_MS),
+    new Date(at.getTime() - (input.dedupeMs ?? DEDUPE_MS)),
   );
   const fresh = users.filter((u) => !seen.has(u.id));
   if (!fresh.length) return [];

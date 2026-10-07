@@ -3,6 +3,8 @@ import { env, isTest } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { trackJobRun } from './jobRuns.js';
 import { runBillingOverdueCheck } from './billingOverdue.js';
+import { runMissingLogCheck } from './missingLogs.js';
+import { runSyncRetention } from './syncRetention.js';
 import { runSubscriptionLifecycle } from './subscriptionLifecycle.js';
 
 /** Karachi is UTC+5 all year (no DST). */
@@ -72,6 +74,26 @@ export async function runBillingJob(): Promise<void> {
   }
 }
 
+/** Every 15 minutes: the missing daily-log check (each company at its own alert time). */
+export async function runMissingLogJob(): Promise<void> {
+  try {
+    const result = await runExclusive('missing-logs', () => runMissingLogCheck());
+    if (result?.sent.length) logger.info({ job: 'missing-logs', checked: result.checked, sent: result.sent.length }, 'missing daily-log alerts sent');
+  } catch (err) {
+    logger.error({ err, job: 'missing-logs' }, 'missing daily-log check failed');
+  }
+}
+
+/** Daily 03:00 PKT: drops sync change rows older than 30 days. */
+export async function runSyncRetentionJob(): Promise<void> {
+  try {
+    const result = await runExclusive('sync-retention', () => trackJobRun('sync-retention', () => runSyncRetention()));
+    if (result) logger.info({ job: 'sync-retention', deleted: result.deleted }, 'sync retention finished');
+  } catch (err) {
+    logger.error({ err, job: 'sync-retention' }, 'sync retention failed');
+  }
+}
+
 const timers: NodeJS.Timeout[] = [];
 
 /** On startup + daily at 02:00 Asia/Karachi. Disabled in tests. */
@@ -84,6 +106,11 @@ export function startScheduledJobs(): void {
     timers.push(setTimeout(() => void runBillingJob().finally(scheduleBilling), wait).unref());
   };
   scheduleBilling();
+  timers.push(setInterval(() => void runMissingLogJob(), 15 * 60_000).unref());
+  const scheduleRetention = () => {
+    timers.push(setTimeout(() => void runSyncRetentionJob().finally(scheduleRetention), msUntilNextPkt(3)).unref());
+  };
+  scheduleRetention();
   const scheduleNext = () => {
     const wait = msUntilNextPkt(2);
     timers.push(

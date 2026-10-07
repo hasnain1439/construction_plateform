@@ -66,18 +66,23 @@ export async function listWorkers(query: ListWorkersQuery) {
   });
 }
 
-export async function createWorker(input: CreateWorkerInput) {
-  const { tenantId, userId } = current();
-  return withTenant(tenantId, async (tx) => {
-    const dailyRatePaisa = input.dailyRatePaisa ?? (await defaultDailyRate(tx, input.type));
-    if (dailyRatePaisa === null) throw new BadRequest('DAILY_RATE_REQUIRED', 'Enter a daily rate — there is no labour rate for this worker type');
-    const worker = await tx.worker.create({
-      data: { tenantId, name: input.name, type: input.type, phone: input.phone ?? null, dailyRatePaisa, notes: input.notes ?? null, createdById: userId },
-    });
-    await audit(tx, 'worker.create', 'Worker', worker.id, { name: worker.name, type: worker.type, dailyRatePaisa: worker.dailyRatePaisa.toString() });
-    return toWorkerDto(worker);
-  }).catch(phoneTaken);
+/** Inside a caller's transaction (also used by /sync/push). A taken phone surfaces as a unique violation. */
+export async function createWorkerTx(tx: Tx, a: { tenantId: string; userId: string }, input: CreateWorkerInput) {
+  const dailyRatePaisa = input.dailyRatePaisa ?? (await defaultDailyRate(tx, input.type));
+  if (dailyRatePaisa === null) throw new BadRequest('DAILY_RATE_REQUIRED', 'Enter a daily rate — there is no labour rate for this worker type');
+  const worker = await tx.worker.create({
+    data: { tenantId: a.tenantId, name: input.name, type: input.type, phone: input.phone ?? null, dailyRatePaisa, notes: input.notes ?? null, createdById: a.userId },
+  });
+  await audit(tx, 'worker.create', 'Worker', worker.id, { name: worker.name, type: worker.type, dailyRatePaisa: worker.dailyRatePaisa.toString() });
+  return toWorkerDto(worker);
 }
+
+export async function createWorker(input: CreateWorkerInput) {
+  const a = current();
+  return withTenant(a.tenantId, (tx) => createWorkerTx(tx, a, input)).catch(phoneTaken);
+}
+
+export { phoneTaken as workerPhoneTaken };
 
 export async function updateWorker(id: string, input: UpdateWorkerInput) {
   return withTenant(current().tenantId, async (tx) => {

@@ -168,6 +168,12 @@ function resolveDevice(device: DeviceInput | undefined): DeviceInput {
 async function openSession(tx: Tx, user: SessionTarget, deviceInput: DeviceInput | undefined, now: Date) {
   const ctx = getCtx();
   const device = resolveDevice(deviceInput);
+  // A phone the office signed out (lost / stolen) can't sign itself back in; a fresh install
+  // registers as a new device. Browsers keep the old behaviour (a new login re-enables them).
+  if (device.platform !== 'WEB') {
+    const known = await tx.device.findUnique({ where: { userId_clientDeviceId: { userId: user.id, clientDeviceId: device.deviceId } }, select: { revokedAt: true } });
+    if (known?.revokedAt) throw new Unauthorized('DEVICE_REVOKED', 'This phone was signed out by the office. Ask them, or reinstall the app to register it again.');
+  }
   const deviceRow = await repo.upsertDevice(
     tx,
     {

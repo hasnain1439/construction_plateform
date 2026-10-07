@@ -5,8 +5,9 @@ import type { AttachmentKindInput, FileQuery } from './attachments.schema.js';
 import * as service from './attachments.service.js';
 
 export async function upload(req: Request, res: Response) {
-  const { kind } = req.body as { kind: AttachmentKindInput };
-  return created(res, await service.upload(req.file, kind));
+  const { kind, clientId } = req.body as { kind: AttachmentKindInput; clientId?: string };
+  const result = await service.upload(req.file, kind, clientId);
+  return result.created ? created(res, result.data) : ok(res, result.data);
 }
 
 export async function getMetadata(req: Request, res: Response) {

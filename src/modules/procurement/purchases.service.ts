@@ -41,6 +41,7 @@ import { findProjectFor, projectScope } from '../projects/access.js';
 import type { CorrectionInput, CreatePurchaseInput, ListPurchasesQuery, ListReturnsQuery, PurchaseReturnInput, ReceivePurchaseInput, SetRatesInput } from './procurement.schema.js';
 import { activeSupplier, deliveryLocation, refreshOrderStatus } from './purchaseOrders.service.js';
 import { PAID_FROM_METHOD, postCashPurchaseFromSiteCash, postLedger, recordPaymentTx } from './supplierLedger.service.js';
+import { lateSyncedIds } from '../sync/lateSync.js';
 
 const purchaseNotFound = () => new NotFound('PURCHASE_NOT_FOUND', 'Purchase not found');
 const RECEIVED_STATUSES: PurchaseStatus[] = ['SAVED', 'RECEIVED', 'RECEIVED_WITH_SHORTAGE'];
@@ -154,6 +155,7 @@ async function toPurchaseDto(tx: Tx, p: PurchaseRow, a: Actor) {
           payments: p.payments.map((x) => ({ ...x, amountPaisa: x.amountPaisa.toString(), paidOn: formatDateOnly(x.paidOn) })),
         }
       : {}),
+    lateSync: (await lateSyncedIds(tx, a.tenantId, [p.id])).has(p.id),
     challan: { id: p.challan.id, fileName: p.challan.fileName, url: await optionalSignedUrl(p.challan) },
     bill: p.bill ? { id: p.bill.id, fileName: p.bill.fileName, url: await optionalSignedUrl(p.bill) } : null,
     corrections: p.corrections.map((c) => ({
@@ -490,6 +492,7 @@ export async function listPurchases(query: ListPurchasesQuery) {
       ...skipTake(query),
     });
     const total = await tx.purchase.count({ where });
+    const late = await lateSyncedIds(tx, a.tenantId, rows.map((p) => p.id));
     const sums = a.seesRates ? await tx.purchase.aggregate({ where, _sum: { totalPaisa: true, paidNowPaisa: true } }) : null;
     return {
       data: rows.map((p) => ({
@@ -505,6 +508,7 @@ export async function listPurchases(query: ListPurchasesQuery) {
         status: p.status,
         materials: p.items.map((i) => i.material.name),
         openShortages: p._count.shortages,
+        lateSync: late.has(p.id),
         ...(a.seesRates ? { totalPaisa: p.totalPaisa.toString(), paidNowPaisa: p.paidNowPaisa.toString() } : {}),
         createdAt: p.createdAt.toISOString(),
       })),
