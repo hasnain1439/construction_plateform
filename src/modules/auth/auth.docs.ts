@@ -227,8 +227,8 @@ export function registerAuthDocs(): void {
         description: 'Code sent',
         content: {
           'application/json': {
-            schema: success(z.object({ sent: z.literal(true), expiresIn: z.number(), resendAfter: z.number() })),
-            example: { success: true, data: { sent: true, expiresIn: 300, resendAfter: 60 } },
+            schema: success(z.object({ sent: z.literal(true), expiresIn: z.number(), resendAfter: z.number(), emailed: z.boolean().meta({ description: 'The code was also emailed to the account email' }) })),
+            example: { success: true, data: { sent: true, expiresIn: 300, resendAfter: 60, emailed: false } },
           },
         },
       },

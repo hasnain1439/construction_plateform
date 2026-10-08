@@ -1,5 +1,4 @@
-import { env, isProduction } from '../../config/env.js';
-import { logger } from '../../config/logger.js';
+import { isProduction } from '../../config/env.js';
 import { writeAudit } from '../../core/audit/audit.js';
 import { getCtx } from '../../core/context/requestContext.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
@@ -7,16 +6,14 @@ import { BadRequest, Conflict, NotFound, TooManyRequests } from '../../core/erro
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { assertWithinLimit, lockPlanUsage } from '../../core/plan/planLimits.js';
 import { hashSecret, randomToken } from '../../core/utils/crypto.js';
-import { maskPhone } from '../../core/utils/phone.js';
 import type { UserRole } from '../../generated/prisma/enums.js';
-import { smsProvider } from '../auth/sms.provider.js';
+import { deliverInvite, inviteUrl } from '../auth/inviteMessages.js';
 import * as repo from './team.repository.js';
 import type { CreateInvitationInput, InvitationDto, InvitationSentDto, ListInvitationsQuery } from './team.schema.js';
 
 export const INVITE_TTL_DAYS = 7;
 export const INVITE_RESEND_SECONDS = 60;
 
-const ROLE_LABEL: Record<UserRole, string> = { THEKEDAR: 'Thekedar', PM: 'Project Manager', MUNSHI: 'Munshi' };
 
 function current() {
   const ctx = getCtx();
@@ -30,21 +27,14 @@ function newToken() {
   return { token, tokenHash: hashSecret(token), expiresAt: new Date(Date.now() + INVITE_TTL_DAYS * 86_400_000) };
 }
 
-function inviteUrl(token: string): string {
-  return `${env.APP_URL.replace(/\/+$/, '')}/invite/${token}`;
-}
-
-/** Roman Urdu SMS with the one-time link. The token is never logged or stored in plain text. */
-async function sendInviteSms(phone: string, companyName: string, role: UserRole, token: string): Promise<void> {
-  try {
-    await smsProvider().send({
-      to: phone,
-      body: `${companyName} ne aap ko ${ROLE_LABEL[role]} ke taur par invite kiya hai: ${inviteUrl(token)}`,
-    });
-  } catch (err) {
-    // The invitation stays valid; the THEKEDAR can resend.
-    logger.error({ err, phone: maskPhone(phone) }, 'invitation sms failed');
-  }
+/** The one-time link by SMS, and by email when the invite has one. The token is never logged or stored in plain text. */
+async function sendInvite(
+  invitation: { phone: string; email: string | null; name: string; role: UserRole },
+  companyName: string,
+  token: string,
+): Promise<void> {
+  // Best effort: the invitation stays valid; the THEKEDAR can resend.
+  await deliverInvite({ ...invitation, companyName, token });
 }
 
 function sentDto(row: { id: string; status: InvitationSentDto['status']; expiresAt: Date }, token: string): InvitationSentDto {
@@ -145,7 +135,7 @@ export async function createInvitation(input: CreateInvitationInput): Promise<In
     return { invitation: created, companyName: tenant?.name ?? 'Your company' };
   });
 
-  await sendInviteSms(invitation.phone, companyName, invitation.role, token);
+  await sendInvite(invitation, companyName, token);
   return sentDto(invitation, token);
 }
 
@@ -194,7 +184,7 @@ export async function resendInvitation(id: string): Promise<InvitationSentDto> {
     return { invitation: updated, companyName: tenant?.name ?? 'Your company' };
   });
 
-  await sendInviteSms(invitation.phone, companyName, invitation.role, token);
+  await sendInvite(invitation, companyName, token);
   return sentDto(invitation, token);
 }
 

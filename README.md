@@ -105,6 +105,19 @@ Passwords: bcrypt cost 12, at least 8 characters with a letter and a number. Cha
 
 Codes never go to the structured (pino) log. Password-reset emails are printed the same way. To add a real gateway, implement `SmsProvider` / `MailProvider` in `src/modules/auth/sms.provider.ts` / `mail.provider.ts`.
 
+### Email (invites and login codes)
+
+Everything that goes by SMS also goes by email when the person has an email address:
+
+- **New company** (platform console): the owner gets the invite link by SMS and email (owner email, or the company email).
+- **Team invite** (PM / Munshi): the invite link by SMS and email (when the invite has an email). Resend does the same.
+- **Login code** (`POST /auth/otp/request`): the code by SMS and to every email on that phone; the response says `emailed: true`.
+- **Password reset**: as before.
+
+Mail is best effort: a failed email never fails the request (the link can be resent). `MAIL_PROVIDER=console` prints mail to the terminal; for real email set `MAIL_PROVIDER=smtp` and `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` (see `.env.example`; Gmail works with an App Password).
+
+A Munshi signs in on the mobile app with **phone + code** or **phone + password**. The password is chosen when accepting the invite (optional for a Munshi) or set later by the Thekedar (`PUT /users/:id/password`).
+
 ### Seed accounts (`npm run db:seed`)
 
 | Who | Login | Password |

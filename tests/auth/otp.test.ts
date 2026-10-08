@@ -14,7 +14,7 @@ describe('OTP login', () => {
   it('request → verify signs in (single company)', async () => {
     const req = await request('0300-1234567');
     expect(req.status).toBe(200);
-    expect(req.body.data).toEqual({ sent: true, expiresIn: 300, resendAfter: 60 });
+    expect(req.body.data).toEqual({ sent: true, expiresIn: 300, resendAfter: 60, emailed: true });
 
     const res = await verify(KHALID, lastOtp(KHALID));
     expect(res.status).toBe(200);

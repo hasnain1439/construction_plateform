@@ -43,7 +43,7 @@ import type {
   UserDto,
 } from './auth.schema.js';
 import * as alerts from '../notifications/alerts.js';
-import { mailProvider } from './mail.provider.js';
+import { mailProvider, trySendMail } from './mail.provider.js';
 import { checkOtp, consumeCheckedOtp, issueOtp, OTP_RESEND_SECONDS, otpMatches } from './otp.service.js';
 import {
   accessTokenTtlSeconds,
@@ -380,8 +380,20 @@ export async function login(input: LoginInput): Promise<AuthResult> {
 export async function requestLoginOtp(input: OtpRequestInput) {
   const users = await repo.findActiveUsersByPhone(prismaAdmin, input.phone);
   if (!users.length) throw new NotFound('PHONE_NOT_REGISTERED', 'No account uses this phone number.');
-  const { expiresIn } = await issueOtp(input.phone, input.purpose);
-  return { sent: true as const, expiresIn, resendAfter: OTP_RESEND_SECONDS };
+  const { code, expiresIn } = await issueOtp(input.phone, input.purpose);
+  // Same code by email to every address on this phone, so sign-in works when SMS is slow or missing.
+  const emails = [...new Set(users.map((u) => u.email).filter((e): e is string => Boolean(e)))];
+  const minutes = Math.max(1, Math.round(expiresIn / 60));
+  await Promise.all(
+    emails.map((to) =>
+      trySendMail({
+        to,
+        subject: 'Your login code',
+        text: `Your login code is ${code}. It expires in ${minutes} minutes.\nDo not share it with anyone. If you did not try to sign in, ignore this email.`,
+      }),
+    ),
+  );
+  return { sent: true as const, expiresIn, resendAfter: OTP_RESEND_SECONDS, emailed: emails.length > 0 };
 }
 
 export async function verifyLoginOtp(input: OtpVerifyInput): Promise<AuthResult> {

@@ -1,4 +1,4 @@
-import { env, isProduction } from '../../config/env.js';
+import { isProduction } from '../../config/env.js';
 import { Prisma, prismaAdmin } from '../../core/db/prisma.js';
 import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
@@ -8,7 +8,7 @@ import { hashSecret, randomToken } from '../../core/utils/crypto.js';
 import { dateOnly, formatDateOnly, todayIn } from '../../core/utils/dates.js';
 import { slugify } from '../../core/utils/slug.js';
 import type { Plan, TenantStatus } from '../../generated/prisma/client.js';
-import { smsProvider } from '../auth/sms.provider.js';
+import { deliverInvite, inviteUrl } from '../auth/inviteMessages.js';
 import { provisionMasterData } from '../master-data/provision.js';
 import { assertPlanFits, parkProjectsOverLimit } from '../subscription/subscription.rules.js';
 import { syncTenantStatus, tenantStatusFor } from '../subscription/subscription.status.js';
@@ -198,10 +198,6 @@ async function uniqueSlug(tx: Tx, name: string): Promise<string> {
   return `${base}-${randomToken(4).toLowerCase()}`;
 }
 
-function inviteUrl(token: string): string {
-  return `${env.APP_URL.replace(/\/+$/, '')}/invite/${token}`;
-}
-
 /**
  * Creates a company, its settings, subscription (TRIAL, or PAID with an approved payment
  * and receipt) and a THEKEDAR invitation for the owner — all in one transaction. The
@@ -324,9 +320,16 @@ export async function createTenant(input: CreateTenantInput) {
   }
 
   const { tenant, plan, invitation, receiptNo } = created;
-  await smsProvider()
-    .send({ to: owner.phone, body: `${tenant.name} ka account tayyar hai. Thekedar login banane ke liye: ${inviteUrl(token)}` })
-    .catch(() => undefined);
+  // The owner gets the link by SMS and, when an email is known, by email too.
+  await deliverInvite({
+    phone: owner.phone,
+    email: owner.email ?? company.email ?? null,
+    name: owner.name,
+    companyName: tenant.name,
+    role: 'THEKEDAR',
+    token,
+    newCompany: true,
+  });
 
   return {
     tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug, status: tenant.status },
