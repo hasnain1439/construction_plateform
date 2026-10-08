@@ -41,6 +41,8 @@ export function userWhere(filters: {
       ],
     });
   }
+  // The hidden "Super Admin (Platform)" user is never part of the team.
+  and.push({ isSystem: false });
   if (filters.role) and.push({ role: filters.role });
   if (filters.status) and.push({ status: filters.status });
   if (filters.projectId) and.push({ OR: [{ role: 'THEKEDAR' }, { projectAccess: { some: { projectId: filters.projectId } } }] });

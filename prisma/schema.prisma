@@ -446,6 +446,8 @@ model User {
   language             Language              @default(ROMAN_URDU)
   photoAttachmentId    String?               @db.Uuid
   canSeeFinancials     Boolean               @default(false)
+  /// Hidden per-company "Super Admin (Platform)" user that records what the platform super admin does inside the company. Never signs in (INACTIVE), never listed or counted.
+  isSystem             Boolean               @default(false)
   failedLoginCount     Int                   @default(0)
   lockedUntil          DateTime?             @db.Timestamptz(3)
   passwordChangedAt    DateTime?             @db.Timestamptz(3)

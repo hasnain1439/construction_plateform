@@ -594,7 +594,9 @@ export async function getMe(): Promise<MeDto> {
   const ctx = getCtx();
   return withTenant(ctx.tenantId!, async (tx) => {
     const { user, dto } = await loadProfileDtos(tx, ctx.userId!, ctx.tenantId!);
-    if (user.status !== 'ACTIVE') throw new Unauthorized('TOKEN_INVALID', 'Account is disabled');
+    // The company's system user is INACTIVE on purpose (it never signs in); a platform super
+    // admin acting in the company works through it.
+    if (user.status !== 'ACTIVE' && !(ctx.platformAdminId && user.isSystem)) throw new Unauthorized('TOKEN_INVALID', 'Account is disabled');
     const assigned = user.role === 'THEKEDAR' ? [] : await repo.assignedProjectIds(tx, user.id);
     return { ...dto, permissions: permissionsFor(user), assignedProjectIds: assigned };
   });

@@ -16,6 +16,7 @@ import {
   setUserProjectsBody,
   updateUserBody,
   userIdParams,
+  setUserPasswordBody,
 } from './team.schema.js';
 
 // Chains are attached per route (not router.use) because /invitations is shared with the
@@ -31,6 +32,9 @@ usersRouter.get('/:id', ...thekedar, validate({ params: userIdParams }), h(c.get
 usersRouter.patch('/:id', ...thekedar, validate({ params: userIdParams, body: updateUserBody }), h(c.updateUser));
 usersRouter.delete('/:id', ...thekedar, validate({ params: userIdParams }), h(c.deactivateUser));
 usersRouter.post('/:id/reactivate', ...thekedar, validate({ params: userIdParams }), h(c.reactivateUser));
+// Munshi sign-in without SMS: a code the owner passes on, or a password the owner sets.
+usersRouter.post('/:id/login-code', ...thekedar, validate({ params: userIdParams }), h(c.issueLoginCode));
+usersRouter.put('/:id/password', ...thekedar, validate({ params: userIdParams, body: setUserPasswordBody }), h(c.setUserPassword));
 usersRouter.put('/:id/projects', ...thekedar, validate({ params: userIdParams, body: setUserProjectsBody }), h(c.setUserProjects));
 
 /** Mounted at /api/v1/invitations (after the auth router's public accept route) */

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { paginationQuery } from '../../core/http/pagination.js';
-import { emailSchema, languageSchema, phoneSchema, roleSchema } from '../auth/auth.schema.js';
+import { emailSchema, languageSchema, passwordSchema, phoneSchema, roleSchema } from '../auth/auth.schema.js';
 
 const uuid = (label: string) => z.uuid({ error: `Invalid ${label}` });
 /** Roles a THEKEDAR can give through the team screens (owners are created at signup). */
@@ -153,3 +153,7 @@ export type InvitationDto = z.infer<typeof invitationDto>;
 export type InvitationSentDto = z.infer<typeof invitationSentDto>;
 export type ListDevicesQuery = z.infer<typeof listDevicesQuery>;
 export type DeviceDto = z.infer<typeof deviceDto>;
+
+/** The owner sets a munshi's password (so the munshi can sign in without a code). */
+export const setUserPasswordBody = z.object({ password: passwordSchema }).meta({ example: { password: 'Naveed#2026' } });
+export type SetUserPasswordInput = z.infer<typeof setUserPasswordBody>;

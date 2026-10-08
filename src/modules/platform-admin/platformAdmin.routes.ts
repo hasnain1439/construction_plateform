@@ -45,6 +45,10 @@ platformAdminRouter.get('/health', h(c.getHealth));
 platformAdminRouter.get('/tenants', validate({ query: tenantsQuery }), h(c.listTenants));
 platformAdminRouter.post('/tenants', validate({ body: createTenantBody }), h(c.createTenant));
 platformAdminRouter.get('/tenants/:id', validate({ params: idParams }), h(c.getTenant));
+// Read-only look into one company's data (each look is audited).
+platformAdminRouter.get('/tenants/:id/projects', validate({ params: idParams }), h(c.getCompanyProjects));
+platformAdminRouter.get('/tenants/:id/team', validate({ params: idParams }), h(c.getCompanyTeam));
+platformAdminRouter.get('/tenants/:id/activity', validate({ params: idParams }), h(c.getCompanyActivity));
 platformAdminRouter.patch('/tenants/:id/status', validate({ params: idParams, body: tenantStatusBody }), h(c.changeTenantStatus));
 platformAdminRouter.patch('/tenants/:id/plan', validate({ params: idParams, body: tenantPlanBody }), h(c.changeTenantPlan));
 

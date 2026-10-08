@@ -5,6 +5,7 @@ import {
   deviceDto,
   invitationDto,
   invitationSentDto,
+  setUserPasswordBody,
   setUserProjectsBody,
   teamUserDto,
   updateUserBody,
@@ -145,6 +146,42 @@ export function registerTeamDocs(): void {
     responses: {
       200: { description: 'Active again', content: { 'application/json': { schema: success(userDetailDto) } } },
       ...errors({ ...OWNER, 402: ['PLAN_LIMIT_REACHED'], 404: ['USER_NOT_FOUND'], 409: ['USER_ALREADY_ACTIVE'] }),
+    },
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/users/{id}/login-code',
+    tags,
+    summary: "A munshi's sign-in code (when SMS doesn't arrive)",
+    description:
+      'THEKEDAR only, for an active MUNSHI. Issues the same one-time LOGIN code the munshi app asks for (10 minutes, one use) and returns it, so the owner can pass it on by voice or WhatsApp. The code is never stored or logged. Same resend wait / hourly limit as SMS codes.',
+    security: companySecurity,
+    request: { params: idParam('User') },
+    responses: {
+      200: {
+        description: 'Code issued',
+        content: {
+          'application/json': {
+            schema: success(z.object({ phone: z.string(), code: z.string().meta({ example: '482913' }), expiresIn: z.number().meta({ example: 600 }) })),
+          },
+        },
+      },
+      ...errors({ ...OWNER, 400: ['LOGIN_CODE_MUNSHI_ONLY'], 404: ['USER_NOT_FOUND'], 409: ['USER_INACTIVE'], 429: ['OTP_RESEND_WAIT', 'OTP_LIMIT_REACHED'] }),
+    },
+  });
+
+  registry.registerPath({
+    method: 'put',
+    path: '/api/v1/users/{id}/password',
+    tags,
+    summary: "Set a munshi's password",
+    description: 'THEKEDAR only, for a MUNSHI. The munshi can then sign in with phone + password (no code needed). Clears a lockout.',
+    security: companySecurity,
+    request: { params: idParam('User'), body: jsonBody(setUserPasswordBody, { munshi: ex('Set a password', { password: 'Naveed#2026' }) }) },
+    responses: {
+      200: { description: 'Password set', content: { 'application/json': { schema: success(z.object({ passwordSet: z.literal(true) })) } } },
+      ...errors({ ...OWNER, 400: ['VALIDATION_ERROR', 'PASSWORD_MUNSHI_ONLY'], 404: ['USER_NOT_FOUND'] }),
     },
   });
 

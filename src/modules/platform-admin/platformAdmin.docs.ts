@@ -119,6 +119,25 @@ export function registerPlatformAdminDocs(): void {
     request: { params: idParam('Company') },
     responses: { ...ok('Company'), ...errors({ ...AUTH, 404: ['TENANT_NOT_FOUND'] }) },
   });
+  const LOOK = 'Read-only. Each look is written to the company audit log (`admin.company_data_viewed`, at most once per admin and section every 10 minutes).';
+  path('get', '/api/v1/admin/tenants/{id}/projects', {
+    summary: "Company's projects",
+    description: `Every project with client, status, dates, contract value, billed / received / outstanding (issued invoices, cleared payments), team members, active workers and the last daily log. ${LOOK}`,
+    request: { params: idParam('Company') },
+    responses: { ...ok('Company projects'), ...errors({ ...AUTH, 404: ['TENANT_NOT_FOUND'] }) },
+  });
+  path('get', '/api/v1/admin/tenants/{id}/team', {
+    summary: "Company's team and phones",
+    description: `Users (role, contact, status, projects, last login), devices (platform, last sync, entries waiting on the phone, revoked) and pending invitations. ${LOOK}`,
+    request: { params: idParam('Company') },
+    responses: { ...ok('Company team'), ...errors({ ...AUTH, 404: ['TENANT_NOT_FOUND'] }) },
+  });
+  path('get', '/api/v1/admin/tenants/{id}/activity', {
+    summary: "Company's activity and money",
+    description: `Projects by status, active workers, last activity / login, the last 30 days (hazri, purchases, dispatches, kharcha, usage, daily logs, invoices, payments) and money now (billed, received, receivables, supplier udhaar, cash with site staff). ${LOOK}`,
+    request: { params: idParam('Company') },
+    responses: { ...ok('Company activity'), ...errors({ ...AUTH, 404: ['TENANT_NOT_FOUND'] }) },
+  });
   path('patch', '/api/v1/admin/tenants/{id}/status', {
     summary: 'Extend trial, set read-only, reactivate, suspend or close',
     description:

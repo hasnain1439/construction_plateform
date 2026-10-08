@@ -58,11 +58,18 @@ async function sessionState(tx: Tx, sessionId: string): Promise<SessionState | n
  */
 export const tenantContext: RequestHandler = async (_req, _res, next) => {
   const ctx = getCtx();
-  if (ctx.actorType !== 'USER' || !ctx.tenantId || !ctx.sessionId) {
+  if (ctx.actorType !== 'USER' || !ctx.tenantId || (!ctx.sessionId && !ctx.platformAdminId)) {
     throw new Unauthorized('UNAUTHENTICATED', 'Company login required');
   }
   const tenantId = ctx.tenantId;
-  const sessionId = ctx.sessionId;
+  // Platform super admin acting in the company: the admin session was checked in authenticate;
+  // they may also open suspended / closed / read-only companies.
+  if (ctx.platformAdminId) {
+    ctx.readOnly = false;
+    next();
+    return;
+  }
+  const sessionId = ctx.sessionId!;
 
   const { status, session } = await withTenant(tenantId, async (tx) => ({
     session: await sessionState(tx, sessionId),

@@ -57,7 +57,7 @@ export async function listTenants(query: TenantsQuery) {
     where,
     include: {
       subscription: { include: { plan: true } },
-      users: { where: { role: 'THEKEDAR' }, orderBy: [{ status: 'asc' }, { createdAt: 'asc' }], take: 1, select: { name: true, phone: true } },
+      users: { where: { role: 'THEKEDAR', isSystem: false }, orderBy: [{ status: 'asc' }, { createdAt: 'asc' }], take: 1, select: { name: true, phone: true } },
     },
     orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     skip,
@@ -107,7 +107,7 @@ export async function getTenant(id: string) {
     include: {
       settings: true,
       subscription: { include: { plan: true, pendingPlan: true } },
-      users: { where: { role: 'THEKEDAR' }, orderBy: [{ status: 'asc' }, { createdAt: 'asc' }], take: 1, select: { id: true, name: true, phone: true, email: true, status: true, lastLoginAt: true } },
+      users: { where: { role: 'THEKEDAR', isSystem: false }, orderBy: [{ status: 'asc' }, { createdAt: 'asc' }], take: 1, select: { id: true, name: true, phone: true, email: true, status: true, lastLoginAt: true } },
     },
   });
   if (!t) throw notFound();

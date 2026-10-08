@@ -295,6 +295,16 @@ Every transition is a conditional update + `SYSTEM` audit row, so running it twi
 | `GET/POST /admin/plans`, `PATCH /admin/plans/:id` | All plans with company counts; code unique + immutable; price changes apply to future payments; the last active paid plan can't be deactivated (`409 LAST_ACTIVE_PLAN`) |
 | `GET/POST /admin/holidays`, `PATCH/DELETE /admin/holidays/:id` | Platform holidays: date range, `NON_WORKING` / `PARTIAL`, nationwide or one region; merged into every company calendar |
 | `GET /admin/audit-logs` | Filters `tenantId`, `actorType`, `action` (prefix), `from` / `to`; newest first; secret-looking fields always `[REDACTED]` |
+| `GET /admin/tenants/:id/projects` · `/team` · `/activity` | Read-only look into one company: projects with client and money; users and phones; activity of the last 30 days and money now. Each look is audited (`admin.company_data_viewed`, once per admin and section every 10 minutes) |
+
+### Working inside a company (Company data)
+
+The super admin can view, add, edit and delete anything in any company — through the **company's own API**, so every rule, calculation and delete check is the same as for the owner. The admin console sends the admin's own token plus `X-Act-As-Tenant: <companyId>` to the normal company routes (`src/modules/auth/actAs.ts`, `authenticate`):
+
+- The admin token must be a live platform session (logout ends it at once); a company token with the header is refused (401). Unknown company → 404, a malformed id → 400.
+- The request runs as the company's hidden **"Super Admin (Platform)"** user (`User.isSystem`, role THEKEDAR, every permission), created the first time. It is `INACTIVE` so it can never sign in, and it is kept out of the team list, plan seat counts, owner SMS and notifications.
+- `writeAudit` records such changes with `actorType PLATFORM_ADMIN`, `actorId` = the real admin and `details.actingAsCompany = true`.
+- Suspended, closed and read-only companies stay open to the admin.
 
 ### Payment approval flow
 

@@ -9,6 +9,7 @@ import type {
   ListUsersQuery,
   SetUserProjectsInput,
   UpdateUserInput,
+  SetUserPasswordInput,
 } from './team.schema.js';
 import * as users from './users.service.js';
 
@@ -35,6 +36,14 @@ export async function deactivateUser(req: Request, res: Response) {
 
 export async function reactivateUser(req: Request, res: Response) {
   return ok(res, await users.reactivateUser(id(req)));
+}
+
+export async function issueLoginCode(req: Request, res: Response) {
+  return ok(res, await users.issueLoginCode(id(req)));
+}
+
+export async function setUserPassword(req: Request, res: Response) {
+  return ok(res, await users.setUserPassword(id(req), (req.body as SetUserPasswordInput).password));
 }
 
 export async function setUserProjects(req: Request, res: Response) {

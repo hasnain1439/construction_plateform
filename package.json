@@ -20,7 +20,8 @@
     "jobs:subscriptions": "tsx src/jobs/cli/subscriptions.ts",
     "backfill:master-data": "tsx scripts/backfill-master-data.ts",
     "db:seed:notifications": "tsx scripts/seed-notifications.ts",
-    "dev:otp": "tsx scripts/dev-otp.ts"
+    "dev:otp": "tsx scripts/dev-otp.ts",
+    "admin:create": "tsx scripts/create-admin.ts"
   },
   "keywords": [],
   "author": "",
