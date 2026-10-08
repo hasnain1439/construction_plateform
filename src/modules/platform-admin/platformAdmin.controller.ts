@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { created, ok } from '../../core/http/response.js';
 import * as catalog from './catalog.service.js';
+import * as companyData from './companyData.service.js';
 import * as materials from './materials.service.js';
 import * as overview from './overview.service.js';
 import * as payments from './payments.service.js';
@@ -35,6 +36,9 @@ export async function listTenants(req: Request, res: Response) {
   return ok(res, data, meta);
 }
 export const getTenant = async (req: Request, res: Response) => ok(res, await tenants.getTenant(id(req)));
+export const getCompanyProjects = async (req: Request, res: Response) => ok(res, await companyData.companyProjects(id(req)));
+export const getCompanyTeam = async (req: Request, res: Response) => ok(res, await companyData.companyTeam(id(req)));
+export const getCompanyActivity = async (req: Request, res: Response) => ok(res, await companyData.companyActivity(id(req)));
 export const createTenant = async (req: Request, res: Response) => created(res, await tenants.createTenant(req.body as CreateTenantInput));
 export const changeTenantStatus = async (req: Request, res: Response) =>
   ok(res, await tenants.changeTenantStatus(id(req), req.body as TenantStatusInput));

@@ -13,7 +13,7 @@ import {
   updateMeBody,
 } from '../src/modules/auth/auth.schema.js';
 import { updateCompanyBody, updateSettingsBody, createHolidayBody } from '../src/modules/company/company.schema.js';
-import { createInvitationBody, setUserProjectsBody, updateUserBody } from '../src/modules/team/team.schema.js';
+import { createInvitationBody, setUserPasswordBody, setUserProjectsBody, updateUserBody } from '../src/modules/team/team.schema.js';
 import { changePlanBody, submitPaymentBody } from '../src/modules/subscription/subscription.schema.js';
 import * as admin from '../src/modules/platform-admin/platformAdmin.schema.js';
 import * as md from '../src/modules/master-data/master-data.schema.js';
@@ -36,6 +36,7 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/company/holidays': createHolidayBody,
   'patch /api/v1/users/{id}': updateUserBody,
   'put /api/v1/users/{id}/projects': setUserProjectsBody,
+  'put /api/v1/users/{id}/password': setUserPasswordBody,
   'post /api/v1/invitations': createInvitationBody,
   'post /api/v1/subscription/payments': submitPaymentBody,
   'post /api/v1/subscription/change-plan': changePlanBody,
@@ -211,7 +212,7 @@ describe('API docs', () => {
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(215);
+    expect(Object.keys(res.body.paths)).toHaveLength(220);
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

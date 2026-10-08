@@ -14,6 +14,8 @@ export interface RequestContext {
   permissions: string[];
   /** Current session id (`sid` claim). */
   sessionId?: string;
+  /** Platform super admin acting inside a company (X-Act-As-Tenant); userId is then the company's system user. */
+  platformAdminId?: string;
   /** Set by tenantContext when the company is READ_ONLY. */
   readOnly?: boolean;
 }

@@ -8,6 +8,8 @@ import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import * as repo from './team.repository.js';
 import type { ListUsersQuery, SetUserProjectsInput, TeamUserDto, UpdateUserInput, UserDetailDto } from './team.schema.js';
 import { assertNoOpenCashBalance as assertCashSettled } from '../cashbook/cash.js';
+import { hashPassword } from '../auth/auth.service.js';
+import { issueOtp } from '../auth/otp.service.js';
 
 function current() {
   const ctx = getCtx();
@@ -210,5 +212,37 @@ export async function setUserProjects(id: string, input: SetUserProjectsInput) {
       details: { before, after: input.projectIds },
     });
     return { userId: id, projects };
+  });
+}
+
+/**
+ * A sign-in code for a munshi, handed out by the owner (shown on screen, to pass on by
+ * voice or WhatsApp) — for when SMS doesn't reach the phone. It is the same one-time LOGIN
+ * code the munshi app asks for (10 minutes, one use). The code is never stored or logged.
+ */
+export async function issueLoginCode(id: string): Promise<{ phone: string; code: string; expiresIn: number }> {
+  const me = current();
+  const target = await withTenant(me.tenantId, (tx) => repo.findUser(tx, id));
+  if (!target) throw userNotFound();
+  if (target.role !== 'MUNSHI') throw new BadRequest('LOGIN_CODE_MUNSHI_ONLY', 'Login codes are for munshis; office users sign in with their password');
+  if (target.status !== 'ACTIVE') throw new Conflict('USER_INACTIVE', 'This user is deactivated');
+  const { code, expiresIn } = await issueOtp(target.phone, 'LOGIN');
+  await withTenant(me.tenantId, (tx) =>
+    writeAudit(tx, { tenantId: me.tenantId, actorType: 'USER', actorId: me.userId, action: 'user.login_code_issued', entityType: 'User', entityId: id }),
+  );
+  return { phone: target.phone, code, expiresIn };
+}
+
+/** The owner sets (or resets) a munshi's password, so the munshi can sign in without a code. */
+export async function setUserPassword(id: string, password: string): Promise<{ passwordSet: true }> {
+  const me = current();
+  const passwordHash = await hashPassword(password);
+  return withTenant(me.tenantId, async (tx) => {
+    const target = await repo.findUser(tx, id);
+    if (!target) throw userNotFound();
+    if (target.role !== 'MUNSHI') throw new BadRequest('PASSWORD_MUNSHI_ONLY', 'Office users set their own password');
+    await repo.updateUser(tx, id, { passwordHash, passwordChangedAt: new Date(), failedLoginCount: 0, lockedUntil: null });
+    await writeAudit(tx, { tenantId: me.tenantId, actorType: 'USER', actorId: me.userId, action: 'user.password_set', entityType: 'User', entityId: id });
+    return { passwordSet: true as const };
   });
 }
