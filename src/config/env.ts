@@ -47,7 +47,16 @@ export const envSchema = z
   MOBILE_MIN_APP_VERSION: z.string().regex(/^\d+\.\d+\.\d+$/).default('1.0.0'),
   MOBILE_LATEST_APP_VERSION: z.string().regex(/^\d+\.\d+\.\d+$/).default('1.0.0'),
   SMS_PROVIDER: z.enum(['console']).default('console'),
-  MAIL_PROVIDER: z.enum(['console']).default('console'),
+  /** console = print to the terminal (dev); smtp = real email via the SMTP_* settings. */
+  MAIL_PROVIDER: z.enum(['console', 'smtp']).default('console'),
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  /** true for port 465 (implicit TLS); defaults from the port. */
+  SMTP_SECURE: booleanish.optional(),
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASS: z.string().min(1).optional(),
+  /** Sender, e.g. "Construction Platform <no-reply@example.com>". Defaults to SMTP_USER. */
+  MAIL_FROM: z.string().min(3).optional(),
   ENABLE_DOCS: booleanish.optional(),
   /** Value for Express "trust proxy" (number of hops). 0 = do not trust X-Forwarded-For. */
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
@@ -57,6 +66,9 @@ export const envSchema = z
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
   })
   .superRefine((value, ctx) => {
+    if (value.MAIL_PROVIDER === 'smtp' && !value.SMTP_HOST) {
+      ctx.addIssue({ code: 'custom', path: ['SMTP_HOST'], message: 'SMTP_HOST is required when MAIL_PROVIDER=smtp' });
+    }
     if (value.STORAGE_PROVIDER !== 'cloudinary') return;
     for (const key of ['CLOUDINARY_CLOUD_NAME', 'CLOUDINARY_API_KEY', 'CLOUDINARY_API_SECRET'] as const) {
       if (!value[key]) ctx.addIssue({ code: 'custom', path: [key], message: `${key} is required when STORAGE_PROVIDER=cloudinary` });
