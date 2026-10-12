@@ -4,6 +4,7 @@ import * as labor from './labor.service.js';
 import * as materials from './materials.service.js';
 import * as prices from './priceList.service.js';
 import * as suppliers from './suppliers.service.js';
+import * as workerTypes from './workerTypes.service.js';
 import * as workers from './workers.service.js';
 import type {
   BulkPercentInput,
@@ -13,12 +14,14 @@ import type {
   CreateSupplierInput,
   CreateTemplateInput,
   CreateWorkerInput,
+  CreateWorkerTypeInput,
   DuplicateCategoryInput,
   ListCategoriesQuery,
   ListMaterialsQuery,
   ListSubcontractorsQuery,
   ListSuppliersQuery,
   ListWorkersQuery,
+  ListWorkerTypesQuery,
   PriceHistoryQuery,
   PriceListQuery,
   SetLaborRatesInput,
@@ -30,6 +33,7 @@ import type {
   UpdateSupplierInput,
   UpdateTemplateInput,
   UpdateWorkerInput,
+  UpdateWorkerTypeInput,
 } from './master-data.schema.js';
 
 const id = (req: Request) => String(req.params['id']);
@@ -65,6 +69,10 @@ export const priceHistory = async (req: Request, res: Response) => ok(res, await
 
 export const listLaborRates = async (_req: Request, res: Response) => ok(res, await labor.listLaborRates());
 export const setLaborRates = async (req: Request, res: Response) => ok(res, await labor.setLaborRates(req.body as SetLaborRatesInput));
+export const listWorkerTypes = async (req: Request, res: Response) => ok(res, await workerTypes.listWorkerTypes(query<ListWorkerTypesQuery>(req)));
+export const createWorkerType = async (req: Request, res: Response) => created(res, await workerTypes.createWorkerType(req.body as CreateWorkerTypeInput));
+export const updateWorkerType = async (req: Request, res: Response) =>
+  ok(res, await workerTypes.updateWorkerType(id(req), req.body as UpdateWorkerTypeInput));
 export const listTemplates = async (_req: Request, res: Response) => ok(res, await labor.listTemplates());
 export const createTemplate = async (req: Request, res: Response) => created(res, await labor.createTemplate(req.body as CreateTemplateInput));
 export const updateTemplate = async (req: Request, res: Response) => ok(res, await labor.updateTemplate(id(req), req.body as UpdateTemplateInput));

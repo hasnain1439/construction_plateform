@@ -12,6 +12,7 @@ import type {
   UpdateWorkerInput,
 } from './master-data.schema.js';
 import { audit, conflictOn, current } from './master-data.shared.js';
+import { checkWorkerType, labelsOf, typeLabels, type TypeLabels } from './workerTypes.service.js';
 
 const definedOnly = <T extends object>(input: T) => Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined));
 
@@ -30,11 +31,16 @@ function searchWhere(search: string | undefined) {
 const workerNotFound = () => new NotFound('WORKER_NOT_FOUND', 'Worker not found');
 const phoneTaken = conflictOn('WORKER_PHONE_TAKEN', 'Another worker already has this phone number');
 
-function toWorkerDto(w: Worker) {
+/** `typeLabel` / `typeLabelRoman` / `typeLabelUrdu` = the names of the worker's type (English / Roman Urdu / Urdu). */
+function toWorkerDto(w: Worker, labels: Map<string, TypeLabels>) {
+  const t = labelsOf(labels, w.type);
   return {
     id: w.id,
     name: w.name,
     type: w.type,
+    typeLabel: t.label,
+    typeLabelRoman: t.labelRoman,
+    typeLabelUrdu: t.labelUrdu,
     phone: w.phone,
     dailyRatePaisa: w.dailyRatePaisa.toString(),
     isActive: w.isActive,
@@ -49,12 +55,6 @@ async function findWorker(tx: Tx, id: string) {
   return worker;
 }
 
-/** The company's DAILY labour rate for a worker type (OTHER has none). */
-async function defaultDailyRate(tx: Tx, type: Worker['type']) {
-  if (type === 'OTHER') return null;
-  return (await tx.laborRate.findFirst({ where: { kind: 'DAILY', key: type } }))?.ratePaisa ?? null;
-}
-
 export async function listWorkers(query: ListWorkersQuery) {
   return withTenant(current().tenantId, async (tx) => {
     const and: Prisma.WorkerWhereInput[] = [...searchWhere(query.search)];
@@ -62,19 +62,25 @@ export async function listWorkers(query: ListWorkersQuery) {
     if (query.isActive !== undefined) and.push({ isActive: query.isActive });
     const where: Prisma.WorkerWhereInput = and.length ? { AND: and } : {};
     const rows = await tx.worker.findMany({ where, orderBy: [{ isActive: 'desc' }, { name: 'asc' }, { id: 'asc' }], ...skipTake(query) });
-    return { data: rows.map(toWorkerDto), meta: pageMeta(query, await tx.worker.count({ where })) };
+    const labels = await typeLabels(tx);
+    return { data: rows.map((w) => toWorkerDto(w, labels)), meta: pageMeta(query, await tx.worker.count({ where })) };
   });
 }
 
-/** Inside a caller's transaction (also used by /sync/push). A taken phone surfaces as a unique violation. */
+/**
+ * Inside a caller's transaction (also used by /sync/push). The type must be an ACTIVE worker type of the
+ * company or OTHER (400 INVALID_WORKER_TYPE); the daily rate defaults to the type's rate (OTHER has none).
+ * A taken phone surfaces as a unique violation.
+ */
 export async function createWorkerTx(tx: Tx, a: { tenantId: string; userId: string }, input: CreateWorkerInput) {
-  const dailyRatePaisa = input.dailyRatePaisa ?? (await defaultDailyRate(tx, input.type));
+  const type = await checkWorkerType(tx, input.type);
+  const dailyRatePaisa = input.dailyRatePaisa ?? type?.ratePaisa ?? null;
   if (dailyRatePaisa === null) throw new BadRequest('DAILY_RATE_REQUIRED', 'Enter a daily rate — there is no labour rate for this worker type');
   const worker = await tx.worker.create({
     data: { tenantId: a.tenantId, name: input.name, type: input.type, phone: input.phone ?? null, dailyRatePaisa, notes: input.notes ?? null, createdById: a.userId },
   });
   await audit(tx, 'worker.create', 'Worker', worker.id, { name: worker.name, type: worker.type, dailyRatePaisa: worker.dailyRatePaisa.toString() });
-  return toWorkerDto(worker);
+  return toWorkerDto(worker, await typeLabels(tx));
 }
 
 export async function createWorker(input: CreateWorkerInput) {
@@ -86,21 +92,24 @@ export { phoneTaken as workerPhoneTaken };
 
 export async function updateWorker(id: string, input: UpdateWorkerInput) {
   return withTenant(current().tenantId, async (tx) => {
-    await findWorker(tx, id);
+    const worker = await findWorker(tx, id);
+    // A type deactivated since may stay on the worker; a new one must be active.
+    if (input.type !== undefined) await checkWorkerType(tx, input.type, worker.type);
     const data = definedOnly(input) as Prisma.WorkerUpdateInput;
     const updated = await tx.worker.update({ where: { id }, data });
     await audit(tx, 'worker.update', 'Worker', id, { name: updated.name, fields: Object.keys(data) });
-    return toWorkerDto(updated);
+    return toWorkerDto(updated, await typeLabels(tx));
   }).catch(phoneTaken);
 }
 
 export async function setWorkerActive(id: string, isActive: boolean) {
   return withTenant(current().tenantId, async (tx) => {
     const worker = await findWorker(tx, id);
-    if (worker.isActive === isActive) return toWorkerDto(worker);
+    const labels = await typeLabels(tx);
+    if (worker.isActive === isActive) return toWorkerDto(worker, labels);
     const updated = await tx.worker.update({ where: { id }, data: { isActive } });
     await audit(tx, isActive ? 'worker.activate' : 'worker.deactivate', 'Worker', id, { name: worker.name });
-    return toWorkerDto(updated);
+    return toWorkerDto(updated, labels);
   });
 }
 

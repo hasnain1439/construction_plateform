@@ -70,6 +70,8 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'put /api/v1/price-list': md.setPriceListBody,
   'post /api/v1/price-list/bulk-percent': md.bulkPercentBody,
   'put /api/v1/labor-rates': md.setLaborRatesBody,
+  'post /api/v1/worker-types': md.createWorkerTypeBody,
+  'patch /api/v1/worker-types/{id}': md.updateWorkerTypeBody,
   'post /api/v1/payment-templates': md.createTemplateBody,
   'patch /api/v1/payment-templates/{id}': md.updateTemplateBody,
   'post /api/v1/suppliers': md.createSupplierBody,
@@ -171,6 +173,7 @@ describe('API docs', () => {
       'Materials',
       'Price List',
       'Labor Rates',
+      'Worker Types',
       'Payment Templates',
       'Suppliers',
       'Workers',
@@ -212,7 +215,7 @@ describe('API docs', () => {
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(220);
+    expect(Object.keys(res.body.paths)).toHaveLength(222);
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

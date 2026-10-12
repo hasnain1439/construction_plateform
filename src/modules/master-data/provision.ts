@@ -15,7 +15,8 @@ export interface ProvisionResult {
  * (signup, admin create) and for backfilling existing ones:
  *  - every active platform material (skips names / catalog rows it already has),
  *  - quality categories A+ Premium / A Standard (default) / B Economy (only if it has none),
- *  - default labour rates (skips kinds/keys it already has),
+ *  - default labour rates, incl. the default worker types (DAILY, named in English / Roman Urdu / Urdu;
+ *    skips kinds/keys it already has),
  *  - the "Residential standard" billing template (only if it has none).
  * All writes carry tenantId explicitly, so this works with withTenant or the admin (BYPASSRLS) client.
  */
@@ -47,6 +48,8 @@ export async function provisionMasterData(tx: Tx, tenantId: string): Promise<Pro
       kind: r.kind,
       key: r.key,
       label: r.label,
+      labelRoman: r.labelRoman ?? null,
+      labelUrdu: r.labelUrdu ?? null,
       unit: r.unit,
       ratePaisa: r.ratePaisa,
       overtimeMultiplier: r.overtimeMultiplier ?? null,

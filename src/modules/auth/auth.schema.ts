@@ -134,9 +134,10 @@ export const loginBody = z
     tenantId: tenantIdSchema.optional(),
     client: clientSchema,
     device: deviceSchema.optional(),
+    rememberMe: z.boolean().optional().meta({ description: 'Web only. false = sign-in cookies last until the browser closes (default true: kept for REFRESH_TOKEN_TTL_DAYS).' }),
   })
   .superRefine(requireDeviceForMobile)
-  .meta({ example: { login: '03001234567', password: 'Thekedar#2026', client: 'web' } });
+  .meta({ example: { login: '03001234567', password: 'Thekedar#2026', client: 'web', rememberMe: true } });
 
 export const otpRequestBody = z
   .object({
@@ -227,8 +228,9 @@ export const adminLoginBody = z
     email: emailSchema,
     password: z.string().min(1, 'Password is required').max(200),
     client: clientSchema,
+    rememberMe: z.boolean().optional().meta({ description: 'Web only. false = sign-in cookies last until the browser closes (default true: kept for REFRESH_TOKEN_TTL_DAYS).' }),
   })
-  .meta({ example: { email: 'admin@platform.local', password: 'Admin#2026', client: 'web' } });
+  .meta({ example: { email: 'admin@platform.local', password: 'Admin#2026', client: 'web', rememberMe: true } });
 
 // ─── Response shapes ────────────────────────────────────────────────────────
 

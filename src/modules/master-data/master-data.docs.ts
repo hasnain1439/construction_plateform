@@ -8,12 +8,14 @@ import {
   createSupplierBody,
   createTemplateBody,
   createWorkerBody,
+  createWorkerTypeBody,
   duplicateCategoryBody,
   listCategoriesQuery,
   listMaterialsQuery,
   listSubcontractorsQuery,
   listSuppliersQuery,
   listWorkersQuery,
+  listWorkerTypesQuery,
   priceHistoryQuery,
   priceListQuery,
   setLaborRatesBody,
@@ -25,6 +27,7 @@ import {
   updateSupplierBody,
   updateTemplateBody,
   updateWorkerBody,
+  updateWorkerTypeBody,
 } from './master-data.schema.js';
 
 const AUTH = { 401: ['UNAUTHENTICATED', 'TOKEN_INVALID', 'TOKEN_EXPIRED', 'SESSION_REVOKED', 'ACCOUNT_DISABLED', 'DEVICE_REVOKED'] };
@@ -83,6 +86,9 @@ const sampleWorker = {
   id: '0199a8c0-0000-7000-8000-0000000000a1',
   name: 'Ustad Akram',
   type: 'MISTRI',
+  typeLabel: 'Mason',
+  typeLabelRoman: 'Mistri',
+  typeLabelUrdu: 'مستری',
   phone: '+923001110001',
   dailyRatePaisa: '300000',
   isActive: true,
@@ -286,11 +292,11 @@ export function registerMasterDataDocs(): void {
   const L = 'Labor Rates';
   path(L, 'get', '/api/v1/labor-rates', {
     summary: 'Labour rates',
-    description: 'All roles. DAILY wages (per day, with overtime multiplier) and SUBCONTRACT piece rates.',
+    description: 'All roles. DAILY wages (per day, with overtime multiplier) — the company’s worker types, see /worker-types — and SUBCONTRACT piece rates.',
     responses: {
       ...ok('Labour rates', [
-        { id: '0199a8c0-0000-7000-8000-000000000a51', kind: 'DAILY', key: 'MISTRI', label: 'Mistri', unit: 'DAY', ratePaisa: '280000', overtimeMultiplier: 1.5, updatedAt: '2026-10-01T09:00:00.000Z' },
-        { id: '0199a8c0-0000-7000-8000-000000000a52', kind: 'SUBCONTRACT', key: 'SHUTTERING', label: 'Shuttering', unit: 'SQFT', ratePaisa: '4500', overtimeMultiplier: null, updatedAt: '2026-10-01T09:00:00.000Z' },
+        { id: '0199a8c0-0000-7000-8000-000000000a51', kind: 'DAILY', key: 'MISTRI', label: 'Mason', labelRoman: 'Mistri', labelUrdu: 'مستری', unit: 'DAY', ratePaisa: '280000', overtimeMultiplier: 1.5, isActive: true, updatedAt: '2026-10-01T09:00:00.000Z' },
+        { id: '0199a8c0-0000-7000-8000-000000000a52', kind: 'SUBCONTRACT', key: 'SHUTTERING', label: 'Shuttering', labelRoman: null, labelUrdu: null, unit: 'SQFT', ratePaisa: '4500', overtimeMultiplier: null, isActive: true, updatedAt: '2026-10-01T09:00:00.000Z' },
       ]),
       ...errors({ ...AUTH, 403: READ_403 }),
     },
@@ -298,7 +304,7 @@ export function registerMasterDataDocs(): void {
   path(L, 'put', '/api/v1/labor-rates', {
     summary: 'Set labour rates',
     description:
-      'THEKEDAR. Upsert by kind + key. DAILY keys: MISTRI, MISTRI_TILES, MAZDOOR, STEEL_FIXER_HELPER, CHOWKIDAR (unit DAY). ' +
+      'THEKEDAR. Upsert by kind + key. DAILY keys: MISTRI, MISTRI_TILES, MAZDOOR, STEEL_FIXER_HELPER, CHOWKIDAR or a worker type the company created (POST /worker-types) (unit DAY). ' +
       'SUBCONTRACT keys: SHUTTERING, STEEL_FIXING, BRICK_MASONRY, PLASTER, TILE_LAYING, ELECTRICAL_CONDUIT, PLUMBING_ROUGH_IN, WATERPROOFING, PAINT.',
     request: {
       body: jsonBody(setLaborRatesBody, {
@@ -312,6 +318,66 @@ export function registerMasterDataDocs(): void {
       }),
     },
     responses: { ...ok('Saved'), ...errors({ 400: ['VALIDATION_ERROR', 'INVALID_LABOR_KEY', 'INVALID_LABOR_UNIT'], ...AUTH, 403: WRITE_403 }) },
+  });
+
+  // ─── Worker types ────────────────────────────────────────────────────────
+  const WT = 'Worker Types';
+  const electrician = {
+    id: '0199a8c0-0000-7000-8000-000000000a61',
+    key: 'ELECTRICIAN',
+    label: 'Electrician',
+    labelRoman: 'Bijli wala',
+    labelUrdu: 'بجلی والا',
+    ratePaisa: '300000',
+    overtimeMultiplier: 1.5,
+    isActive: true,
+    workerCount: 0,
+  };
+  path(WT, 'get', '/api/v1/worker-types', {
+    summary: 'Worker types',
+    description:
+      'All roles. The company’s worker types = its DAILY labour rates: names in English (`label`), Roman Urdu and Urdu, default daily wage (`ratePaisa`), overtime multiplier, `isActive`, ' +
+      'and `workerCount` (workers — active or not — with this type). Active first, then by name; deactivated ones only with `includeInactive=true`. ' +
+      '`Worker.type` holds the `key`; OTHER is always allowed and is not listed (it has no rate).',
+    request: { query: listWorkerTypesQuery },
+    responses: {
+      ...ok('Worker types', [
+        { id: '0199a8c0-0000-7000-8000-000000000a51', key: 'MISTRI', label: 'Mason', labelRoman: 'Mistri', labelUrdu: 'مستری', ratePaisa: '280000', overtimeMultiplier: 1.5, isActive: true, workerCount: 3 },
+        { ...electrician, isActive: false },
+      ]),
+      ...errors({ 400: ['VALIDATION_ERROR'], ...AUTH, 403: READ_403 }),
+    },
+  });
+  path(WT, 'post', '/api/v1/worker-types', {
+    summary: 'Add a worker type',
+    description:
+      'THEKEDAR (same as editing labour rates). The `key` is generated from the English name (UPPER_SNAKE, `_2`, `_3` … on a clash, never OTHER) and never changes. ' +
+      '`overtimeMultiplier` defaults to 1.5. 409 WORKER_TYPE_EXISTS when an active type already has this name (case-insensitive).',
+    request: {
+      body: jsonBody(createWorkerTypeBody, {
+        electrician: ex('Electrician', { label: 'Electrician', labelRoman: 'Bijli wala', labelUrdu: 'بجلی والا', ratePaisa: '300000' }),
+        painter: ex('Painter, English name only', { label: 'Painter', ratePaisa: '250000', overtimeMultiplier: 1.25 }),
+      }),
+    },
+    responses: { ...createdResp('Created', electrician), ...errors({ 400: ['VALIDATION_ERROR'], ...AUTH, 403: WRITE_403, 409: ['WORKER_TYPE_EXISTS'] }) },
+  });
+  path(WT, 'patch', '/api/v1/worker-types/{id}', {
+    summary: 'Edit / deactivate a worker type',
+    description:
+      'THEKEDAR. Names (`labelRoman` / `labelUrdu`: null clears), rate, overtime multiplier, `isActive`. No hard delete: a deactivated type cannot be given to new workers, ' +
+      'existing workers keep it. Renaming or reactivating onto the name of another active type → 409 WORKER_TYPE_EXISTS. The key never changes.',
+    request: {
+      params: idParam('Worker type'),
+      body: jsonBody(updateWorkerTypeBody, {
+        rate: ex('New daily rate', { ratePaisa: '320000' }),
+        deactivate: ex('Deactivate', { isActive: false }),
+        names: ex('Urdu names', { labelRoman: 'Electrician', labelUrdu: 'الیکٹریشن' }),
+      }),
+    },
+    responses: {
+      ...ok('Updated', { ...electrician, ratePaisa: '320000' }),
+      ...errors({ 400: ['VALIDATION_ERROR'], ...AUTH, 403: WRITE_403, 404: ['WORKER_TYPE_NOT_FOUND'], 409: ['WORKER_TYPE_EXISTS'] }),
+    },
   });
 
   // ─── Payment templates ───────────────────────────────────────────────────
@@ -417,28 +483,29 @@ export function registerMasterDataDocs(): void {
   const W = 'Workers';
   path(W, 'get', '/api/v1/workers', {
     summary: 'List workers',
-    description: 'All roles. Search matches name or phone.',
+    description: 'All roles. Search matches name or phone; `type` = a worker type key. Each worker has its type’s names: `typeLabel`, `typeLabelRoman`, `typeLabelUrdu`.',
     request: { query: listWorkersQuery },
     responses: { ...ok('Workers', [sampleWorker], page(14)), ...errors({ 400: ['VALIDATION_ERROR'], ...AUTH, 403: READ_403 }) },
   });
   path(W, 'post', '/api/v1/workers', {
     summary: 'Add a worker',
     description:
-      "THEKEDAR, PM, MUNSHI. `dailyRatePaisa` defaults to the company's DAILY labour rate for the type (type OTHER " +
-      'needs one: 400 DAILY_RATE_REQUIRED). Phone is unique within the company.',
+      "THEKEDAR, PM, MUNSHI. `type` = an ACTIVE worker type key of the company (GET /worker-types) or OTHER, else 400 INVALID_WORKER_TYPE. " +
+      "`dailyRatePaisa` defaults to the type's daily rate (type OTHER needs one: 400 DAILY_RATE_REQUIRED). Phone is unique within the company.",
     request: {
       body: jsonBody(createWorkerBody, {
         mazdoor: ex('Mazdoor with default wage', { name: 'Kashif', type: 'MAZDOOR', phone: '0300-1110099' }),
         mistri: ex('Tiles mistri with own rate', { name: 'Ustad Fazal', type: 'MISTRI_TILES', dailyRatePaisa: '350000', notes: 'Marble specialist' }),
+        custom: ex('Company’s own type', { name: 'Imran', type: 'ELECTRICIAN' }),
       }),
     },
-    responses: { ...createdResp('Created', sampleWorker), ...errors({ 400: ['VALIDATION_ERROR', 'DAILY_RATE_REQUIRED'], ...AUTH, 403: WRITE_403, 409: ['WORKER_PHONE_TAKEN'] }) },
+    responses: { ...createdResp('Created', sampleWorker), ...errors({ 400: ['VALIDATION_ERROR', 'INVALID_WORKER_TYPE', 'DAILY_RATE_REQUIRED'], ...AUTH, 403: WRITE_403, 409: ['WORKER_PHONE_TAKEN'] }) },
   });
   path(W, 'patch', '/api/v1/workers/{id}', {
     summary: 'Edit a worker',
-    description: 'THEKEDAR, PM.',
+    description: 'THEKEDAR, PM. A new `type` must be an active worker type or OTHER (400 INVALID_WORKER_TYPE); a worker may keep a type that was deactivated since.',
     request: { params: idParam('Worker'), body: jsonBody(updateWorkerBody, { raise: ex('New wage', { dailyRatePaisa: '320000' }), phone: ex('Remove phone', { phone: null }) }) },
-    responses: { ...ok('Updated', sampleWorker), ...errors({ 400: ['VALIDATION_ERROR'], ...AUTH, 403: WRITE_403, 404: ['WORKER_NOT_FOUND'], 409: ['WORKER_PHONE_TAKEN'] }) },
+    responses: { ...ok('Updated', sampleWorker), ...errors({ 400: ['VALIDATION_ERROR', 'INVALID_WORKER_TYPE'], ...AUTH, 403: WRITE_403, 404: ['WORKER_NOT_FOUND'], 409: ['WORKER_PHONE_TAKEN'] }) },
   });
   for (const action of ['deactivate', 'activate'] as const) {
     path(W, 'post', `/api/v1/workers/{id}/${action}`, {

@@ -32,7 +32,7 @@ describe('labour rates', () => {
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ changed: 2, unchanged: 1 });
     const byKey = Object.fromEntries(res.body.data.rates.map((r: { key: string }) => [r.key, r]));
-    expect(byKey.MISTRI).toMatchObject({ ratePaisa: '300000', label: 'Mistri', overtimeMultiplier: 1.5 });
+    expect(byKey.MISTRI).toMatchObject({ ratePaisa: '300000', label: 'Mason', labelRoman: 'Mistri', overtimeMultiplier: 1.5, isActive: true });
     expect(byKey.PLASTER).toMatchObject({ label: 'Plaster (both sides)', ratePaisa: '2500' });
     expect(await prismaAdmin.auditLog.count({ where: { action: 'labor_rates.update' } })).toBe(1);
 

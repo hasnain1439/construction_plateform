@@ -103,6 +103,7 @@ export const TAGS = [
   { name: 'Materials', description: 'Material groups and the company material list (all roles; never shows rates)' },
   { name: 'Price List', description: 'Quality categories (A+ / A / B) and material rates with full history (THEKEDAR, PM)' },
   { name: 'Labor Rates', description: 'Daily wages and sub-contract piece rates' },
+  { name: 'Worker Types', description: 'The company’s own worker types (Mason, Labourer, Electrician …): names in English / Roman Urdu / Urdu, daily rate, overtime, active' },
   { name: 'Payment Templates', description: 'Client payment schedules (stages adding up to 100 %, optional retention)' },
   { name: 'Suppliers', description: 'Suppliers and their agreed rates (THEKEDAR, PM)' },
   { name: 'Workers', description: 'Daily-wage workers (site staff can add them)' },

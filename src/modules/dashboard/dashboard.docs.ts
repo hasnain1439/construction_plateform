@@ -51,7 +51,7 @@ export function registerDashboardDocs(): void {
         labor: {
           period: { from: '2026-09-07', to: '2026-10-06' },
           wagesPaisa: '15200000',
-          byWorkerType: [{ type: 'MAZDOOR', days: 64.5, wagesPaisa: '6200000' }],
+          byWorkerType: [{ type: 'MAZDOOR', label: 'Labourer', labelRoman: 'Mazdoor', labelUrdu: 'مزدور', days: 64.5, wagesPaisa: '6200000' }],
           subcontractorsOverpaid: 1,
         },
         alerts: [{ source: 'BILLING_EVENT', id: IDS.payment, type: 'CHEQUE_BOUNCED', severity: 'CRITICAL', title: 'MCB cheque 118845 bounced — Rs 11,00,000', project: DHA, at: '2026-09-22T06:00:00.000Z', actionUrl: `/projects/${IDS.dha}/billing/payments` }],

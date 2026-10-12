@@ -182,7 +182,37 @@ export const updateTemplateBody = z
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'Nothing to update' });
 
+// ─── Worker types (the company's DAILY labour rates) ────────────────────────
+
+const typeLabel = z.string().trim().min(2, 'Name is too short').max(60, 'Name is too long');
+
+export const listWorkerTypesQuery = z.object({
+  includeInactive: boolQuery.meta({ description: 'Also list deactivated types (default false)' }),
+});
+
+export const createWorkerTypeBody = z.object({
+  label: typeLabel.meta({ example: 'Electrician', description: 'English name; the key is generated from it' }),
+  labelRoman: typeLabel.optional().meta({ example: 'Bijli wala' }),
+  labelUrdu: typeLabel.optional().meta({ example: 'بجلی والا' }),
+  ratePaisa: paisaSchema.meta({ example: '300000', description: 'Default daily wage in paisa' }),
+  overtimeMultiplier: z.number().min(1).max(3).nullable().optional().meta({ example: 1.5, description: 'Default 1.5' }),
+});
+
+export const updateWorkerTypeBody = z
+  .object({
+    label: typeLabel.optional(),
+    labelRoman: typeLabel.nullable().optional(),
+    labelUrdu: typeLabel.nullable().optional(),
+    ratePaisa: paisaSchema.optional(),
+    overtimeMultiplier: z.number().min(1).max(3).nullable().optional(),
+    isActive: z.boolean().optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'Nothing to update' });
+
 export type SetLaborRatesInput = z.infer<typeof setLaborRatesBody>;
+export type ListWorkerTypesQuery = z.infer<typeof listWorkerTypesQuery>;
+export type CreateWorkerTypeInput = z.infer<typeof createWorkerTypeBody>;
+export type UpdateWorkerTypeInput = z.infer<typeof updateWorkerTypeBody>;
 export type CreateTemplateInput = z.infer<typeof createTemplateBody>;
 export type UpdateTemplateInput = z.infer<typeof updateTemplateBody>;
 
@@ -241,7 +271,13 @@ export type SetSupplierRatesInput = z.infer<typeof setSupplierRatesBody>;
 
 // ─── Workers ────────────────────────────────────────────────────────────────
 
-export const workerTypeSchema = z.enum(['MISTRI', 'MISTRI_TILES', 'MAZDOOR', 'STEEL_FIXER_HELPER', 'CHOWKIDAR', 'OTHER']);
+/** A worker type key of the company (GET /worker-types) or OTHER; checked against the company's types in the service. */
+export const workerTypeSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z0-9_]{1,40}$/, 'Invalid worker type')
+  .meta({ example: 'MAZDOOR', description: 'A worker type `key` of the company (GET /worker-types) or OTHER' });
 
 export const listWorkersQuery = paginationQuery.extend({
   search: z.string().trim().min(1).max(100).optional().meta({ description: 'Name or phone contains' }),

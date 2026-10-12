@@ -14,6 +14,7 @@ import {
   createSupplierBody,
   createTemplateBody,
   createWorkerBody,
+  createWorkerTypeBody,
   duplicateCategoryBody,
   idParams,
   listCategoriesQuery,
@@ -21,6 +22,7 @@ import {
   listSubcontractorsQuery,
   listSuppliersQuery,
   listWorkersQuery,
+  listWorkerTypesQuery,
   priceHistoryQuery,
   priceListQuery,
   setLaborRatesBody,
@@ -32,6 +34,7 @@ import {
   updateSupplierBody,
   updateTemplateBody,
   updateWorkerBody,
+  updateWorkerTypeBody,
 } from './master-data.schema.js';
 
 /**
@@ -80,6 +83,13 @@ export const laborRatesRouter = Router();
 laborRatesRouter.use(...company);
 laborRatesRouter.get('/', h(c.listLaborRates));
 laborRatesRouter.put('/', owner, validate({ body: setLaborRatesBody }), h(c.setLaborRates));
+
+/** Mounted at /api/v1/worker-types — the company's DAILY labour rates; edited like labour rates (THEKEDAR). */
+export const workerTypesRouter = Router();
+workerTypesRouter.use(...company);
+workerTypesRouter.get('/', validate({ query: listWorkerTypesQuery }), h(c.listWorkerTypes));
+workerTypesRouter.post('/', owner, validate({ body: createWorkerTypeBody }), h(c.createWorkerType));
+workerTypesRouter.patch('/:id', owner, validate({ params: idParams, body: updateWorkerTypeBody }), h(c.updateWorkerType));
 
 /** Mounted at /api/v1/payment-templates */
 export const paymentTemplatesRouter = Router();

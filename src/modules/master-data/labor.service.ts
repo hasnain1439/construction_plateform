@@ -17,9 +17,12 @@ function toLaborDto(r: LaborRate) {
     kind: r.kind,
     key: r.key,
     label: r.label,
+    labelRoman: r.labelRoman,
+    labelUrdu: r.labelUrdu,
     unit: r.unit,
     ratePaisa: r.ratePaisa.toString(),
     overtimeMultiplier: r.overtimeMultiplier === null ? null : Number(r.overtimeMultiplier),
+    isActive: r.isActive,
     updatedAt: r.updatedAt.toISOString(),
   };
 }
@@ -30,19 +33,24 @@ export async function listLaborRates() {
   return withTenant(current().tenantId, async (tx) => (await listLabor(tx)).map(toLaborDto));
 }
 
+/**
+ * Upsert by kind + key. Keys: the default ones of the kind, or a DAILY key the company already has
+ * (its own worker types, created with POST /worker-types).
+ */
 export async function setLaborRates(input: SetLaborRatesInput) {
   const { tenantId } = current();
-  const invalid = input.rates.filter((r) => !KEYS[r.kind].includes(r.key)).map((r) => `${r.kind}:${r.key}`);
-  if (invalid.length) throw new BadRequest('INVALID_LABOR_KEY', 'Unknown labour rate key for that kind', { invalid });
   const dailyNotPerDay = input.rates.filter((r) => r.kind === 'DAILY' && r.unit !== 'DAY').map((r) => r.key);
-  if (dailyNotPerDay.length) throw new BadRequest('INVALID_LABOR_UNIT', 'Daily wages are per DAY', { keys: dailyNotPerDay });
 
   return withTenant(tenantId, async (tx) => {
     const existing = new Map((await tx.laborRate.findMany()).map((r) => [`${r.kind}:${r.key}`, r]));
+    const invalid = input.rates.filter((r) => !KEYS[r.kind].includes(r.key) && !(r.kind === 'DAILY' && existing.has(`DAILY:${r.key}`))).map((r) => `${r.kind}:${r.key}`);
+    if (invalid.length) throw new BadRequest('INVALID_LABOR_KEY', 'Unknown labour rate key for that kind', { invalid });
+    if (dailyNotPerDay.length) throw new BadRequest('INVALID_LABOR_UNIT', 'Daily wages are per DAY', { keys: dailyNotPerDay });
     let changed = 0;
     for (const r of input.rates) {
       const cur = existing.get(`${r.kind}:${r.key}`);
-      const label = r.label ?? cur?.label ?? DEFAULT_LABOR_RATES.find((d) => d.kind === r.kind && d.key === r.key)?.label ?? titleCase(r.key);
+      const def = DEFAULT_LABOR_RATES.find((d) => d.kind === r.kind && d.key === r.key);
+      const label = r.label ?? cur?.label ?? def?.label ?? titleCase(r.key);
       const overtimeMultiplier = r.overtimeMultiplier === undefined ? (cur ? cur.overtimeMultiplier : null) : r.overtimeMultiplier;
       const same =
         cur &&
@@ -54,7 +62,7 @@ export async function setLaborRates(input: SetLaborRatesInput) {
       const data = { label, unit: r.unit, ratePaisa: r.ratePaisa, overtimeMultiplier };
       await tx.laborRate.upsert({
         where: { tenantId_kind_key: { tenantId, kind: r.kind, key: r.key } },
-        create: { tenantId, kind: r.kind, key: r.key, ...data },
+        create: { tenantId, kind: r.kind, key: r.key, labelRoman: def?.labelRoman ?? null, labelUrdu: def?.labelUrdu ?? null, ...data },
         update: data,
       });
       changed++;

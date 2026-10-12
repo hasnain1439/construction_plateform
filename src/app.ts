@@ -70,6 +70,7 @@ import {
   subcontractorsRouter,
   suppliersRouter,
   workersRouter,
+  workerTypesRouter,
 } from './modules/master-data/master-data.routes.js';
 import { platformAdminRouter } from './modules/platform-admin/platformAdmin.routes.js';
 import { subscriptionRouter } from './modules/subscription/subscription.routes.js';
@@ -127,6 +128,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   api.use('/quality-categories', qualityCategoriesRouter);
   api.use('/price-list', priceListRouter);
   api.use('/labor-rates', laborRatesRouter);
+  api.use('/worker-types', workerTypesRouter);
   api.use('/payment-templates', paymentTemplatesRouter);
   api.use('/suppliers', supplierLedgerRouter); // /suppliers/:id/ledger (per-route auth)
   api.use('/suppliers', suppliersRouter);

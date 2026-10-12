@@ -61,6 +61,29 @@ export const serializeWorker = (w: { id: string; name: string; type: string; pho
   isActive: w.isActive,
 });
 
+/** A worker type = a DAILY labour rate of the company (daily wages are allowed on the phone). */
+export const serializeWorkerType = (t: {
+  id: string;
+  key: string;
+  label: string;
+  labelRoman: string | null;
+  labelUrdu: string | null;
+  ratePaisa: bigint;
+  overtimeMultiplier: Dec | null;
+  isActive: boolean;
+  updatedAt: Date;
+}) => ({
+  id: t.id,
+  key: t.key,
+  label: t.label,
+  labelRoman: t.labelRoman,
+  labelUrdu: t.labelUrdu,
+  ratePaisa: paisa(t.ratePaisa),
+  overtimeMultiplier: num(t.overtimeMultiplier),
+  isActive: t.isActive,
+  updatedAt: iso(t.updatedAt),
+});
+
 export const serializeProjectWorker = (pw: { id: string; projectId: string; workerId: string; dailyRatePaisa: bigint; startDate: Date; endDate: Date | null; isActive: boolean }) => ({
   id: pw.id,
   projectId: pw.projectId,
