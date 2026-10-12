@@ -65,6 +65,22 @@ describe('GET /dashboard/overview', () => {
     expect(d.alerts.every((x: { source: string }) => x.source === 'NOTIFICATION')).toBe(true);
   });
 
+  it('labour by worker type: grouped by type key with the type names; company-defined types too', async () => {
+    const { malik } = seeded();
+    await prismaAdmin.laborRate.create({
+      data: { tenantId: malik.id, kind: 'DAILY', key: 'ELECTRICIAN', label: 'Electrician', labelRoman: 'Bijli wala', labelUrdu: 'بجلی والا', unit: 'DAY', ratePaisa: 300000n },
+    });
+    const line = await prismaAdmin.wageSettlementLine.findFirstOrThrow({ where: { tenantId: malik.id, settlement: { status: { not: 'RETURNED' } } } });
+    await prismaAdmin.worker.update({ where: { id: line.workerId }, data: { type: 'ELECTRICIAN' } });
+
+    const d = (await overview(await owner(), { from: '2020-01-01' })).body.data;
+    const byType = d.labor.byWorkerType as Array<{ type: string; label: string; labelRoman: string | null; labelUrdu: string | null }>;
+    expect(byType.find((t) => t.type === 'ELECTRICIAN')).toMatchObject({ label: 'Electrician', labelRoman: 'Bijli wala', labelUrdu: 'بجلی والا' });
+    const mazdoor = byType.find((t) => t.type === 'MAZDOOR');
+    if (mazdoor) expect(mazdoor).toMatchObject({ label: 'Labourer', labelRoman: 'Mazdoor', labelUrdu: 'مزدور' });
+    expect(byType.every((t) => typeof t.label === 'string' && 'labelRoman' in t && 'labelUrdu' in t)).toBe(true);
+  });
+
   it('MUNSHI: 403 on the company overview', async () => {
     expect((await overview(await munshi(seeded().malik.id))).status).toBe(403);
   });

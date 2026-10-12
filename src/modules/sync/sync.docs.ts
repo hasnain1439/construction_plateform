@@ -10,7 +10,7 @@ export function registerSyncDocs(): void {
     description:
       'Company bearer token of a device that is not revoked (else `401 DEVICE_REVOKED`). No `cursor` → full snapshot of the caller’s scope; with a cursor → rows changed after it (paged by `limit`, `hasMore`), and tombstones (`deletes`) for deleted rows. ' +
       '`resetRequired: true` when the cursor is older than the 30-day retention or the caller’s project access changed — wipe the local DB and pull without a cursor. ' +
-      'Scope: assigned ACTIVE / CLOSEOUT projects (every running project for THEKEDAR), their site stock locations, materials, workers, attendance (3 weeks), settlements (8 weeks), advances, measurements, incoming dispatches / purchases, owner deliveries, usage, site stock (quantities), counts, daily logs (30 days), the caller’s OWN cash account / entries / top-ups, settings subset, holidays and own notifications. ' +
+      'Scope: assigned ACTIVE / CLOSEOUT projects (every running project for THEKEDAR), their site stock locations, materials, workers, the company’s worker types (`worker_types`: id, key, label, labelRoman, labelUrdu, ratePaisa, overtimeMultiplier, isActive, updatedAt — active and inactive), attendance (3 weeks), settlements (8 weeks), advances, measurements, incoming dispatches / purchases, owner deliveries, usage, site stock (quantities), counts, daily logs (30 days), the caller’s OWN cash account / entries / top-ups, settings subset, holidays and own notifications. ' +
       'Never material rates, purchase amounts, supplier balances, contract values or other people’s cash; a MUNSHI gets no sub-contract rates or measured values, and with blind count on no sent / challan quantities until counted. ' +
       'A change is handed out once it is 30 s old (transactions commit out of order), so the cursor never skips one.',
     request: { query: pullQuery },
@@ -29,6 +29,10 @@ export function registerSyncDocs(): void {
             upserts: [{ id: IDS.dispatch, number: 'GP-0144', status: 'ON_THE_WAY', projectId: IDS.dha, toLocationId: IDS.dhaSite, from: 'Central Store', blindCount: true, items: [{ id: IDS.purchaseItem, materialId: IDS.cement, receivedQty: null, damagedQty: null, note: null }] }],
             deletes: [],
           },
+          worker_types: {
+            upserts: [{ id: '0199a8c0-0000-7000-8000-000000000a51', key: 'MISTRI', label: 'Mason', labelRoman: 'Mistri', labelUrdu: 'مستری', ratePaisa: '280000', overtimeMultiplier: 1.5, isActive: true, updatedAt: '2026-10-01T09:00:00.000Z' }],
+            deletes: [],
+          },
           cash_accounts: { upserts: [{ id: IDS.payment, name: 'Rafaqat Ali — site cash', isActive: true, balancePaisa: '930000', pendingAckPaisa: '0', pendingApprovalPaisa: '0', recoverablePaisa: '0' }], deletes: [] },
         },
       }),
@@ -42,7 +46,7 @@ export function registerSyncDocs(): void {
     summary: 'Push queued mutations',
     description:
       'Up to 100 mutations, applied in order, each through the same service and permission checks as its REST endpoint, each in its own transaction. ' +
-      'Result per mutation: **APPLIED** (serverId) · **DUPLICATE** (clientId seen before — same serverId, nothing done again) · **REJECTED** (permanent: code, message, details — e.g. WEEK_LOCKED, INSUFFICIENT_CASH, ALREADY_RECEIVED, INSUFFICIENT_STOCK, VALIDATION_ERROR, DEPENDENCY_REJECTED) · **RETRY** (transient; everything after it is RETRY too). ' +
+      'Result per mutation: **APPLIED** (serverId) · **DUPLICATE** (clientId seen before — same serverId, nothing done again) · **REJECTED** (permanent: code, message, details — e.g. WEEK_LOCKED, INVALID_WORKER_TYPE, INSUFFICIENT_CASH, ALREADY_RECEIVED, INSUFFICIENT_STOCK, VALIDATION_ERROR, DEPENDENCY_REJECTED) · **RETRY** (transient; everything after it is RETRY too). ' +
       'Payload = the REST body plus its path ids (projectId, settlementId, dispatchId, purchaseId, entryId); any id may be the clientId of an earlier mutation or of an attachment uploaded with a clientId. ' +
       'Header `X-Pending-Mutations` = items still queued on the phone (shown to the office). Entries reaching the server more than 48 h after `deviceCreatedAt` are flagged `lateSync`.',
     request: {
@@ -50,7 +54,7 @@ export function registerSyncDocs(): void {
         newWorker: ex('New worker → assign → hazri', {
           deviceId: 'android-7f3c9a2e',
           mutations: [
-            { clientId: W, type: 'WORKER_CREATE', payload: { name: 'Naveed', type: 'MAZDOOR' }, deviceCreatedAt: '2026-10-06T08:10:00+05:00' },
+            { clientId: W, type: 'WORKER_CREATE', payload: { name: 'Naveed', type: 'MAZDOOR' }, deviceCreatedAt: '2026-10-06T08:10:00+05:00' }, // type: an active worker_types key or OTHER
             { clientId: A, type: 'PROJECT_WORKER_ASSIGN', payload: { projectId: IDS.dha, workerId: W }, dependsOn: [W], deviceCreatedAt: '2026-10-06T08:10:05+05:00' },
             {
               clientId: '0199a8c0-0000-7000-8000-00000000ab13',

@@ -9,7 +9,7 @@
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { Forbidden } from '../../core/errors/AppError.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
-import type { ClientPaymentMethod, Project, WorkerType } from '../../generated/prisma/client.js';
+import type { ClientPaymentMethod, Project } from '../../generated/prisma/client.js';
 import { collectApprovals } from '../approvals/approvals.service.js';
 import { addDays, today, ymd } from '../billing/billing.shared.js';
 import { eventHref, eventSeverity, eventTitle } from '../billing/events.service.js';
@@ -21,6 +21,7 @@ import { pktDayEnd, pktDayStart } from '../inventory/inventory.service.js';
 import { laborOverviewTx } from '../labor/overview.service.js';
 import { laborSettings, weekOf } from '../labor/labor.shared.js';
 import { subAccounts } from '../labor/subcontractLedger.js';
+import { labelsOf, typeLabels } from '../master-data/workerTypes.service.js';
 import { criticalUnread } from '../notifications/notifications.service.js';
 import { supplierBalances } from '../procurement/supplierLedger.service.js';
 import { findProjectFor } from '../projects/access.js';
@@ -33,14 +34,14 @@ export const DASHBOARD_STATUSES = ['ACTIVE', 'CLOSEOUT', 'HANDED_OVER'] as const
 /** A project is "at risk" when an invoice is overdue or the own money in it is above this share of the contract. */
 export const AT_RISK_OWN_MONEY_PERCENT = 10;
 
-const WORKER_GROUP: Record<WorkerType, 'mistri' | 'mazdoor' | 'other'> = {
+/** Hazri-today buckets of the default worker types; the company's own types (and OTHER) count as "other". */
+const WORKER_GROUP: Record<string, 'mistri' | 'mazdoor'> = {
   MISTRI: 'mistri',
   MISTRI_TILES: 'mistri',
   MAZDOOR: 'mazdoor',
   STEEL_FIXER_HELPER: 'mazdoor',
-  CHOWKIDAR: 'other',
-  OTHER: 'other',
 };
+const groupOf = (type: string) => WORKER_GROUP[type] ?? 'other';
 
 const METHODS: ClientPaymentMethod[] = ['CASH', 'BANK_TRANSFER', 'CHEQUE', 'JAZZCASH', 'EASYPAISA', 'RAAST'];
 
@@ -69,7 +70,7 @@ async function siteStats(tx: Tx, a: ReadActor, ids: string[], date: string) {
     select: { worker: { select: { type: true } } },
   });
   const hazri = { mistri: 0, mazdoor: 0, other: 0, total: present.length };
-  for (const r of present) hazri[WORKER_GROUP[r.worker.type]] += 1;
+  for (const r of present) hazri[groupOf(r.worker.type)] += 1;
   const sites = await tx.stockLocation.findMany({ where: { tenantId: a.tenantId, type: 'SITE', projectId: { in: ids } }, select: { id: true } });
   const siteIds = sites.map((s) => s.id);
   const dayStart = pktDayStart(date);
@@ -91,7 +92,7 @@ async function laborStats(tx: Tx, a: ReadActor, ids: string[], period: Period) {
     },
     select: { grossPaisa: true, daysWorked: true, worker: { select: { type: true } } },
   });
-  const byType = new Map<WorkerType, { days: number; wages: bigint }>();
+  const byType = new Map<string, { days: number; wages: bigint }>();
   for (const l of lines) {
     const t = byType.get(l.worker.type) ?? { days: 0, wages: 0n };
     t.days += Number(l.daysWorked);
@@ -100,9 +101,12 @@ async function laborStats(tx: Tx, a: ReadActor, ids: string[], period: Period) {
   }
   const assignments = await tx.subcontractAssignment.findMany({ where: { tenantId: a.tenantId, projectId: { in: ids } }, select: { id: true, retentionPercent: true } });
   const accounts = await subAccounts(tx, a.tenantId, assignments);
+  const labels = await typeLabels(tx, a.tenantId);
   return {
     wagesPaisa: str([...byType.values()].reduce((s, t) => s + t.wages, 0n)),
-    byWorkerType: [...byType.entries()].map(([type, t]) => ({ type, days: t.days, wagesPaisa: str(t.wages) })).sort((x, y) => (BigInt(y.wagesPaisa) > BigInt(x.wagesPaisa) ? 1 : -1)),
+    byWorkerType: [...byType.entries()]
+      .map(([type, t]) => ({ type, ...labelsOf(labels, type), days: t.days, wagesPaisa: str(t.wages) }))
+      .sort((x, y) => (BigInt(y.wagesPaisa) > BigInt(x.wagesPaisa) ? 1 : -1)),
     subcontractorsOverpaid: [...accounts.values()].filter((x) => x.overpaid).length,
   };
 }

@@ -374,18 +374,20 @@ Platform tables: `app_user` has SELECT only. Tenant tables: RLS ENABLE + FORCE, 
 | `PUT /price-list` | THEKEDAR | 1–500 rates; history row only when rate or specification changed → `{ changed, unchanged }` |
 | `POST /price-list/bulk-percent` | THEKEDAR | −50 … +100 %, whole category / `groupId` / `materialIds`; rounded to the nearest rupee |
 | `GET /price-list/history` | THEKEDAR, PM | `materialId`, `categoryId?`; newest first with `changedBy` |
-| `GET /labor-rates` · `PUT` | all · THEKEDAR | Upsert by kind + key; keys must match the kind (`INVALID_LABOR_KEY`), DAILY is per DAY |
+| `GET /labor-rates` · `PUT` | all · THEKEDAR | Upsert by kind + key; keys must match the kind (`INVALID_LABOR_KEY`; DAILY also accepts the company's own worker type keys), DAILY is per DAY; rows include `labelRoman`, `labelUrdu`, `isActive` |
+| `GET /worker-types?includeInactive` | all | The company's worker types = its DAILY labour rates: `{ id, key, label, labelRoman, labelUrdu, ratePaisa, overtimeMultiplier, isActive, workerCount }`, active first then by name |
+| `POST /worker-types` · `PATCH /:id` | THEKEDAR | `{ label, labelRoman?, labelUrdu?, ratePaisa, overtimeMultiplier? (1.5) }`; key generated from the English name (UPPER_SNAKE, `_2` … on a clash, never OTHER); `409 WORKER_TYPE_EXISTS` for the name of another active type; PATCH = names / rate / overtime / `isActive` (no delete; deactivating never touches workers) |
 | `GET /payment-templates` · `POST` · `PATCH /:id` · `DELETE /:id` | THEKEDAR, PM · THEKEDAR | 1–15 stages, total exactly 100 (`400 PERCENT_TOTAL_INVALID { total }`), one retention stage max, default can't be deleted |
 | `GET /suppliers` · `GET /:id` | THEKEDAR, PM | search (name / city / phone), category, isActive, page; detail has current agreed rates |
 | `POST /suppliers` · `PATCH /:id` | THEKEDAR, PM | `409 SUPPLIER_EXISTS`; landline allowed |
 | `POST /suppliers/:id/deactivate` · `/activate` · `PUT /:id/rates` | THEKEDAR | Rate history row only when changed; `GET /:id/rates` (THEKEDAR, PM) = current + history |
-| `GET /workers` · `POST` | all · THEKEDAR, PM, MUNSHI | `dailyRatePaisa` defaults from the DAILY labour rate of the type (OTHER → `DAILY_RATE_REQUIRED`); `409 WORKER_PHONE_TAKEN` |
-| `PATCH /workers/:id` · `/deactivate` · `/activate` | THEKEDAR, PM | |
+| `GET /workers` · `POST` | all · THEKEDAR, PM, MUNSHI | `type` = an ACTIVE worker type key or OTHER (`400 INVALID_WORKER_TYPE`); `dailyRatePaisa` defaults from the type's rate (OTHER → `DAILY_RATE_REQUIRED`); `409 WORKER_PHONE_TAKEN`; rows have `typeLabel`, `typeLabelRoman`, `typeLabelUrdu` |
+| `PATCH /workers/:id` · `/deactivate` · `/activate` | THEKEDAR, PM | A new `type` must be active; a worker may keep a type deactivated since |
 | `GET /subcontractors` · `POST` · `PATCH /:id` · `/deactivate` · `/activate` | all · THEKEDAR, PM | trade = a SUBCONTRACT key; `409 SUBCONTRACTOR_EXISTS` |
 
 **Platform catalog** (`/api/v1/admin`): `GET /material-groups`, `GET /materials` (`groupId`, `search`, `supplyCategory`, `isActive`; `companies` = copies), `POST /materials` (`pushToTenants` default true → copied into every company; a company with a material of the same name keeps its own; `409 PLATFORM_MATERIAL_EXISTS`), `PATCH /materials/:id` (name / unitDetail / altUnits propagate only to copies with `isCustomised = false` whose company has no other material with the new name; unit is immutable).
 
-Audit actions: `material.*`, `quality_category.*`, `price_list.update`, `price_list.bulk_percent`, `labor_rates.update`, `payment_template.*`, `supplier.*`, `supplier.rates_update`, `worker.*`, `subcontractor.*`, `admin.catalog_material_created` / `_updated`.
+Audit actions: `material.*`, `quality_category.*`, `price_list.update`, `price_list.bulk_percent`, `labor_rates.update`, `worker_type.create` / `.update` / `.activate` / `.deactivate`, `payment_template.*`, `supplier.*`, `supplier.rates_update`, `worker.*`, `subcontractor.*`, `admin.catalog_material_created` / `_updated`.
 
 **Seed (Malik & Sons).** Rates A+ / A / B with specifications: cement 1,550 / 1,450 / 1,350 (plus an older A rate 1,400), bricks 19 / 17 / 14, steel #4 2,95,000 / 2,85,000 / 2,70,000, Chenab sand 85 / 70 / 60, bajri 190 / 180 / 165, floor tiles 450 / 220 / 140, PPR 1" 420 / 320 / 250, wire 7/29 14,500 / 11,800 / 9,500. Templates Residential standard (default), Labor-only monthly, Commercial. Suppliers Al-Madina Cement Agency (cement 1,430), Ittefaq Steel Traders, Chaudhry Bricks Kiln, Bilal Traders, Punjab Shuttering Yard. 14 workers (Pervaiz inactive) and 6 sub-contractors. Other companies get only the copied defaults.
 
@@ -650,7 +652,7 @@ Owner-recoverable and rejected kharcha are never cost. Dates: movement / payment
 
 ### Dashboard
 
-`GET /dashboard/overview?from&to&projectId` (default the last 30 days): KPIs (active projects + at risk = overdue invoice or own money > 10 % of contract; `delayed` 0 until the schedule exists; pending approvals; open shortages; dispatches on the way; and with `billing.view` receivables outstanding + collected %, overdue, supplier udhaar + oldest days + paid %, store stock value, cash with site staff, own money invested), project rows, site stats (hazri today by mistri / mazdoor / other, peshgi and kharcha this week, deliveries today, open shortages), labour (wages by worker type from the settlements of weeks starting in the period; sub-contractors overpaid), payments received by method (cheques cleared / pending / bounced) and alerts (latest open billing events + unread critical notifications).
+`GET /dashboard/overview?from&to&projectId` (default the last 30 days): KPIs (active projects + at risk = overdue invoice or own money > 10 % of contract; `delayed` 0 until the schedule exists; pending approvals; open shortages; dispatches on the way; and with `billing.view` receivables outstanding + collected %, overdue, supplier udhaar + oldest days + paid %, store stock value, cash with site staff, own money invested), project rows, site stats (hazri today by mistri / mazdoor / other — company-defined types count as other, peshgi and kharcha this week, deliveries today, open shortages), labour (wages by worker type — `{ type, label, labelRoman, labelUrdu, days, wagesPaisa }`, any type key — from the settlements of weeks starting in the period; sub-contractors overpaid), payments received by method (cheques cleared / pending / bounced) and alerts (latest open billing events + unread critical notifications).
 
 `GET /dashboard/site/:projectId` (MUNSHI landing page; PM / THEKEDAR too): today's hazri, material on the way (quantities only), the caller's own cash + open top-up, to-dos (mark hazri, receive, confirm a float, submit / fix wages) and recent usage / own kharcha. No rates, values or company money.
 
@@ -728,6 +730,7 @@ The Munshi app works offline: SQLite on the phone holds a read model plus an **o
 | stock_locations, site_stock | the sites of those projects; quantities (contractor + owner) | values / costs |
 | materials, material_groups, suppliers | company list; suppliers id + name | rates, supplier phone / balances |
 | workers, project_workers | on those projects (+ workers the caller created) | — (daily wages are allowed) |
+| worker_types | the company's worker types (DAILY labour rates, active and inactive): id, key, label, labelRoman, labelUrdu, ratePaisa, overtimeMultiplier, isActive, updatedAt | — (daily wages are allowed) |
 | subcontract_assignments | those projects | rate / contract value / retention for a MUNSHI |
 | attendance (3 weeks), settlements (8 weeks, with lines), advances (90 days) | those projects | — |
 | work_measurements (90 days) | those projects | values |
@@ -801,6 +804,7 @@ curl -s localhost:4000/api/v1/sync/push -H "authorization: Bearer $TOKEN" -H 'co
 | `20261016090000_daily_logs` | `SiteCondition`, `DailyLog` (RLS, SELECT / INSERT / UPDATE), `Attachment.clientId` (unique per company), `NotificationType.MISSING_DAILY_LOG` |
 | `20261016100000_sync_changes` | `SyncOp`, `SyncChange` (bigserial seq; RLS; app_user SELECT only) written by the `sync_track()` SECURITY DEFINER trigger on every synced table, `SyncWatermark` |
 | `20261016110000_sync_push` | `SyncMutationStatus`, `SyncIdMap` (clientId → server entity / rejection, device, deviceCreatedAt; RLS, SELECT / INSERT) |
+| `20261018090000_worker_types` | Company-defined worker types: `Worker.type` enum → text (values kept; `WorkerType` enum dropped); `LaborRate.labelRoman`, `labelUrdu`, `isActive`; default DAILY types backfilled with Roman Urdu / Urdu names and plain-English labels (Mason, Tile mason, Labourer, Steel-fixer helper, Watchman — only where the label was still the old default); `sync_track` trigger on `LaborRate` (sync table `worker_types`). RLS / grants on `LaborRate` unchanged |
 
 Prisma's `migrate dev` refuses to run non-interactively when a change has warnings (enum value removed). Generate SQL with `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, hand-edit renames (e.g. `ALTER TYPE … RENAME VALUE`, `RENAME COLUMN`) so data is kept, save it as a new migration folder and run `npx prisma migrate deploy`.
 

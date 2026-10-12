@@ -112,7 +112,10 @@ export const DEFAULT_CATEGORIES = [
   { name: 'B Economy', code: 'B_ECO', description: 'Budget brands', isDefault: false, sortOrder: 3 },
 ];
 
+/** The default worker types (DAILY labour keys) every company starts with; companies add their own (/worker-types). */
 export const DAILY_KEYS = ['MISTRI', 'MISTRI_TILES', 'MAZDOOR', 'STEEL_FIXER_HELPER', 'CHOWKIDAR'] as const;
+/** Worker type that is always allowed and has no labour rate (the worker's own daily rate is required). */
+export const OTHER_WORKER_TYPE = 'OTHER';
 export const SUBCONTRACT_KEYS = [
   'SHUTTERING',
   'STEEL_FIXING',
@@ -128,18 +131,30 @@ export const SUBCONTRACT_KEYS = [
 export interface LaborRateDef {
   kind: LaborRateKind;
   key: string;
+  /** English */
   label: string;
+  labelRoman?: string;
+  labelUrdu?: string;
   unit: LaborUnit;
   ratePaisa: bigint;
   overtimeMultiplier?: number;
 }
 
 export const DEFAULT_LABOR_RATES: LaborRateDef[] = [
-  { kind: 'DAILY', key: 'MISTRI', label: 'Mistri', unit: 'DAY', ratePaisa: rs(2800), overtimeMultiplier: 1.5 },
-  { kind: 'DAILY', key: 'MISTRI_TILES', label: 'Mistri (tiles)', unit: 'DAY', ratePaisa: rs(3200), overtimeMultiplier: 1.5 },
-  { kind: 'DAILY', key: 'MAZDOOR', label: 'Mazdoor', unit: 'DAY', ratePaisa: rs(1600), overtimeMultiplier: 1.5 },
-  { kind: 'DAILY', key: 'STEEL_FIXER_HELPER', label: 'Steel-fixer helper', unit: 'DAY', ratePaisa: rs(1800), overtimeMultiplier: 1.5 },
-  { kind: 'DAILY', key: 'CHOWKIDAR', label: 'Chowkidar', unit: 'DAY', ratePaisa: rs(1200), overtimeMultiplier: 1.5 },
+  { kind: 'DAILY', key: 'MISTRI', label: 'Mason', labelRoman: 'Mistri', labelUrdu: 'مستری', unit: 'DAY', ratePaisa: rs(2800), overtimeMultiplier: 1.5 },
+  { kind: 'DAILY', key: 'MISTRI_TILES', label: 'Tile mason', labelRoman: 'Mistri (tiles)', labelUrdu: 'ٹائل مستری', unit: 'DAY', ratePaisa: rs(3200), overtimeMultiplier: 1.5 },
+  { kind: 'DAILY', key: 'MAZDOOR', label: 'Labourer', labelRoman: 'Mazdoor', labelUrdu: 'مزدور', unit: 'DAY', ratePaisa: rs(1600), overtimeMultiplier: 1.5 },
+  {
+    kind: 'DAILY',
+    key: 'STEEL_FIXER_HELPER',
+    label: 'Steel-fixer helper',
+    labelRoman: 'Steel fixer helper',
+    labelUrdu: 'اسٹیل فکسر ہیلپر',
+    unit: 'DAY',
+    ratePaisa: rs(1800),
+    overtimeMultiplier: 1.5,
+  },
+  { kind: 'DAILY', key: 'CHOWKIDAR', label: 'Watchman', labelRoman: 'Chowkidar', labelUrdu: 'چوکیدار', unit: 'DAY', ratePaisa: rs(1200), overtimeMultiplier: 1.5 },
   { kind: 'SUBCONTRACT', key: 'SHUTTERING', label: 'Shuttering', unit: 'SQFT', ratePaisa: rs(45) },
   { kind: 'SUBCONTRACT', key: 'STEEL_FIXING', label: 'Steel fixing', unit: 'TON', ratePaisa: rs(9000) },
   { kind: 'SUBCONTRACT', key: 'BRICK_MASONRY', label: 'Brick masonry', unit: 'BRICK', ratePaisa: rs(9) },

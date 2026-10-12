@@ -39,8 +39,12 @@ describe('GET /sync/pull — snapshot', () => {
     const d = await pull(auth);
     expect(d.resetRequired).toBe(false);
     expect(BigInt(d.cursor)).toBeGreaterThan(0n);
-    const bad = [...keys(d.changes)].filter((k) => FORBIDDEN.test(k));
+    // worker_types carry the company's daily wages (`ratePaisa`), which a munshi may see like workers' dailyRatePaisa.
+    const { worker_types: workerTypes, ...rest } = d.changes;
+    const bad = [...keys(rest)].filter((k) => FORBIDDEN.test(k));
     expect(bad).toEqual([]);
+    expect(workerTypes!.upserts.map((t) => t['key'])).toEqual(expect.arrayContaining(['MISTRI', 'MAZDOOR']));
+    expect(Object.keys(workerTypes!.upserts[0]!).sort()).toEqual(['id', 'isActive', 'key', 'label', 'labelRoman', 'labelUrdu', 'overtimeMultiplier', 'ratePaisa', 'updatedAt']);
     const dha = seeded().projects.dha.id;
     expect(d.changes['projects']!.upserts.map((p) => p['id'])).toEqual([dha]);
     for (const t of ['attendance', 'settlements', 'advances', 'work_measurements', 'daily_logs', 'material_usage', 'owner_deliveries', 'project_workers', 'subcontract_assignments']) {

@@ -63,26 +63,43 @@ function baseCookie(): CookieOptions {
   };
 }
 
-function setAuthCookies(res: Response, audience: Audience, tokens: IssuedTokens): void {
+/** Marker sent with refresh requests: the sign-in chose "don't remember me" (session cookies only). */
+const sessionOnlyCookie = (audience: Audience) => `${COOKIES[audience].refresh}_session`;
+
+/**
+ * `persist` false ("remember me" unticked): no maxAge, so the browser drops the cookies when it
+ * closes; a marker cookie keeps that choice across token refreshes.
+ */
+function setAuthCookies(res: Response, audience: Audience, tokens: IssuedTokens, persist: boolean, hadSessionMarker: boolean): void {
   const names = COOKIES[audience];
   res.cookie(names.access, tokens.accessToken, {
     ...baseCookie(),
     sameSite: 'lax',
     path: '/',
-    maxAge: accessTokenTtlSeconds * 1000,
+    ...(persist ? { maxAge: accessTokenTtlSeconds * 1000 } : {}),
   });
   res.cookie(names.refresh, tokens.refreshToken, {
     ...baseCookie(),
     sameSite: 'strict',
     path: names.refreshPath,
-    maxAge: env.REFRESH_TOKEN_TTL_DAYS * 86_400_000,
+    ...(persist ? { maxAge: env.REFRESH_TOKEN_TTL_DAYS * 86_400_000 } : {}),
   });
+  // Only clear a marker the browser actually sent (no empty Set-Cookie on every remembered sign-in).
+  if (persist) {
+    if (hadSessionMarker) res.clearCookie(sessionOnlyCookie(audience), { ...baseCookie(), sameSite: 'strict', path: names.refreshPath });
+  } else res.cookie(sessionOnlyCookie(audience), '1', { ...baseCookie(), sameSite: 'strict', path: names.refreshPath });
+}
+
+/** On refresh: keep the sign-in's "remember me" choice. */
+export function rememberedChoice(req: Request, audience: Audience): boolean {
+  return req.cookies?.[sessionOnlyCookie(audience)] !== '1';
 }
 
 export function clearAuthCookies(res: Response, audience: Audience): void {
   const names = COOKIES[audience];
   res.clearCookie(names.access, { ...baseCookie(), sameSite: 'lax', path: '/' });
   res.clearCookie(names.refresh, { ...baseCookie(), sameSite: 'strict', path: names.refreshPath });
+  res.clearCookie(sessionOnlyCookie(audience), { ...baseCookie(), sameSite: 'strict', path: names.refreshPath });
 }
 
 /**
@@ -94,6 +111,10 @@ export function deliverTokens(
   client: Client,
   audience: Audience,
   tokens: IssuedTokens,
+  /** Web only: false = cookies end with the browser session. */
+  persist = true,
+  /** The request carried the session-only marker (so a remembered sign-in must clear it). */
+  hadSessionMarker = false,
 ): { accessTokenExpiresIn: number; accessToken?: string; refreshToken?: string } {
   if (client === 'mobile') {
     return {
@@ -102,7 +123,7 @@ export function deliverTokens(
       refreshToken: tokens.refreshToken,
     };
   }
-  setAuthCookies(res, audience, tokens);
+  setAuthCookies(res, audience, tokens, persist, hadSessionMarker);
   return { accessTokenExpiresIn: tokens.accessTokenExpiresIn };
 }
 

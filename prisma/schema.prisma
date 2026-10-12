@@ -763,15 +763,6 @@ enum LaborUnit {
   LUMPSUM
 }
 
-enum WorkerType {
-  MISTRI
-  MISTRI_TILES
-  MAZDOOR
-  STEEL_FIXER_HELPER
-  CHOWKIDAR
-  OTHER
-}
-
 enum BillingModel {
   STAGE_SCHEDULE
   RUNNING_BILLS
@@ -895,16 +886,22 @@ model MaterialRate {
 }
 
 /// Labour price list: daily wages and sub-contract (piece) rates.
+/// The DAILY rows are the company's worker types (Mason, Labourer, Electrician, ...).
 model LaborRate {
   id                 String        @id @default(uuid(7)) @db.Uuid
   tenantId           String        @db.Uuid
   kind               LaborRateKind
   /// MISTRI, MAZDOOR, ... (DAILY) / SHUTTERING, PLASTER, ... (SUBCONTRACT)
   key                String
+  /// English name
   label              String
+  labelRoman         String?
+  labelUrdu          String?
   unit               LaborUnit
   ratePaisa          BigInt
   overtimeMultiplier Decimal?      @db.Decimal(4, 2)
+  /// DAILY: an inactive worker type cannot be given to new workers (existing workers keep it).
+  isActive           Boolean       @default(true)
   createdAt          DateTime      @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime      @updatedAt @db.Timestamptz(3)
   tenant             Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -963,7 +960,8 @@ model Worker {
   id              String               @id @default(uuid(7)) @db.Uuid
   tenantId        String               @db.Uuid
   name            String
-  type            WorkerType
+  /// A DAILY LaborRate key of the company (MISTRI, MAZDOOR, ELECTRICIAN, ...) or "OTHER"
+  type            String
   phone           String?
   dailyRatePaisa  BigInt
   isActive        Boolean              @default(true)

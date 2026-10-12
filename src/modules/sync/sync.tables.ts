@@ -106,6 +106,13 @@ export const TABLES: TableDef[] = [
       ).map(S.serializeWorker),
   },
   {
+    // The company's worker types (DAILY labour rates), active and inactive — a worker may keep a deactivated type.
+    name: 'worker_types',
+    sources: ['LaborRate'],
+    load: async (tx, sc, ids) =>
+      (await tx.laborRate.findMany({ where: { tenantId: sc.a.tenantId, kind: 'DAILY', ...byIds(ids) }, orderBy: [{ isActive: 'desc' }, { label: 'asc' }] })).map(S.serializeWorkerType),
+  },
+  {
     name: 'project_workers',
     sources: ['ProjectWorker'],
     load: async (tx, sc, ids) => (await tx.projectWorker.findMany({ where: { tenantId: sc.a.tenantId, ...byIds(ids), projectId: { in: sc.projectIds } } })).map(S.serializeProjectWorker),

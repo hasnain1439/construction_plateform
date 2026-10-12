@@ -18,14 +18,14 @@ import type {
   UpdateMeInput,
 } from './auth.schema.js';
 import * as auth from './auth.service.js';
-import { clearAuthCookies, deliverTokens, readRefreshToken } from './token.service.js';
+import { clearAuthCookies, deliverTokens, readRefreshToken, rememberedChoice } from './token.service.js';
 import { env } from '../../config/env.js';
 import { MOBILE_MAX_BYTES } from '../attachments/fileTypes.js';
 import { OTP_RESEND_SECONDS } from './otp.service.js';
 
-function authResponse(res: Response, client: 'web' | 'mobile', result: auth.AuthResult) {
+function authResponse(res: Response, client: 'web' | 'mobile', result: auth.AuthResult, persist = true, req?: Request) {
   const { tokens, ...rest } = result;
-  return { ...rest, ...deliverTokens(res, client, 'company', tokens) };
+  return { ...rest, ...deliverTokens(res, client, 'company', tokens, persist, req ? !rememberedChoice(req, 'company') : false) };
 }
 
 export async function signup(req: Request, res: Response) {
@@ -36,7 +36,7 @@ export async function signup(req: Request, res: Response) {
 
 export async function login(req: Request, res: Response) {
   const body = req.body as LoginInput;
-  return ok(res, authResponse(res, body.client, await auth.login(body)));
+  return ok(res, authResponse(res, body.client, await auth.login(body), body.rememberMe !== false, req));
 }
 
 export async function requestOtp(req: Request, res: Response) {
@@ -53,7 +53,7 @@ export async function refresh(req: Request, res: Response) {
   const token = readRefreshToken(req, 'company', body.client === 'mobile' ? body.refreshToken : undefined);
   try {
     const { tokens } = await auth.refresh(token);
-    return ok(res, deliverTokens(res, body.client, 'company', tokens));
+    return ok(res, deliverTokens(res, body.client, 'company', tokens, rememberedChoice(req, 'company')));
   } catch (err) {
     if (body.client === 'web') clearAuthCookies(res, 'company');
     throw err;
@@ -103,7 +103,7 @@ export async function acceptInvitation(req: Request, res: Response) {
 export async function adminLogin(req: Request, res: Response) {
   const body = req.body as AdminLoginInput;
   const { tokens, admin: profile } = await admin.adminLogin(body);
-  return ok(res, { admin: profile, ...deliverTokens(res, body.client, 'platform', tokens) });
+  return ok(res, { admin: profile, ...deliverTokens(res, body.client, 'platform', tokens, body.rememberMe !== false, !rememberedChoice(req, 'platform')) });
 }
 
 export async function adminRefresh(req: Request, res: Response) {
@@ -111,7 +111,7 @@ export async function adminRefresh(req: Request, res: Response) {
   const token = readRefreshToken(req, 'platform', body.client === 'mobile' ? body.refreshToken : undefined);
   try {
     const { tokens } = await admin.adminRefresh(token);
-    return ok(res, deliverTokens(res, body.client, 'platform', tokens));
+    return ok(res, deliverTokens(res, body.client, 'platform', tokens, rememberedChoice(req, 'platform')));
   } catch (err) {
     if (body.client === 'web') clearAuthCookies(res, 'platform');
     throw err;

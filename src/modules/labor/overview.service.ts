@@ -8,6 +8,7 @@ import { NotFound } from '../../core/errors/AppError.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
 import { totalsOf } from '../cashbook/cash.js';
 import { pktDayEnd, pktDayStart } from '../inventory/inventory.service.js';
+import { labelsOf, typeLabels } from '../master-data/workerTypes.service.js';
 import { projectScope } from '../projects/access.js';
 import { advanceState } from './advances.service.js';
 import { toAssignmentDto } from './assignments.service.js';
@@ -39,8 +40,9 @@ export async function workerSummary(workerId: string) {
     const week = weekOf(today(), s.weekStart);
     const thisWeek = await tx.attendance.findMany({ where: { tenantId: a.tenantId, workerId, date: { gte: dateOnly(week.weekStart), lte: dateOnly(week.weekEnd) }, ...scope } });
     const outstanding = advances.reduce((sum, adv) => sum + advanceState(adv).outstanding, 0n);
+    const t = labelsOf(await typeLabels(tx, a.tenantId), worker.type);
     return {
-      worker: { ...worker, dailyRatePaisa: worker.dailyRatePaisa.toString() },
+      worker: { ...worker, typeLabel: t.label, typeLabelRoman: t.labelRoman, typeLabelUrdu: t.labelUrdu, dailyRatePaisa: worker.dailyRatePaisa.toString() },
       projects: assignments.map((pw) => ({
         projectWorkerId: pw.id,
         project: pw.project,
