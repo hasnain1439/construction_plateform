@@ -37,7 +37,7 @@ describe('invitations', () => {
       .set(bearer(s.accessToken))
       .send({ name: 'Usman Ghani', phone: '0345-1112233', role: 'PM', projectIds: [dha.id], canSeeFinancials: true });
     expect(res.status).toBe(201);
-    expect(res.body.data).toMatchObject({ status: 'PENDING', devInviteUrl: expect.stringContaining('/invite/') });
+    expect(res.body.data).toMatchObject({ status: 'PENDING', inviteUrl: expect.stringContaining('/invite/'), devInviteUrl: expect.stringContaining('/invite/') });
     const days = (new Date(res.body.data.expiresAt).getTime() - Date.now()) / 86_400_000;
     expect(days).toBeGreaterThan(6.9);
 

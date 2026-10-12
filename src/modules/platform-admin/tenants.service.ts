@@ -347,6 +347,8 @@ export async function createTenant(input: CreateTenantInput) {
         id: invitation.id,
         status: invitation.status,
         expiresAt: invitation.expiresAt.toISOString(),
+        // Shown to the platform admin so they can share it with the owner themselves.
+        inviteUrl: inviteUrl(token),
         ...(isProduction ? {} : { devInviteUrl: inviteUrl(token) }),
       },
     },

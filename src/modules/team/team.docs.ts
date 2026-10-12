@@ -231,7 +231,7 @@ export function registerTeamDocs(): void {
     description:
       'THEKEDAR only. Sends an SMS (Roman Urdu) with a one-time link valid 7 days. ' +
       'A PM invite reserves an office seat (active THEKEDAR + PM + pending PM invites ≤ plan limit). ' +
-      'In development the response includes `devInviteUrl`.',
+      'The response includes `inviteUrl` (the one-time link) so the inviter can share it on WhatsApp / SMS too.',
     security: companySecurity,
     request: {
       body: jsonBody(createInvitationBody, {
@@ -246,7 +246,7 @@ export function registerTeamDocs(): void {
         content: {
           'application/json': {
             schema: success(invitationSentDto),
-            example: { success: true, data: { id: '0199…', status: 'PENDING', expiresAt: '2026-10-10T12:00:00.000Z', devInviteUrl: 'http://localhost:3000/invite/…' } },
+            example: { success: true, data: { id: '0199…', status: 'PENDING', expiresAt: '2026-10-10T12:00:00.000Z', inviteUrl: 'https://app.example.pk/invite/…' } },
           },
         },
       },

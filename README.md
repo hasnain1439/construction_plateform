@@ -118,6 +118,10 @@ Mail is best effort: a failed email never fails the request (the link can be res
 
 A Munshi signs in on the mobile app with **phone + code** or **phone + password**. The password is chosen when accepting the invite (optional for a Munshi) or set later by the Thekedar (`PUT /users/:id/password`).
 
+### Remember me (web)
+
+`POST /auth/login` and `POST /admin/auth/login` accept `rememberMe` (default `true`). With `false` the auth cookies are session cookies (no expiry, gone when the browser closes) and a `<refresh cookie>_session` marker keeps that choice when `/auth/refresh` rotates the tokens.
+
 ### Seed accounts (`npm run db:seed`)
 
 | Who | Login | Password |
@@ -236,7 +240,7 @@ The seed adds the fixed-date national holidays (Kashmir Day, Pakistan Day, Labou
 - `POST /users/:id/reactivate` (PM re-checks the seat limit), `PUT /users/:id/projects` replaces the project list in one transaction (`400 INVALID_PROJECT` for ids outside the company, `400 THEKEDAR_HAS_ALL_PROJECTS`).
 
 **Invitations** (`/api/v1/invitations`, THEKEDAR; the public accept route stays in Auth)
-- `POST` sends a Roman Urdu SMS — *"Malik & Sons Builders ne aap ko Project Manager ke taur par invite kiya hai: <APP_URL>/invite/<token>"*. The token is random, stored only as a hash, valid 7 days. `409 ALREADY_MEMBER`, `409 INVITE_PENDING`; PM invites count **pending PM invites** against the seat limit. Non-production responses include `devInviteUrl`.
+- `POST` sends a Roman Urdu SMS — *"Malik & Sons Builders ne aap ko Project Manager ke taur par invite kiya hai: <APP_URL>/invite/<token>"*. The token is random, stored only as a hash, valid 7 days. `409 ALREADY_MEMBER`, `409 INVITE_PENDING`; PM invites count **pending PM invites** against the seat limit. Responses include `inviteUrl` (the one-time link) so the inviter can also share it on WhatsApp / SMS / copy; a resend makes a new link and the old one stops working. (`devInviteUrl`, the same link, is still returned outside production.)
 - `GET` (status default PENDING; overdue ones are flipped to EXPIRED on read), `POST /:id/resend` (PENDING/EXPIRED, new link, once per 60 s → `429 INVITE_RESEND_WAIT`), `DELETE /:id` (cancel; accepting then gives `410 INVITE_CANCELLED`).
 
 **Devices** (`/api/v1/devices`, THEKEDAR)

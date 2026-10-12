@@ -84,7 +84,7 @@ export function registerPlatformAdminDocs(): void {
     description:
       'One transaction: company, settings, subscription (TRIAL, or PAID = ACTIVE 30 days + an approved payment with a receipt number) ' +
       'and a 7-day **THEKEDAR invitation** for the owner (sent by SMS). The owner sets a password by accepting it. ' +
-      '`devInviteUrl` is returned outside production.',
+      'The response includes `inviteUrl` (the one-time owner link) so the admin can share it on WhatsApp / SMS too.',
     request: {
       body: jsonBody(createTenantBody, {
         trial: ex('14-day trial on Professional', {
@@ -104,7 +104,7 @@ export function registerPlatformAdminDocs(): void {
       ...createdResp('Created', {
         tenant: { id: '0199…', name: 'Lahore Grand Builders', slug: 'lahore-grand-builders', status: 'ACTIVE' },
         subscription: { status: 'TRIAL', plan: { code: 'PROFESSIONAL', name: 'Professional' }, trialEndsAt: '2026-10-19T09:00:00.000Z', currentPeriodEnd: null, receiptNo: null },
-        owner: { name: 'Imran Qureshi', phone: '+923452223334', invitation: { id: '0199…', status: 'PENDING', expiresAt: '2026-10-12T09:00:00.000Z', devInviteUrl: 'http://localhost:3000/invite/…' } },
+        owner: { name: 'Imran Qureshi', phone: '+923452223334', invitation: { id: '0199…', status: 'PENDING', expiresAt: '2026-10-12T09:00:00.000Z', inviteUrl: 'https://app.example.pk/invite/…' } },
       }),
       ...errors({
         ...AUTH,

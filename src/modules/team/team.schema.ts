@@ -114,7 +114,8 @@ export const invitationSentDto = z
     id: z.uuid(),
     status: invitationStatusSchema,
     expiresAt: z.iso.datetime(),
-    devInviteUrl: z.string().optional().meta({ description: 'Development only — never returned in production' }),
+    inviteUrl: z.string().meta({ description: 'The one-time invite link, for the inviter to share (WhatsApp / SMS / copy). A resend makes a new link and the old one stops working.' }),
+    devInviteUrl: z.string().optional().meta({ description: 'Deprecated: same as inviteUrl, development only' }),
   })
   .meta({ id: 'InvitationSent' });
 
