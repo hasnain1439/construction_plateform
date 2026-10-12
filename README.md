@@ -4,6 +4,8 @@ Multi-tenant backend for a Construction Management SaaS. Express 5 · TypeScript
 
 Tenant = construction company. Company users are `THEKEDAR` (owner), `PM` (project manager) and `MUNSHI` (site supervisor, phone OTP). Platform owners are `PLATFORM_ADMIN` in a separate table.
 
+Changelog: see [CHANGELOG.md](CHANGELOG.md).
+
 ## Getting started
 
 ```bash
