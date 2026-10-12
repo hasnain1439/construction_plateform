@@ -42,6 +42,8 @@ function sentDto(row: { id: string; status: InvitationSentDto['status']; expires
     id: row.id,
     status: row.status,
     expiresAt: row.expiresAt.toISOString(),
+    // The inviter may share the link themselves (WhatsApp / SMS / copy) when the SMS is slow.
+    inviteUrl: inviteUrl(token),
     ...(isProduction ? {} : { devInviteUrl: inviteUrl(token) }),
   };
 }

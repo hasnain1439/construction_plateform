@@ -88,7 +88,7 @@ describe('POST /admin/tenants', () => {
     expect(trialDays).toBeGreaterThan(9.9);
     expect(trialDays).toBeLessThanOrEqual(10);
 
-    const token = /\/invite\/([A-Za-z0-9_-]+)$/.exec(res.body.data.owner.invitation.devInviteUrl)![1]!;
+    const token = /\/invite\/([A-Za-z0-9_-]+)$/.exec(res.body.data.owner.invitation.inviteUrl)![1]!;
     expect(lastSmsTo('+923452223334')!.body).toContain(token);
 
     const noPassword = await api().post(`/api/v1/invitations/${token}/accept`).send({ client: 'web' });
