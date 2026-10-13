@@ -3,6 +3,7 @@
  * and the dashboard overview (hazri today, peshgi and kharcha this week, cash with site
  * staff, what waits for approval). PM: only their projects.
  */
+import { assertPerm, can, scopeAll } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { NotFound } from '../../core/errors/AppError.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
@@ -12,14 +13,14 @@ import { labelsOf, typeLabels } from '../master-data/workerTypes.service.js';
 import { projectScope } from '../projects/access.js';
 import { advanceState } from './advances.service.js';
 import { toAssignmentDto } from './assignments.service.js';
-import { actor, addDays, assertOffice, laborSettings, today, weekOf, type Actor } from './labor.shared.js';
+import { actor, addDays, laborSettings, today, weekOf, type Actor } from './labor.shared.js';
 import { accountDto, subAccounts } from './subcontractLedger.js';
 
 const projectRef = { select: { id: true, code: true, name: true, status: true } } as const;
 
 export async function workerSummary(workerId: string) {
   const a = actor();
-  assertOffice(a);
+  assertPerm('labor.account.view', a);
   return withTenant(a.tenantId, async (tx) => {
     const worker = await tx.worker.findFirst({ where: { tenantId: a.tenantId, id: workerId }, select: { id: true, name: true, type: true, phone: true, dailyRatePaisa: true, isActive: true } });
     if (!worker) throw new NotFound('WORKER_NOT_FOUND', 'Worker not found');
@@ -71,7 +72,7 @@ export async function workerSummary(workerId: string) {
 
 export async function subcontractorSummary(subcontractorId: string) {
   const a = actor();
-  assertOffice(a);
+  assertPerm('labor.account.view', a);
   return withTenant(a.tenantId, async (tx) => {
     const sub = await tx.subcontractor.findFirst({ where: { tenantId: a.tenantId, id: subcontractorId }, select: { id: true, name: true, trade: true, phone: true, isActive: true } });
     if (!sub) throw new NotFound('SUBCONTRACTOR_NOT_FOUND', 'Sub-contractor not found');
@@ -90,7 +91,7 @@ export async function subcontractorSummary(subcontractorId: string) {
 /** Dashboard: today's hazri and this week's money across the caller's projects. */
 export async function laborOverview() {
   const a = actor();
-  assertOffice(a);
+  assertPerm('dashboard.overview.view', a);
   return withTenant(a.tenantId, async (tx) => {
     const projects = await tx.project.findMany({ where: { tenantId: a.tenantId, status: { in: ['ACTIVE', 'CLOSEOUT'] }, ...projectScope(a) }, select: { id: true } });
     return laborOverviewTx(tx, a, projects.map((p) => p.id));
@@ -110,13 +111,13 @@ export async function laborOverviewTx(tx: Tx, a: Actor, ids: string[]) {
     where: { tenantId: a.tenantId, projectId: { in: ids }, type: 'EXPENSE', occurredAt: { gte: pktDayStart(week.weekStart), lt: pktDayEnd(week.weekEnd) } },
     _sum: { amountPaisa: true },
   });
-  const accountWhere = a.role === 'THEKEDAR' ? { tenantId: a.tenantId, isActive: true } : { tenantId: a.tenantId, isActive: true, OR: [{ holderUserId: a.userId }, { holder: { projectAccess: { some: { projectId: { in: ids } } } } }] };
+  const accountWhere = scopeAll('cashbook.account.view', a) ? { tenantId: a.tenantId, isActive: true } : { tenantId: a.tenantId, isActive: true, OR: [{ holderUserId: a.userId }, { holder: { projectAccess: { some: { projectId: { in: ids } } } } }] };
   const accounts = await tx.cashAccount.findMany({ where: accountWhere, select: { id: true } });
   const totals = [...(await totalsOf(tx, a.tenantId, accounts.map((x) => x.id))).values()];
   const pending = {
     settlements: await tx.wageSettlement.count({ where: { tenantId: a.tenantId, projectId: { in: ids }, status: 'SUBMITTED' } }),
-    kharcha: await tx.cashEntry.count({ where: { tenantId: a.tenantId, type: 'EXPENSE', status: 'PENDING_APPROVAL', OR: [{ projectId: { in: ids } }, ...(a.role === 'THEKEDAR' ? [{ projectId: null }] : [])] } }),
-    topups: a.role === 'THEKEDAR' ? await tx.topupRequest.count({ where: { tenantId: a.tenantId, status: 'PENDING' } }) : 0,
+    kharcha: await tx.cashEntry.count({ where: { tenantId: a.tenantId, type: 'EXPENSE', status: 'PENDING_APPROVAL', OR: [{ projectId: { in: ids } }, ...(scopeAll('cashbook.expense.view', a) ? [{ projectId: null }] : [])] } }),
+    topups: can('cashbook.topup.approve', a) ? await tx.topupRequest.count({ where: { tenantId: a.tenantId, status: 'PENDING' } }) : 0,
     measurements: await tx.workMeasurement.count({ where: { tenantId: a.tenantId, projectId: { in: ids }, status: 'RECORDED' } }),
   };
   return {

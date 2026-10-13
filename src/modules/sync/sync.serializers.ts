@@ -1,16 +1,20 @@
 /**
  * Sync serializers — the ONE place that decides what a phone may see of each row. They mirror
  * the REST visibility rules: never material rates, purchase amounts, supplier balances,
- * contract values or other people's cash; a MUNSHI never sees sub-contract rates or measured
- * values, and with blind count on he does not see sent / challan quantities until he counts.
+ * contract values or other people's cash; sub-contract rates only with fields.rates (never a
+ * MUNSHI by default), no measured values, and with blind count on he does not see sent / challan quantities until he counts.
  * Wages, peshgi and his own cash are allowed.
  */
+import { visible } from '../../core/auth/fieldStrip.js';
+import type { FieldAccess } from '../../core/auth/access.js';
 import { formatDateOnly } from '../../core/utils/dates.js';
 import { UNIT_OF } from '../labor/assignments.service.js';
 
 export interface SyncViewer {
   userId: string;
   role: 'THEKEDAR' | 'PM' | 'MUNSHI';
+  /** Field permissions — values are stripped with the shared helper (core/auth/fieldStrip.ts), like REST. */
+  fields: FieldAccess;
   /** Company setting: receiving hides expected quantities from a MUNSHI until counted. */
   blindCount: boolean;
 }
@@ -119,7 +123,7 @@ export const serializeAssignment = (
   progressPercent: num(s.progressPercent),
   startDate: day(s.startDate),
   isActive: s.isActive,
-  ...(isMunshi(v) ? {} : { ratePaisa: paisa(s.ratePaisa), contractValuePaisa: paisa(s.contractValuePaisa), retentionPercent: num(s.retentionPercent) }),
+  ...visible(v.fields, 'rates', { ratePaisa: paisa(s.ratePaisa), contractValuePaisa: paisa(s.contractValuePaisa), retentionPercent: num(s.retentionPercent) }),
 });
 
 export const serializeAttendance = (r: { id: string; projectId: string; workerId: string; date: Date; status: string; overtimeHours: Dec; note: string | null; clientId: string | null; deviceCreatedAt: Date | null; createdAt: Date }) => ({

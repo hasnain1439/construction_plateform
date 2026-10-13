@@ -29,7 +29,8 @@ describe('POST /auth/signup', () => {
     // Slug collides with the seeded company → suffixed
     expect(data.tenant).toMatchObject({ name: 'Malik & Sons Builders', slug: 'malik-and-sons-builders-2', region: 'KARACHI_SINDH', marlaStandard: 272.25, readOnly: false });
     expect(data.subscription).toMatchObject({ plan: { code: 'TRIAL' }, status: 'TRIAL' });
-    expect(data.permissions).toContain('users.manage');
+    expect(data.permissions).toContain('team.member.manage');
+    expect(data.legacyPermissions).toContain('users.manage');
 
     const tenant = await prismaAdmin.tenant.findUniqueOrThrow({
       where: { id: data.tenant.id },

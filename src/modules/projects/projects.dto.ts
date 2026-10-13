@@ -3,6 +3,8 @@
  * amounts) are **omitted** — not null — unless the caller has billing.view. MUNSHI gets
  * the basic fields only.
  */
+import { visible } from '../../core/auth/fieldStrip.js';
+import { can, fieldAccess } from '../../core/auth/access.js';
 import { formatDateOnly } from '../../core/utils/dates.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { Caller } from './access.js';
@@ -13,7 +15,8 @@ import type { FloorWithRooms, ProjectFull, ProjectListRow, RoomWithOpenings } fr
 type Dec = Prisma.Decimal | null;
 export const num = (d: Dec) => (d === null ? null : Number(d));
 const day = (d: Date | null) => (d ? formatDateOnly(d) : null);
-const money = (c: Caller, key: string, v: bigint | null) => (c.seesFinancials ? { [key]: v === null ? null : v.toString() } : {});
+/** Contract money (value, rate, stage amounts) — the fields.contract field permission. */
+const money = (c: Caller, key: string, v: bigint | null) => visible(c.fields ?? fieldAccess(c), 'contract', { [key]: v === null ? null : v.toString() });
 
 type Access = ProjectListRow['userAccess'];
 function team(access: Access) {
@@ -100,19 +103,21 @@ export function contractTotalPaisa(p: Pick<ProjectFull, 'contractType' | 'contra
 }
 
 export function toDetailDto(p: ProjectFull, c: Caller) {
+  // Site accounts see the basic view unless they may edit projects.
+  const basicOnly = c.role === 'MUNSHI' && !can('projects.project.edit', c);
   const basic = {
     id: p.id,
     code: p.code,
     name: p.name,
     status: p.status,
-    client: p.client ? (c.role === 'MUNSHI' ? { id: p.client.id, name: p.client.name } : p.client) : null,
+    client: p.client ? (basicOnly ? { id: p.client.id, name: p.client.name } : p.client) : null,
     siteAddress: p.siteAddress,
     city: p.city,
     startDate: day(p.startDate),
     endDate: day(p.endDate),
     team: team(p.userAccess),
   };
-  if (c.role === 'MUNSHI') return basic;
+  if (basicOnly) return basic;
 
   return {
     ...basic,

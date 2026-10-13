@@ -1,17 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { seedMalikInventory } from '../../prisma/seedInventory.js';
-import { seedMalikLabor } from '../../prisma/seedLabor.js';
 import { prismaAdmin } from '../../src/core/db/prisma.js';
 import { uuidv7 } from '../../src/core/utils/uuid.js';
 import { bearer, loginMunshi, useFreshDatabase } from '../helpers.js';
+import { seedMalikStockAndLabor } from '../dashboard/fixtures.js';
 import { api, owner, today } from '../labor/fixtures.js';
 
 const seeded = useFreshDatabase();
 beforeEach(async () => {
-  const s = seeded();
-  const base = { tenantId: s.malik.id, ownerId: s.users.khalid.id, bilalId: s.users.bilal.id, rafaqatId: s.users.rafaqatMalik.id, projects: s.projects };
-  await seedMalikInventory(prismaAdmin, base);
-  await seedMalikLabor(prismaAdmin, { ...base, asifId: s.users.asif.id });
+  await seedMalikStockAndLabor(seeded());
 });
 
 const DAY = 86_400_000;

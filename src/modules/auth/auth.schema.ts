@@ -269,12 +269,27 @@ export const subscriptionDto = z
   })
   .meta({ id: 'Subscription' });
 
+/** Effective permissions of the signed-in user (same fields on login results, /auth/me and /sync/pull). */
+export const accessFields = {
+  permissions: z.array(z.string()).meta({ description: 'Effective permission keys (see GET /permissions/catalog). THEKEDAR: every key.' }),
+  legacyPermissions: z.array(z.string()).meta({ description: 'Deprecated: the old 8 coarse permissions (billing.view, rates.view, …) derived from the keys' }),
+  fieldAccess: z
+    .object({ rates: z.boolean(), amounts: z.boolean(), profit: z.boolean(), contract: z.boolean() })
+    .meta({ description: 'Field permissions (fields.rates / amounts / profit / contract): which values the API sends this user' }),
+  scopes: z.record(z.string(), z.enum(['ASSIGNED_PROJECTS', 'ALL_PROJECTS'])).meta({ description: 'Scope of every held project-data key' }),
+  approvalLimits: z.record(z.string(), z.string().nullable()).meta({ description: 'Held approve keys → max paisa (string) or null = no limit' }),
+  permissionRole: z
+    .object({ id: z.uuid().nullable(), key: z.string().nullable(), name: z.string().nullable() })
+    .nullable()
+    .meta({ description: 'The role template (null for THEKEDAR)' }),
+};
+
 export const authResultDto = z
   .object({
     user: userDto,
     tenant: tenantDto,
     subscription: subscriptionDto.nullable(),
-    permissions: z.array(z.string()),
+    ...accessFields,
     accessTokenExpiresIn: z.number().meta({ example: 900, description: 'Seconds' }),
     accessToken: z.string().optional().meta({ description: 'Mobile only' }),
     refreshToken: z.string().optional().meta({ description: 'Mobile only' }),
@@ -286,7 +301,7 @@ export const meDto = z
     user: userDto,
     tenant: tenantDto,
     subscription: subscriptionDto.nullable(),
-    permissions: z.array(z.string()),
+    ...accessFields,
     assignedProjectIds: z.array(z.uuid()).meta({ description: 'Empty for THEKEDAR = all projects' }),
   })
   .meta({ id: 'Me' });

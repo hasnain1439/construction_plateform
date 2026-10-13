@@ -7,6 +7,7 @@
  * `amountPaisa` is the good quantity (counted − damaged) × rate, which is what enters stock.
  * A short or damaged line becomes a Shortage the owner settles (e.g. SUPPLIER_CREDIT).
  */
+import { can, fieldAccess, scopeAll } from '../../core/auth/access.js';
 import { NUMBER_FORMATS, nextNumber } from '../../core/db/counters.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../core/errors/AppError.js';
@@ -42,6 +43,7 @@ import type { CorrectionInput, CreatePurchaseInput, ListPurchasesQuery, ListRetu
 import { activeSupplier, deliveryLocation, refreshOrderStatus } from './purchaseOrders.service.js';
 import { PAID_FROM_METHOD, postCashPurchaseFromSiteCash, postLedger, recordPaymentTx } from './supplierLedger.service.js';
 import { lateSyncedIds } from '../sync/lateSync.js';
+import { track } from '../../core/observability/analytics.js';
 
 const purchaseNotFound = () => new NotFound('PURCHASE_NOT_FOUND', 'Purchase not found');
 const RECEIVED_STATUSES: PurchaseStatus[] = ['SAVED', 'RECEIVED', 'RECEIVED_WITH_SHORTAGE'];
@@ -183,10 +185,10 @@ async function toPurchaseDto(tx: Tx, p: PurchaseRow, a: Actor) {
   };
 }
 
-/** THEKEDAR all; PM store purchases + their sites; MUNSHI only their sites. */
+/** THEKEDAR (or scope ALL_PROJECTS) all; store purchases need inventory.store.view (PM yes, MUNSHI no); sites in scope. */
 function scope(a: Actor): Prisma.PurchaseWhereInput {
-  if (a.role === 'THEKEDAR') return {};
-  if (a.role === 'MUNSHI') return { deliverTo: 'SITE', project: projectScope(a) };
+  if (scopeAll('procurement.purchase.view', a)) return {};
+  if (!can('inventory.store.view', a)) return { deliverTo: 'SITE', project: projectScope(a) };
   return { OR: [{ deliverTo: 'STORE' }, { project: projectScope(a) }] };
 }
 
@@ -336,7 +338,8 @@ async function writeShortages(tx: Tx, a: Actor, p: { id: string; projectId: stri
  * photo may stand in for the challan. The cash already left with the kharcha entry.
  */
 export async function createPurchaseTx(tx: Tx, a: Actor, input: CreatePurchaseInput, opts: { at?: Date; kharcha?: boolean } = {}) {
-  const munshi = a.role === 'MUNSHI' || opts.kharcha === true;
+  // Without fields.rates (a munshi by default) a purchase is a site delivery without rates (PENDING_RATE).
+  const munshi = !fieldAccess(a).rates || opts.kharcha === true;
   if (munshi && input.deliverTo !== 'SITE') throw new Forbidden('FORBIDDEN', 'A munshi can only record purchases delivered to their site');
   if (munshi && (input.items.some((i) => i.ratePaisa !== undefined) || input.paymentMode !== 'UDHAAR' || input.paidNowPaisa !== undefined)) {
     throw new BadRequest('RATES_NOT_ALLOWED', 'Leave rates and payment empty — the office adds them');
@@ -458,7 +461,9 @@ export async function createPurchaseTx(tx: Tx, a: Actor, input: CreatePurchaseIn
 
 export async function createPurchase(input: CreatePurchaseInput) {
   const a = actor();
-  return withTenant(a.tenantId, (tx) => createPurchaseTx(tx, a, input));
+  const result = await withTenant(a.tenantId, (tx) => createPurchaseTx(tx, a, input));
+  track('purchase_saved', { kind: input.deliverTo, method: input.paymentMode });
+  return result;
 }
 
 export async function getPurchase(id: string) {

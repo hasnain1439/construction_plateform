@@ -11,6 +11,7 @@
  * - Payload ids may be the clientId of an earlier mutation or of an attachment uploaded with a
  *   clientId; they are replaced by the server ids before the service runs.
  */
+import { can } from '../../core/auth/access.js';
 import { z } from 'zod';
 import { logger } from '../../config/logger.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
@@ -40,6 +41,7 @@ import { createPurchaseTx, receivePurchaseTx } from '../procurement/purchases.se
 import { createPurchaseBody, receivePurchaseBody } from '../procurement/procurement.schema.js';
 import { sessionDevice, syncActor } from './sync.pull.js';
 import type { PushInput } from './sync.schema.js';
+import { track, type AnalyticsEvent, type AnalyticsProps } from '../../core/observability/analytics.js';
 
 const id = z.uuid();
 type Handler = { ref?: z.ZodObject; body: z.ZodType; run: (tx: Tx, a: Actor, ref: Record<string, string>, body: never) => Promise<unknown> };
@@ -75,6 +77,40 @@ export const HANDLERS: Record<string, Handler> = {
   SITE_PURCHASE_CREATE: { body: createPurchaseBody, run: (tx, a, _r, b) => createPurchaseTx(tx, a, b) },
 };
 export const MUTATION_TYPES = Object.keys(HANDLERS) as [string, ...string[]];
+
+/** Product analytics for mutations applied through sync (the REST services track their own). */
+const SYNC_EVENTS: Partial<Record<string, AnalyticsEvent>> = { ATTENDANCE_UPSERT: 'hazri_marked', SITE_PURCHASE_CREATE: 'purchase_saved' };
+
+function syncEventProps(type: string, payload: unknown): AnalyticsProps {
+  const p = (payload ?? {}) as { entries?: unknown; deliverTo?: unknown; paymentMode?: unknown };
+  if (type === 'ATTENDANCE_UPSERT') return { count: Array.isArray(p.entries) ? p.entries.length : undefined };
+  return { kind: typeof p.deliverTo === 'string' ? p.deliverTo : 'SITE', method: typeof p.paymentMode === 'string' ? p.paymentMode : undefined };
+}
+
+/**
+ * Mutation type → the permission it needs (the same key as the REST route it mirrors). Missing →
+ * REJECTED with PERMISSION_DENIED (details.permission); the services check scope and limits too.
+ */
+export const MUTATION_PERMISSIONS: Record<string, string> = {
+  WORKER_CREATE: 'masterdata.worker.create',
+  PROJECT_WORKER_ASSIGN: 'labor.team.create',
+  ATTENDANCE_UPSERT: 'labor.attendance.create',
+  ADVANCE_CREATE: 'labor.advance.create',
+  WORK_MEASUREMENT_CREATE: 'labor.measurement.create',
+  SETTLEMENT_GENERATE: 'labor.settlement.create',
+  SETTLEMENT_SUBMIT: 'labor.settlement.create',
+  SETTLEMENT_PAY: 'labor.wagepayment.create',
+  DISPATCH_RECEIVE: 'procurement.receiving.create',
+  PURCHASE_RECEIVE: 'procurement.receiving.create',
+  OWNER_DELIVERY_CREATE: 'inventory.ownerdelivery.create',
+  MATERIAL_USAGE_CREATE: 'inventory.usage.create',
+  STOCK_COUNT_CREATE: 'inventory.count.create',
+  CASH_EXPENSE_CREATE: 'cashbook.expense.create',
+  FLOAT_ACKNOWLEDGE: 'cashbook.account.view',
+  TOPUP_REQUEST_CREATE: 'cashbook.topup.create',
+  DAILY_LOG_UPSERT: 'dailylog.log.create',
+  SITE_PURCHASE_CREATE: 'procurement.purchase.create',
+};
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -188,6 +224,11 @@ export async function push(input: PushInput, pendingHeader: string | undefined) 
     }
 
     const handler = HANDLERS[m.type]!;
+    const needed = MUTATION_PERMISSIONS[m.type];
+    if (needed && !can(needed, a)) {
+      await reject('PERMISSION_DENIED', 'You do not have permission to do this', { permission: needed });
+      continue;
+    }
     try {
       const serverId = await withTenant(a.tenantId, async (tx) => {
         const payload = await resolveIds(tx, a.tenantId, { ...m.payload, clientId: m.clientId, ...(m.deviceCreatedAt ? { deviceCreatedAt: m.deviceCreatedAt } : {}) });
@@ -210,6 +251,8 @@ export async function push(input: PushInput, pendingHeader: string | undefined) 
         return sid;
       });
       done({ status: 'APPLIED', serverId, error: null });
+      const event = SYNC_EVENTS[m.type];
+      if (event) track(event, { source: 'sync', ...syncEventProps(m.type, m.payload) });
     } catch (err) {
       if (err instanceof z.ZodError) {
         await reject('VALIDATION_ERROR', 'The entry is not valid', zodDetails(err));
@@ -234,6 +277,11 @@ export async function push(input: PushInput, pendingHeader: string | undefined) 
   const pending = pendingHeader !== undefined && /^\d+$/.test(pendingHeader) ? Number(pendingHeader) : undefined;
   if (device) await withTenant(a.tenantId, (tx) => tx.device.update({ where: { id: device.id }, data: { lastSyncAt: new Date(), lastActiveAt: new Date(), ...(pending !== undefined ? { pendingUploads: pending } : {}) } }));
   const count = (st: PushStatus) => results.filter((r) => r.status === st).length;
+  const failed = results.filter((r) => r.status === 'REJECTED' || r.status === 'RETRY');
+  if (failed.length) {
+    // One event per batch (not per mutation); only the error code, never the payload.
+    track('sync_error', { kind: 'push', status: count('REJECTED') ? 'rejected' : 'retry', count: failed.length, error_code: failed[0]!.error?.code ?? 'UNKNOWN', source: 'sync' });
+  }
   return { results, applied: count('APPLIED'), duplicates: count('DUPLICATE'), rejected: count('REJECTED'), retry: count('RETRY') };
 }
 
@@ -242,7 +290,7 @@ export async function status() {
   const a = syncActor();
   return withTenant(a.tenantId, async (tx) => {
     const devices = await tx.device.findMany({
-      where: { tenantId: a.tenantId, ...(a.role === 'THEKEDAR' ? {} : { userId: a.userId }) },
+      where: { tenantId: a.tenantId, ...(can('team.member.manage', a) ? {} : { userId: a.userId }) },
       include: { user: { select: { id: true, name: true, role: true } } },
       orderBy: [{ lastSyncAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
     });

@@ -7,6 +7,8 @@
  *   RECOVER_FROM_DRIVER — the driver pays; the amount is recorded
  *   SUPPLIER_CREDIT     — purchase shortages: the supplier's ledger is credited with the value
  */
+import { fieldsOf, visible } from '../../core/auth/fieldStrip.js';
+import { assertPerm, scopeAll } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../core/errors/AppError.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
@@ -38,7 +40,7 @@ function toShortageDto(s: ShortageRow, a: Pick<Actor, 'seesRates'>) {
     status: s.status,
     material: materialRef(s.material),
     qty: qn(s.qty),
-    ...(a.seesRates ? { valuePaisa: s.valuePaisa.toString() } : {}),
+    ...visible(fieldsOf(a), 'rates', { valuePaisa: s.valuePaisa.toString() }),
     location: s.location,
     project: s.project,
     dispatch: s.dispatch ? { id: s.dispatch.id, number: s.dispatch.number, vehicleNo: s.dispatch.vehicleNo, driverName: s.dispatch.driverName, driverPhone: s.dispatch.driverPhone } : null,
@@ -47,7 +49,7 @@ function toShortageDto(s: ShortageRow, a: Pick<Actor, 'seesRates'>) {
     allowedResolutions: allowedFor(s),
     resolution: s.resolution,
     resolutionNote: s.resolutionNote,
-    ...(a.seesRates ? { recoveredAmountPaisa: s.recoveredAmountPaisa?.toString() ?? null } : {}),
+    ...visible(fieldsOf(a), 'rates', { recoveredAmountPaisa: s.recoveredAmountPaisa?.toString() ?? null }),
     newDispatch: s.newDispatch,
     resolvedBy: s.resolvedBy,
     resolvedAt: s.resolvedAt?.toISOString() ?? null,
@@ -63,7 +65,7 @@ export function allowedFor(s: Pick<ShortageRow, 'kind' | 'source'>): ShortageRes
 
 /** THEKEDAR all; PM the shortages of their projects (read only). */
 function scope(a: Actor): Prisma.ShortageWhereInput {
-  return a.role === 'THEKEDAR' ? {} : { project: projectScope(a) };
+  return scopeAll('procurement.shortage.view', a) ? {} : { project: projectScope(a) };
 }
 
 export async function listShortages(query: ListShortagesQuery) {
@@ -79,7 +81,7 @@ export async function listShortages(query: ListShortagesQuery) {
     const open = await tx.shortage.aggregate({ where: { tenantId: a.tenantId, ...scope(a), status: 'OPEN' }, _count: { _all: true }, _sum: { valuePaisa: true } });
     return {
       data: rows.map((s) => toShortageDto(s, a)),
-      meta: { ...pageMeta(query, total), openCount: open._count._all, ...(a.seesRates ? { openValuePaisa: (open._sum.valuePaisa ?? 0n).toString() } : {}) },
+      meta: { ...pageMeta(query, total), openCount: open._count._all, ...visible(fieldsOf(a), 'rates', { openValuePaisa: (open._sum.valuePaisa ?? 0n).toString() }) },
     };
   });
 }
@@ -146,7 +148,7 @@ export async function resolveShortageTx(tx: Tx, a: Actor, id: string, input: Res
     }
     case 'ACCEPT_LOSS':
       if (input.chargeToAssignmentId) {
-        if (a.role !== 'THEKEDAR') throw new Forbidden('FORBIDDEN', 'Only the owner can charge a loss to a sub-contractor');
+        assertPerm('labor.subcontract.manage', a, 'Only the owner can charge a loss to a sub-contractor');
         await chargeShortageToAssignment(tx, a, {
           assignmentId: input.chargeToAssignmentId,
           projectId: s.projectId,

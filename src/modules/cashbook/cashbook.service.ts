@@ -7,6 +7,7 @@
  * MUNSHI only their own. Anything else → 404.
  */
 import { logger } from '../../config/logger.js';
+import { assertApprovalLimit, assertPerm, can, scopeAll } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../core/errors/AppError.js';
@@ -36,7 +37,7 @@ import type {
 const accountNotFound = () => new NotFound('CASH_ACCOUNT_NOT_FOUND', 'Cash account not found');
 
 function visibleAccounts(a: Actor): Prisma.CashAccountWhereInput {
-  if (a.role === 'THEKEDAR') return { tenantId: a.tenantId };
+  if (scopeAll('cashbook.account.view', a)) return { tenantId: a.tenantId };
   if (a.role === 'MUNSHI') return { tenantId: a.tenantId, holderUserId: a.userId };
   return {
     tenantId: a.tenantId,
@@ -106,9 +107,9 @@ function entryDto(e: CashEntry & { project?: { id: string; code: string; name: s
 
 const projectRef = { project: { select: { id: true, code: true, name: true } } } as const;
 
-async function notify(phone: string, body: string) {
+async function notify(tenantId: string, phone: string, body: string) {
   await smsProvider()
-    .send({ to: phone, body })
+    .send({ to: phone, body, type: 'CASHBOOK', tenantId })
     .catch((err: unknown) => logger.warn({ err }, 'cash sms failed'));
 }
 
@@ -159,8 +160,9 @@ export async function listEntries(id: string, query: EntriesQuery) {
 
 // ─── Floats ─────────────────────────────────────────────────────────────────
 
-export async function sendFloatTx(tx: Tx, a: Actor, input: FloatInput, opts: { at?: Date; acknowledged?: boolean } = {}) {
-  if (a.role !== 'THEKEDAR') throw new Forbidden('FORBIDDEN', 'Only the owner sends cash floats');
+export async function sendFloatTx(tx: Tx, a: Actor, input: FloatInput, opts: { at?: Date; acknowledged?: boolean; viaTopup?: boolean } = {}) {
+  // An approved top-up sends its float under cashbook.topup.approve.
+  if (!opts.viaTopup) assertPerm('cashbook.float.manage', a, 'Only the owner sends cash floats');
   const holder = await tx.user.findFirst({ where: { tenantId: a.tenantId, id: input.holderUserId } });
   if (!holder || holder.status !== 'ACTIVE' || holder.role === 'THEKEDAR') throw new BadRequest('INVALID_HOLDER', 'Choose an active munshi or project manager');
   if (input.projectId) await projectFor(tx, a, input.projectId);
@@ -185,7 +187,7 @@ export async function sendFloatTx(tx: Tx, a: Actor, input: FloatInput, opts: { a
     await alerts.floatSent(tx, { tenantId: a.tenantId, holderUserId: holder.id, entryId: entry.id, amountPaisa: input.amountPaisa, projectId: input.projectId ?? null, method: input.method, at });
   }
   if (!opts.at) {
-    await notify(holder.phone, `${rupees(input.amountPaisa)} bheje gaye (${input.method}${input.reference ? ` ${input.reference}` : ''}). App mein "Mil gaye" dabayen.`);
+    await notify(a.tenantId, holder.phone, `${rupees(input.amountPaisa)} bheje gaye (${input.method}${input.reference ? ` ${input.reference}` : ''}). App mein "Mil gaye" dabayen.`);
   }
   return entryDto(await tx.cashEntry.findUniqueOrThrow({ where: { id: entry.id }, include: projectRef }));
 }
@@ -290,7 +292,7 @@ export async function listExpenses(query: ExpensesQuery) {
       tenantId: a.tenantId,
       type: 'EXPENSE',
       account: visibleAccounts(a),
-      ...(a.role === 'PM' ? { OR: [{ project: { userAccess: { some: { userId: a.userId } } } }, { account: { holderUserId: a.userId } }] } : {}),
+      ...(a.role !== 'THEKEDAR' && !scopeAll('cashbook.expense.view', a) ? { OR: [{ project: { userAccess: { some: { userId: a.userId } } } }, { account: { holderUserId: a.userId } }] } : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.projectId ? { projectId: query.projectId } : {}),
       ...(query.accountId ? { accountId: query.accountId } : {}),
@@ -311,7 +313,7 @@ export async function listExpenses(query: ExpensesQuery) {
 }
 
 async function findExpenseForReview(tx: Tx, a: Actor, id: string) {
-  if (a.role === 'MUNSHI') throw new Forbidden('FORBIDDEN', 'Only the owner or a project manager can approve kharcha');
+  assertPerm('cashbook.expense.approve', a, 'Only the owner or a project manager can approve kharcha');
   const e = await tx.cashEntry.findFirst({ where: { tenantId: a.tenantId, id, type: 'EXPENSE' }, include: { account: true } });
   if (!e) throw new NotFound('EXPENSE_NOT_FOUND', 'Kharcha not found');
   if (e.projectId) {
@@ -320,12 +322,13 @@ async function findExpenseForReview(tx: Tx, a: Actor, id: string) {
     });
   }
   if (e.status !== 'PENDING_APPROVAL') throw new Conflict('EXPENSE_NOT_PENDING', `This kharcha is already ${e.status.toLowerCase().replace('_', ' ')}`, { status: e.status });
-  if (a.role === 'PM' && e.account.holderUserId === a.userId) throw new Forbidden('OWN_EXPENSE', 'Your own kharcha is approved by the owner');
+  if (a.role !== 'THEKEDAR' && e.account.holderUserId === a.userId) throw new Forbidden('OWN_EXPENSE', 'Your own kharcha is approved by the owner');
   return e;
 }
 
 export async function approveExpenseTx(tx: Tx, a: Actor, id: string, note?: string, opts: { at?: Date } = {}) {
   const e = await findExpenseForReview(tx, a, id);
+  assertApprovalLimit('cashbook.expense.approve', -e.amountPaisa, a);
   await tx.cashEntry.update({ where: { id: e.id }, data: { status: 'APPROVED', approvedById: a.userId, approvedAt: opts.at ?? new Date(), reviewNote: note ?? null } });
   await audit(tx, a, 'cash.expense_approved', 'CashEntry', e.id, { amountPaisa: (-e.amountPaisa).toString() });
   return entryDto(await tx.cashEntry.findUniqueOrThrow({ where: { id: e.id }, include: projectRef }));
@@ -410,7 +413,7 @@ export async function listTopups(query: TopupsQuery) {
 }
 
 async function findPendingTopup(tx: Tx, a: Actor, id: string) {
-  if (a.role !== 'THEKEDAR') throw new Forbidden('FORBIDDEN', 'Only the owner decides top-ups');
+  assertPerm('cashbook.topup.approve', a, 'Only the owner decides top-ups');
   const t = await tx.topupRequest.findFirst({ where: { tenantId: a.tenantId, id }, include: topupInclude });
   if (!t) throw new NotFound('TOPUP_NOT_FOUND', 'Top-up request not found');
   if (t.status !== 'PENDING') throw new Conflict('TOPUP_DECIDED', `This request is already ${t.status.toLowerCase()}`, { status: t.status });
@@ -421,13 +424,14 @@ export async function approveTopup(id: string, input: ApproveTopupInput) {
   const a = actor();
   return withTenant(a.tenantId, async (tx) => {
     const t = await findPendingTopup(tx, a, id);
+    assertApprovalLimit('cashbook.topup.approve', input.amountPaisa ?? t.amountPaisa, a);
     const float = await sendFloatTx(tx, a, {
       holderUserId: t.account.holder.id,
       amountPaisa: input.amountPaisa ?? t.amountPaisa,
       method: input.method,
       ...(input.reference ? { reference: input.reference } : {}),
       note: `Top-up${t.note ? ` — ${t.note}` : ''}`,
-    });
+    }, { viaTopup: true });
     await tx.topupRequest.update({ where: { id: t.id }, data: { status: 'APPROVED', decidedById: a.userId, decidedAt: new Date(), floatEntryId: float.id } });
     await audit(tx, a, 'cash.topup_approved', 'TopupRequest', t.id, { amountPaisa: float.amountPaisa });
     return topupDto(await tx.topupRequest.findUniqueOrThrow({ where: { id: t.id }, include: topupInclude }));
@@ -440,7 +444,7 @@ export async function rejectTopup(id: string, note: string) {
     const t = await findPendingTopup(tx, a, id);
     await tx.topupRequest.update({ where: { id: t.id }, data: { status: 'REJECTED', decidedById: a.userId, decidedAt: new Date(), decisionNote: note } });
     await audit(tx, a, 'cash.topup_rejected', 'TopupRequest', t.id, { note });
-    await notify(t.account.holder.phone, `Top-up ${rupees(t.amountPaisa)} manzoor nahi hua: ${note}`);
+    await notify(a.tenantId, t.account.holder.phone, `Top-up ${rupees(t.amountPaisa)} manzoor nahi hua: ${note}`);
     return topupDto(await tx.topupRequest.findUniqueOrThrow({ where: { id: t.id }, include: topupInclude }));
   });
 }
@@ -519,7 +523,7 @@ export async function handoverTx(tx: Tx, a: Actor, input: HandoverInput, opts: {
   let from: CashAccount | null;
   if (input.fromAccountId) {
     from = await findAccount(tx, a, input.fromAccountId);
-    if (a.role !== 'THEKEDAR' && from.holderUserId !== a.userId) throw new Forbidden('FORBIDDEN', 'You can hand over only your own cash');
+    if (from.holderUserId !== a.userId && !can('cashbook.float.manage', a)) throw new Forbidden('PERMISSION_DENIED', 'You can hand over only your own cash', { permission: 'cashbook.float.manage' });
   } else from = await accountOf(tx, a.tenantId, a.userId);
   if (!from) throw new BadRequest('NO_CASH_ACCOUNT', 'You hold no site cash');
   const to = await tx.user.findFirst({ where: { tenantId: a.tenantId, id: input.toUserId, status: 'ACTIVE' } });
@@ -573,7 +577,7 @@ export async function projectCashbook(projectId: string, query: CashbookQuery) {
       tenantId: a.tenantId,
       projectId: project.id,
       status: { not: 'PENDING_ACK' },
-      ...(a.role === 'MUNSHI' ? { account: { holderUserId: a.userId } } : {}),
+      ...(a.role === 'MUNSHI' && !scopeAll('cashbook.account.view', a) ? { account: { holderUserId: a.userId } } : {}),
       ...(query.category ? { category: query.category } : {}),
       ...(query.from || query.to ? { occurredAt: range } : {}),
     };

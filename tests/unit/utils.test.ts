@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { permissionsFor } from '../../src/core/auth/permissions.js';
+import { defaultAccess } from '../../src/core/auth/access.js';
 import { generateOtp, safeEqual } from '../../src/core/utils/crypto.js';
 import { jsonReplacer } from '../../src/core/utils/json.js';
 import { normalizePkAnyPhone, normalizePkPhone } from '../../src/core/utils/phone.js';
@@ -36,13 +36,15 @@ describe('normalizePkAnyPhone (office numbers)', () => {
   });
 });
 
-describe('permissionsFor', () => {
+describe('default permissions', () => {
   it('MUNSHI never gets rates or financials', () => {
-    expect(permissionsFor({ role: 'MUNSHI', canSeeFinancials: true })).toEqual(['site.entry']);
+    const a = defaultAccess('MUNSHI', true);
+    expect(a.fieldAccess).toEqual({ rates: false, amounts: false, profit: false, contract: false });
+    expect(a.permissions).toContain('labor.attendance.create');
   });
   it('PM financials depend on the flag', () => {
-    expect(permissionsFor({ role: 'PM', canSeeFinancials: false })).not.toContain('profit.view');
-    expect(permissionsFor({ role: 'PM', canSeeFinancials: true })).toContain('profit.view');
+    expect(defaultAccess('PM', false).permissions).not.toContain('fields.profit');
+    expect(defaultAccess('PM', true).permissions).toContain('fields.profit');
   });
 });
 

@@ -1,4 +1,5 @@
 /** Material used on a site (USAGE_OUT at average cost; owner-supplied at 0). */
+import { fieldsOf, visible } from '../../core/auth/fieldStrip.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
@@ -39,9 +40,9 @@ function toUsageDto(u: UsageRow, a: Pick<Actor, 'seesRates'>) {
       material: materialRef(i.material),
       qty: qn(i.qty),
       ownerSupplied: i.ownerSupplied,
-      ...(a.seesRates ? { valuePaisa: i.valuePaisa.toString() } : {}),
+      ...visible(fieldsOf(a), 'rates', { valuePaisa: i.valuePaisa.toString() }),
     })),
-    ...(a.seesRates ? { totalValuePaisa: u.items.reduce((s, i) => s + i.valuePaisa, 0n).toString() } : {}),
+    ...visible(fieldsOf(a), 'rates', { totalValuePaisa: u.items.reduce((s, i) => s + i.valuePaisa, 0n).toString() }),
     deviceCreatedAt: u.deviceCreatedAt?.toISOString() ?? null,
     createdBy: u.createdBy,
     createdAt: u.createdAt.toISOString(),

@@ -4,6 +4,7 @@ import { maskPhone } from '../../core/utils/phone.js';
 import type { UserRole } from '../../generated/prisma/enums.js';
 import { trySendMail } from './mail.provider.js';
 import { smsProvider } from './sms.provider.js';
+import { trySendWhatsApp } from './whatsapp.provider.js';
 
 const ROLE_LABEL: Record<UserRole, string> = { THEKEDAR: 'Thekedar', PM: 'Project Manager', MUNSHI: 'Munshi' };
 
@@ -22,12 +23,15 @@ export interface InviteDelivery {
   companyName: string;
   role: UserRole;
   token: string;
+  /** Company the invite is for (delivery log). */
+  tenantId?: string | null;
   /** A brand-new company created from the platform console (owner invite). */
   newCompany?: boolean;
 }
 
 /**
- * Sends the one-time invite link by SMS and — when the invite has an email — by email too.
+ * Sends the one-time invite link by SMS, by email when the invite has one, and by WhatsApp when
+ * WHATSAPP_ENABLED (the web / mobile share links stay the fallback).
  * Best effort: the invitation stays valid if delivery fails (it can be resent). The token is
  * never logged.
  */
@@ -38,9 +42,9 @@ export async function deliverInvite(d: InviteDelivery): Promise<void> {
     ? `${d.companyName} ka account tayyar hai. Thekedar login banane ke liye: ${url}`
     : `${d.companyName} ne aap ko ${role} ke taur par invite kiya hai: ${url}`;
 
-  const tasks: Promise<void>[] = [
+  const tasks: Promise<unknown>[] = [
     smsProvider()
-      .send({ to: d.phone, body: sms })
+      .send({ to: d.phone, body: sms, type: 'INVITE', tenantId: d.tenantId, params: { name: d.name, company: d.companyName, role, url } })
       .catch((err: unknown) => logger.error({ err, phone: maskPhone(d.phone) }, 'invitation sms failed')),
   ];
 
@@ -54,6 +58,8 @@ export async function deliverInvite(d: InviteDelivery): Promise<void> {
     tasks.push(
       trySendMail({
         to: d.email,
+        type: 'INVITE',
+        tenantId: d.tenantId,
         subject: d.newCompany ? `Your company ${d.companyName} is ready` : `You're invited to ${d.companyName}`,
         text: `Hi ${d.name},\n\n${intro}\n\nAccept the invitation: ${url}\n\nThis link works once and expires in ${days} days. If you weren't expecting it, ignore this email.${munshiNote}`,
         html: `<div style="font-family:Arial,sans-serif;font-size:15px;color:#0f172a;line-height:1.5">
@@ -66,5 +72,6 @@ ${munshiNote ? `<p style="color:#64748b;font-size:13px">${escapeHtml(munshiNote.
       }),
     );
   }
+  tasks.push(trySendWhatsApp({ to: d.phone, type: 'INVITE', params: [d.name, d.companyName, role, url], tenantId: d.tenantId }));
   await Promise.all(tasks);
 }

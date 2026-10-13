@@ -36,9 +36,11 @@ ${isProduction ? '' : testAccounts}
 | Role | Scope | Created by | Can do |
 |---|---|---|---|
 | **THEKEDAR** | One company | Self sign-up | Everything in the company |
-| **PM** | One company | Invitation | Projects & rates; billing/profit only if *canSeeFinancials* |
-| **MUNSHI** | One or more companies | Invitation | Site entries only — logs in with an SMS code on mobile |
+| **PM** | One company | Invitation | Office account — what it may do comes from its role template + overrides (default *Project Manager*: projects & rates, no billing / profit) |
+| **MUNSHI** | One or more companies | Invitation | Site account — default *Munshi* template: site entries only; logs in with an SMS code on mobile |
 | **PLATFORM_ADMIN** | Whole platform | Database seed | Platform routes only (separate login) |
+
+Permissions: \`GET /api/v1/permissions/catalog\` lists every key; \`/auth/me\` returns the caller's \`permissions\`, \`fieldAccess\`, \`scopes\` and \`approvalLimits\`.
 
 > **Note:** the company is always taken from the signed token — never from headers, query or URL. If one phone belongs to several companies, login answers \`409 MULTIPLE_COMPANIES\` with the list; send the request again with \`tenantId\`.
 
@@ -74,9 +76,13 @@ Money is integer **paisa** sent as a string (\`"950000"\` = Rs 9,500) · IDs are
 | **401** | \`SESSION_REVOKED\` / \`ACCOUNT_DISABLED\` / \`DEVICE_REVOKED\` / \`REFRESH_TOKEN_REUSED\` | Signed out (logout, deactivated, phone revoked or token copied) — log in again. |
 | **400** | \`FILE_TOO_LARGE\` / \`INVALID_FILE_TYPE\` | Upload ≤ 10 MB in a type allowed for that \`kind\`. |
 | **402** | \`PLAN_LIMIT_REACHED\` | The company's plan is full — upgrade the plan or deactivate an office user. |
-| **403** | \`FORBIDDEN\` | Your role can't do this (e.g. only a THEKEDAR edits the company). |
+| **403** | \`PERMISSION_DENIED\` | You lack the permission in \`error.details.permission\` — ask the owner. |
+| **403** | \`APPROVAL_LIMIT_EXCEEDED\` | Above your approval limit (\`details.maxAmountPaisa\`) — the owner approves. |
+| **403** | \`FORBIDDEN\` | A business rule blocks this (e.g. a munshi buying into the store). |
 | **403** | \`COMPANY_SUSPENDED\` | Company account is suspended — contact support. |
 | **403** | \`ACCOUNT_READ_ONLY\` | Company is read-only — renew the subscription to make changes. |
+| **403** | \`ACT_AS_SESSION_REQUIRED\` / \`ACT_AS_SESSION_INVALID\` / \`ACT_AS_SESSION_EXPIRED\` / \`ACT_AS_SESSION_ENDED\` | Platform admin: start a support session (*POST admin/act-as-sessions*) and send \`X-Act-As-Session\` with \`X-Act-As-Tenant\`. |
+| **403** | \`ACT_AS_READ_ONLY\` | Platform admin: the support session is read-only — switch it to write mode with a reason. |
 | **403** | \`LINK_EXPIRED\` / \`INVALID_SIGNATURE\` | File link is old or edited — fetch the attachment again for a fresh \`url\`. |
 | **404** | \`*_NOT_FOUND\` | Doesn't exist **in your company** (other companies' data is invisible). |
 | **400** | \`INSUFFICIENT_CASH\` | Not enough site cash in hand — ask for a top-up first. |
@@ -98,6 +104,7 @@ export const TAGS = [
   },
   { name: 'Company', description: 'Company profile, business rules (settings) and the holiday calendar' },
   { name: 'Team', description: 'Team members, invitations and signed-in devices (THEKEDAR manages, PM can view the list)' },
+  { name: 'Permissions', description: 'Permission catalogue, role templates (system + custom), per-user extra / removed permissions (THEKEDAR or team.member.manage)' },
   { name: 'Subscription', description: 'Plan, trial/grace status, usage limits, payment slips and plan changes (THEKEDAR)' },
   { name: 'Attachments', description: 'File uploads (logos, photos, receipts, documents, voice notes) with signed download links' },
   { name: 'Materials', description: 'Material groups and the company material list (all roles; never shows rates)' },

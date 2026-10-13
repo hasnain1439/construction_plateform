@@ -5,7 +5,8 @@
  * item, so every rule (limits, own-kharcha, locks) still applies — and failures are per item.
  */
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
-import { AppError, Forbidden } from '../../core/errors/AppError.js';
+import { assertPerm, can, scopeAll } from '../../core/auth/access.js';
+import { AppError } from '../../core/errors/AppError.js';
 import { dayMonth } from '../../core/pdf/templates.js';
 import { formatDateOnly } from '../../core/utils/dates.js';
 import * as payments from '../billing/payments.service.js';
@@ -61,7 +62,7 @@ const DAY_MS = 86_400_000;
 
 /** Project ids the caller may see (null = all, for the owner). */
 async function scopeIds(tx: Tx, a: ApprovalActor): Promise<string[] | null> {
-  if (a.role === 'THEKEDAR') return null;
+  if (scopeAll('approvals.inbox.view', a)) return null;
   const rows = await tx.project.findMany({ where: { tenantId: a.tenantId, ...projectScope(a) }, select: { id: true } });
   return rows.map((r) => r.id);
 }
@@ -69,7 +70,8 @@ async function scopeIds(tx: Tx, a: ApprovalActor): Promise<string[] | null> {
 export async function collectApprovals(tx: Tx, a: ApprovalActor, now = new Date()): Promise<ApprovalItem[]> {
   const ids = await scopeIds(tx, a);
   const inScope = ids === null ? {} : { projectId: { in: ids } };
-  const owner = a.role === 'THEKEDAR';
+  // Each group follows the permission that acts on it.
+  const may = (key: string) => can(key, a);
   const age = (d: Date) => Math.max(0, Math.floor((now.getTime() - d.getTime()) / DAY_MS));
   const item = (i: Omit<ApprovalItem, 'ageDays' | 'createdAt'> & { at: Date }): ApprovalItem => {
     const { at, ...rest } = i;
@@ -77,7 +79,9 @@ export async function collectApprovals(tx: Tx, a: ApprovalActor, now = new Date(
   };
   const out: ApprovalItem[] = [];
 
-  const settlementRows = await tx.wageSettlement.findMany({ where: { tenantId: a.tenantId, status: 'SUBMITTED', ...inScope }, include: { project: projectRef }, orderBy: { submittedAt: 'asc' } });
+  const settlementRows = may('labor.settlement.approve')
+    ? await tx.wageSettlement.findMany({ where: { tenantId: a.tenantId, status: 'SUBMITTED', ...inScope }, include: { project: projectRef }, orderBy: { submittedAt: 'asc' } })
+    : [];
   for (const s of settlementRows) {
     out.push(
       item({
@@ -94,13 +98,13 @@ export async function collectApprovals(tx: Tx, a: ApprovalActor, now = new Date(
     );
   }
 
-  const expenses = await tx.cashEntry.findMany({
+  const expenses = !may('cashbook.expense.approve') ? [] : await tx.cashEntry.findMany({
     where: { tenantId: a.tenantId, type: 'EXPENSE', status: 'PENDING_APPROVAL', ...(ids === null ? {} : { projectId: { in: ids } }) },
     include: { project: projectRef, account: { select: { holderUserId: true, holder: { select: { name: true } } } } },
     orderBy: { occurredAt: 'asc' },
   });
   for (const e of expenses) {
-    const own = a.role === 'PM' && e.account.holderUserId === a.userId;
+    const own = a.role !== 'THEKEDAR' && e.account.holderUserId === a.userId;
     out.push(
       item({
         type: 'EXPENSE_PENDING_APPROVAL',
@@ -116,7 +120,7 @@ export async function collectApprovals(tx: Tx, a: ApprovalActor, now = new Date(
     );
   }
 
-  if (owner) {
+  if (may('cashbook.topup.approve')) {
     const topups = await tx.topupRequest.findMany({ where: { tenantId: a.tenantId, status: 'PENDING' }, include: { account: { select: { holder: { select: { name: true } } } } }, orderBy: { createdAt: 'asc' } });
     for (const t of topups) {
       out.push(
@@ -135,7 +139,7 @@ export async function collectApprovals(tx: Tx, a: ApprovalActor, now = new Date(
     }
   }
 
-  const measured = await tx.workMeasurement.findMany({
+  const measured = !may('labor.measurement.approve') ? [] : await tx.workMeasurement.findMany({
     where: { tenantId: a.tenantId, status: 'RECORDED', ...inScope },
     include: { project: projectRef, assignment: { select: { ratePaisa: true, subcontractor: { select: { name: true } } } } },
     orderBy: { date: 'asc' },
@@ -156,7 +160,7 @@ export async function collectApprovals(tx: Tx, a: ApprovalActor, now = new Date(
     );
   }
 
-  const shortages = await tx.shortage.findMany({
+  const shortages = !may('procurement.shortage.view') ? [] : await tx.shortage.findMany({
     where: { tenantId: a.tenantId, status: 'OPEN', kind: { not: 'EXCESS' }, ...(ids === null ? {} : { projectId: { in: ids } }) },
     include: { material: { select: { name: true, unit: true } }, location: { select: { name: true } }, dispatch: { select: { number: true } }, purchase: { select: { number: true } } },
     orderBy: { createdAt: 'asc' },
@@ -178,7 +182,7 @@ export async function collectApprovals(tx: Tx, a: ApprovalActor, now = new Date(
     );
   }
 
-  const pendingRate = await tx.purchase.findMany({ where: { tenantId: a.tenantId, status: 'PENDING_RATE', ...inScope }, include: { project: projectRef, supplier: { select: { name: true } } }, orderBy: { createdAt: 'asc' } });
+  const pendingRate = !may('procurement.purchase.edit') ? [] : await tx.purchase.findMany({ where: { tenantId: a.tenantId, status: 'PENDING_RATE', ...inScope }, include: { project: projectRef, supplier: { select: { name: true } } }, orderBy: { createdAt: 'asc' } });
   for (const p of pendingRate) {
     out.push(
       item({
@@ -195,7 +199,7 @@ export async function collectApprovals(tx: Tx, a: ApprovalActor, now = new Date(
     );
   }
 
-  if (a.seesFinancials) {
+  if (may('billing.invoice.view')) {
     const stages = await tx.projectBillingStage.findMany({ where: { tenantId: a.tenantId, status: 'READY', ...inScope }, include: { project: projectRef }, orderBy: { readyAt: 'asc' } });
     for (const s of stages) {
       out.push(
@@ -224,7 +228,7 @@ export async function collectApprovals(tx: Tx, a: ApprovalActor, now = new Date(
           amountPaisa: d.totalPaisa.toString(),
           at: d.createdAt,
           actionUrl: `/projects/${d.projectId}/billing/invoices/${d.id}`,
-          quickActions: owner ? [qa('issue', 'Issue')] : [],
+          quickActions: may('billing.invoice.approve') ? [qa('issue', 'Issue')] : [],
         }),
       );
     }
@@ -240,7 +244,7 @@ export async function collectApprovals(tx: Tx, a: ApprovalActor, now = new Date(
           amountPaisa: c.amountPaisa.toString(),
           at: c.createdAt,
           actionUrl: `/projects/${c.projectId}/billing/payments`,
-          quickActions: owner ? [qa('clear', 'Mark cleared'), qa('bounce', 'Bounced', { note: true })] : [],
+          quickActions: may('billing.payment.manage') ? [qa('clear', 'Mark cleared'), qa('bounce', 'Bounced', { note: true })] : [],
         }),
       );
     }
@@ -277,9 +281,6 @@ const needNote = (i: BulkItem) => {
   if (!i.note || i.note.length < 3) throw new AppError(400, 'NOTE_REQUIRED', 'Add a short note (why)');
   return i.note;
 };
-const ownerOnly = (a: ApprovalActor, what: string) => {
-  if (a.role !== 'THEKEDAR') throw new Forbidden('FORBIDDEN', `Only the owner can ${what}`);
-};
 const unsupported = (i: BulkItem) => new AppError(400, 'UNSUPPORTED_ACTION', `${i.action} is not a quick action for ${i.type.replaceAll('_', ' ').toLowerCase()} — open it instead`);
 
 async function run(a: ApprovalActor, i: BulkItem): Promise<unknown> {
@@ -305,13 +306,11 @@ async function run(a: ApprovalActor, i: BulkItem): Promise<unknown> {
       throw unsupported(i);
     case 'INVOICE_DRAFT':
       if (i.action !== 'issue') throw unsupported(i);
-      if (!a.seesFinancials) throw new Forbidden('FORBIDDEN', 'You cannot see billing');
-      ownerOnly(a, 'issue invoices');
+      assertPerm('billing.invoice.approve', a);
       return invoices.issue(i.id, {});
     case 'CHEQUE_PENDING':
       if (i.action !== 'clear' && i.action !== 'bounce') throw unsupported(i);
-      if (!a.seesFinancials) throw new Forbidden('FORBIDDEN', 'You cannot see billing');
-      ownerOnly(a, 'mark cheques');
+      assertPerm('billing.payment.manage', a);
       return payments.chequeStatus(i.id, i.action === 'clear' ? { status: 'CLEARED' } : { status: 'BOUNCED', reason: needNote(i) });
     default:
       throw unsupported(i);

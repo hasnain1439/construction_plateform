@@ -7,6 +7,7 @@
  * Submit → approve (locks the week's hazri and the peshgi it cut) → pay (site cash leaves the
  * cash book). Return (with a comment) unlocks it again while nothing is paid.
  */
+import { assertApprovalLimit, assertPerm } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../core/errors/AppError.js';
@@ -18,7 +19,7 @@ import { dayMonth } from '../../core/pdf/templates.js';
 import * as alerts from '../notifications/alerts.js';
 import { projectScope } from '../projects/access.js';
 import type { LineInput, PayInput, SettlementsQuery } from './labor.schema.js';
-import { actor, addDays, assertOffice, assertWeekStart, audit, laborSettings, num, projectFor, times, today, type Actor, type LaborSettings } from './labor.shared.js';
+import { actor, addDays, assertWeekStart, audit, laborSettings, num, projectFor, times, today, type Actor, type LaborSettings } from './labor.shared.js';
 
 const EDITABLE: SettlementStatus[] = ['DRAFT', 'RETURNED'];
 
@@ -314,8 +315,9 @@ export async function submit(id: string) {
 }
 
 export async function approveTx(tx: Tx, a: Actor, id: string, opts: { at?: Date } = {}) {
-  assertOffice(a, 'Only the owner or a project manager can approve wages');
+  assertPerm('labor.settlement.approve', a, 'Only the owner or a project manager can approve wages');
   const s = await find(tx, a, id);
+  assertApprovalLimit('labor.settlement.approve', s.netPaisa, a);
   if (s.status !== 'SUBMITTED') throw new Conflict('SETTLEMENT_NOT_SUBMITTED', `Only a submitted week can be approved (this one is ${s.status.toLowerCase()})`, { status: s.status });
   await tx.wageSettlement.update({ where: { id }, data: { status: 'APPROVED', approvedById: a.userId, approvedAt: opts.at ?? new Date() } });
   await audit(tx, a, 'settlement.approve', 'WageSettlement', id, { netPaisa: s.netPaisa.toString() });
@@ -329,7 +331,7 @@ export async function approve(id: string) {
 
 export async function returnSettlement(id: string, comment: string) {
   const a = actor();
-  assertOffice(a, 'Only the owner or a project manager can return wages');
+  assertPerm('labor.settlement.approve', a, 'Only the owner or a project manager can return wages');
   return withTenant(a.tenantId, async (tx) => {
     const s = await find(tx, a, id);
     if (s.status !== 'SUBMITTED' && s.status !== 'APPROVED') throw new Conflict('SETTLEMENT_NOT_SUBMITTED', 'Only a submitted or approved week can be returned', { status: s.status });

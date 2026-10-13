@@ -136,7 +136,7 @@ export async function createProject(input: CreateProjectInput) {
       },
     });
     // Team: chosen PM / Munshi, and a PM creator is always assigned
-    const members = new Set([input.pmId, input.munshiId, c.role === 'PM' ? c.userId : undefined].filter((x): x is string => Boolean(x)));
+    const members = new Set([input.pmId, input.munshiId, c.role !== 'THEKEDAR' ? c.userId : undefined].filter((x): x is string => Boolean(x)));
     if (members.size) {
       await tx.userProjectAccess.createMany({ data: [...members].map((userId) => ({ tenantId: c.tenantId, userId, projectId: project.id })), skipDuplicates: true });
     }

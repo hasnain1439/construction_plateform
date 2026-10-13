@@ -6,6 +6,7 @@
  * Site dashboard (MUNSHI / PM / THEKEDAR with access): no rates or values — only the caller's
  * own cash.
  */
+import { assertPerm, scopeAll } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { Forbidden } from '../../core/errors/AppError.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
@@ -79,7 +80,7 @@ async function siteStats(tx: Tx, a: ReadActor, ids: string[], date: string) {
     (await tx.dispatch.count({ where: { tenantId: a.tenantId, toLocationId: { in: siteIds }, receivedAt: { gte: dayStart, lt: dayEnd } } })) +
     (await tx.purchase.count({ where: { tenantId: a.tenantId, locationId: { in: siteIds }, OR: [{ receivedAt: { gte: dayStart, lt: dayEnd } }, { status: 'PENDING_RATE', purchaseDate: dateOnly(date) }] } })) +
     (await tx.ownerDelivery.count({ where: { tenantId: a.tenantId, projectId: { in: ids }, deliveryDate: dateOnly(date) } }));
-  const openShortages = await tx.shortage.count({ where: { tenantId: a.tenantId, status: 'OPEN', kind: { not: 'EXCESS' }, ...(a.role === 'THEKEDAR' ? {} : { projectId: { in: ids } }) } });
+  const openShortages = await tx.shortage.count({ where: { tenantId: a.tenantId, status: 'OPEN', kind: { not: 'EXCESS' }, ...(scopeAll('dashboard.overview.view', a) ? {} : { projectId: { in: ids } }) } });
   return { hazriToday: hazri, deliveriesToday, openShortages };
 }
 
@@ -174,7 +175,7 @@ async function buildOverview(tx: Tx, a: ReadActor, query: OverviewQuery) {
   const pendingApprovals = (await collectApprovals(tx, a)).filter((i) => !query.projectId || i.project?.id === query.projectId).length;
   const { transit } = await systemLocations(tx, a.tenantId);
   const sites = await tx.stockLocation.findMany({ where: { tenantId: a.tenantId, type: 'SITE', projectId: { in: ids } }, select: { id: true } });
-  const dispatchesOnTheWay = await tx.dispatch.count({ where: { tenantId: a.tenantId, status: 'ON_THE_WAY', ...(a.role === 'THEKEDAR' && !query.projectId ? {} : { toLocationId: { in: sites.map((s) => s.id) } }) } });
+  const dispatchesOnTheWay = await tx.dispatch.count({ where: { tenantId: a.tenantId, status: 'ON_THE_WAY', ...(scopeAll('dashboard.overview.view', a) && !query.projectId ? {} : { toLocationId: { in: sites.map((s) => s.id) } }) } });
 
   const base = {
     period: { from: period.from, to: period.to },
@@ -259,7 +260,7 @@ async function buildOverview(tx: Tx, a: ReadActor, query: OverviewQuery) {
 
 export async function overview(query: OverviewQuery) {
   const a = readActor();
-  if (a.role === 'MUNSHI') throw new Forbidden('FORBIDDEN', 'Site staff use the site dashboard');
+  assertPerm('dashboard.overview.view', a, 'Site staff use the site dashboard');
   return cached(a.tenantId, `overview|${a.userId}|${query.from ?? ''}|${query.to ?? ''}|${query.projectId ?? ''}`, () => withTenant(a.tenantId, (tx) => buildOverview(tx, a, query)));
 }
 

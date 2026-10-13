@@ -51,7 +51,7 @@ export async function smsOwners(tx: Tx, tenantId: string, body: string): Promise
   await Promise.all(
     owners.map((o) =>
       smsProvider()
-        .send({ to: o.phone, body })
+        .send({ to: o.phone, body, type: 'PLATFORM', tenantId })
         .catch((err: unknown) => logger.error({ err, phone: maskPhone(o.phone) }, 'admin sms failed')),
     ),
   );

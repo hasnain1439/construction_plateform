@@ -1,10 +1,11 @@
 /** B1 — payment-schedule stages (mark ready, expected date) and running-bill progress. */
+import { assertPerm } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
 import type { ProjectBillingStage } from '../../generated/prisma/client.js';
 import type { MarkReadyInput, ProgressInput, UpdateProgressInput, UpdateStageInput } from './billing.schema.js';
-import { actor, assertOwner, audit, billingProject, daysBetween, paisa, today, ymd, type BillingActor } from './billing.shared.js';
+import { actor, audit, billingProject, daysBetween, paisa, today, ymd, type BillingActor } from './billing.shared.js';
 import * as alerts from '../notifications/alerts.js';
 import { recordEvent } from './ledger.js';
 
@@ -108,7 +109,7 @@ export async function markReady(id: string, input: MarkReadyInput) {
 
 export async function updateStage(id: string, input: UpdateStageInput) {
   const a = actor();
-  assertOwner(a, 'Only the owner can change the schedule');
+  assertPerm('billing.stage.manage', a);
   return withTenant(a.tenantId, async (tx) => {
     const { stage } = await findStage(tx, a, id);
     const updated = await tx.projectBillingStage.update({ where: { id: stage.id }, data: { expectedDate: input.expectedDate ? dateOnly(input.expectedDate) : null } });

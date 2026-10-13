@@ -189,7 +189,7 @@ export async function deleteHoliday(id: string) {
 const SECRET_KEY = /password|secret|token|hash|pepper|signature|^sig$|^otp$|^code$/i;
 
 /** Defence in depth: audit details never hold secrets, but strip anything that looks like one. */
-function scrub(value: unknown): unknown {
+export function scrub(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(scrub);
   if (value && typeof value === 'object') {
     return Object.fromEntries(

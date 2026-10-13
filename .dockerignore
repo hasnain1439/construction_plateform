@@ -1,0 +1,22 @@
+# Only what the Dockerfile copies matters; keep secrets and bulky folders out of the build context.
+node_modules
+dist
+coverage
+storage
+src/generated
+.git
+.github
+.env
+.env.*
+!.env.example
+*.log
+tests
+docs
+scripts/backup
+deploy/env
+deploy/backups
+.agents
+.claude
+.windsurf
+.vscode
+skills-lock.json

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { asyncHandler as h } from '../../core/http/asyncHandler.js';
+import { syncPushRateLimit } from '../../core/middleware/rateLimit.js';
 import { validate } from '../../core/middleware/validate.js';
 import { company } from '../inventory/inventory.routes.js';
 import * as c from './sync.controller.js';
@@ -12,5 +13,5 @@ import { pullQuery, pushBody } from './sync.schema.js';
  */
 export const syncRouter = Router();
 syncRouter.get('/pull', ...company, validate({ query: pullQuery }), h(c.pull));
-syncRouter.post('/push', ...company, validate({ body: pushBody }), h(c.push));
+syncRouter.post('/push', ...company, syncPushRateLimit, validate({ body: pushBody }), h(c.push));
 syncRouter.get('/status', ...company, h(c.status));

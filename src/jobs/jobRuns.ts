@@ -33,3 +33,9 @@ function summarise(result: unknown): Prisma.InputJsonValue {
   if (!result || typeof result !== 'object') return {};
   return Object.fromEntries(Object.entries(result).map(([k, v]) => [k, Array.isArray(v) ? v.length : String(v)]));
 }
+
+/** Last status of every tracked job (GET /health/ready). Throws if the database is unreachable. */
+export async function jobRunSummary(): Promise<Array<{ name: string; lastStatus: string; lastFinishedAt: string | null }>> {
+  const rows = await prismaAdmin.jobRun.findMany({ orderBy: { name: 'asc' }, select: { name: true, lastStatus: true, lastFinishedAt: true } });
+  return rows.map((r) => ({ name: r.name, lastStatus: r.lastStatus, lastFinishedAt: r.lastFinishedAt?.toISOString() ?? null }));
+}

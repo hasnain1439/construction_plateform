@@ -8,6 +8,7 @@
  * given cost, e.g. a purchase return at purchase rate). Owner-supplied stock is a separate
  * bucket at cost 0, so it never moves the contractor's average.
  */
+import { fieldAccess } from '../../core/auth/access.js';
 import { writeAudit } from '../../core/audit/audit.js';
 import { getCtx } from '../../core/context/requestContext.js';
 import { Prisma } from '../../core/db/prisma.js';
@@ -35,8 +36,8 @@ export function actor(): Actor {
     tenantId: ctx.tenantId!,
     userId: ctx.userId!,
     role: ctx.role as Actor['role'],
-    seesRates: ctx.permissions.includes('rates.view'),
-    seesFinancials: ctx.permissions.includes('billing.view'),
+    seesRates: fieldAccess().rates,
+    seesFinancials: fieldAccess().amounts,
   };
 }
 

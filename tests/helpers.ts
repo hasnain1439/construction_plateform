@@ -2,13 +2,19 @@ import pg from 'pg';
 import request from 'supertest';
 import { afterAll, beforeEach } from 'vitest';
 import { createApp } from '../src/app.js';
+import { testLogSink } from '../src/config/logger.js';
+import { invalidateAccess } from '../src/core/auth/accessLoader.js';
 import { disconnectDatabases, prismaAdmin } from '../src/core/db/prisma.js';
 import { authenticate } from '../src/core/middleware/authenticate.js';
 import { readOnlyGuard } from '../src/core/middleware/readOnlyGuard.js';
 import { tenantContext } from '../src/core/middleware/tenantContext.js';
 import { invalidateTenantStatus } from '../src/core/middleware/tenantContext.js';
+import { clearSystemUserCache } from '../src/modules/auth/actAs.js';
 import { lastSmsTo } from '../src/modules/auth/sms.provider.js';
+import { clearDashboardCache } from '../src/modules/dashboard/dashboard.cache.js';
 import { seed, SEED } from '../prisma/seed.js';
+import { DEMO_SEEDS, parentOf, type DemoSeed } from './setup/demoSeeds.js';
+import { assertTestDatabase, decodeValue, dropSnapshots, layerSchema, publicTables, readSnapshot, restoreSnapshot, SNAPSHOT, writeSnapshot } from './setup/seedSnapshot.js';
 
 export { SEED };
 
@@ -25,25 +31,67 @@ export const api = () => request(app);
 
 // ─── Database reset ─────────────────────────────────────────────────────────
 
-const owner = new pg.Pool({ connectionString: process.env['DATABASE_MIGRATION_URL'], max: 2 });
+// DATABASE_MIGRATION_URL = this worker's own database (tests/setup/workerDatabase.ts). Superuser.
+let ownerPool: pg.Pool | undefined;
+const owner = () => (ownerPool ??= new pg.Pool({ connectionString: process.env['DATABASE_MIGRATION_URL'], max: 2 }));
 let tables: string[] | undefined;
+let baseCreatedAt: string | undefined;
 
 export type Seeded = Awaited<ReturnType<typeof seed>>;
 
-/** Empties every table (as the schema owner) and re-seeds. Only ever on a *_test database. */
-export async function resetDatabase(): Promise<Seeded> {
-  if (!new URL(process.env['DATABASE_MIGRATION_URL'] ?? '').pathname.endsWith('_test')) {
-    throw new Error('resetDatabase() only runs against a database whose name ends with _test');
-  }
-  if (!tables) {
-    const { rows } = await owner.query<{ tablename: string }>(
-      `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`,
-    );
-    tables = rows.map((r) => `"${r.tablename}"`);
-  }
-  await owner.query(`TRUNCATE ${tables.join(', ')} CASCADE`);
+async function allTables(): Promise<string[]> {
+  assertTestDatabase();
+  return (tables ??= await publicTables(owner()));
+}
+
+/** In-memory caches keyed by ids that restored rows reuse. */
+function clearCaches() {
   invalidateTenantStatus();
-  return seed(prismaAdmin, { inventory: false, labor: false, billing: false });
+  invalidateAccess();
+  clearSystemUserCache();
+  clearDashboardCache();
+}
+
+/**
+ * Empties every table (as the schema owner) and re-seeds. Only ever on a *_test database.
+ * Restores the seed snapshot (tests/setup/seedSnapshot.ts) — same rows and ids as running the
+ * seed — and only seeds for real when the snapshot is missing or stale.
+ */
+export async function resetDatabase(): Promise<Seeded> {
+  const all = await allTables();
+  clearCaches();
+  const snapshot = await readSnapshot(owner(), SNAPSHOT);
+  if (snapshot) {
+    await restoreSnapshot(owner(), snapshot, all);
+    baseCreatedAt = snapshot.createdAt.toISOString();
+    return decodeValue(snapshot.value) as Seeded;
+  }
+  await owner().query(`TRUNCATE ${all.join(', ')} CASCADE`);
+  const seeded = await seed(prismaAdmin, { inventory: false, labor: false, billing: false });
+  await dropSnapshots(owner(), 'layers'); // built on the old base
+  baseCreatedAt = (await writeSnapshot(owner(), SNAPSHOT, seeded, null, all)).toISOString();
+  return seeded;
+}
+
+/**
+ * Loads a demo data set (tests/setup/demoSeeds.ts) on top of the base seed from its snapshot,
+ * building it first if needed; returns the snapshot's createdAt. Call it right after
+ * `useFreshDatabase()`'s reset — first thing in a `beforeEach` / test.
+ */
+export async function withSeedSnapshot(name: DemoSeed, s: Seeded): Promise<string> {
+  if (!baseCreatedAt) throw new Error('withSeedSnapshot: call useFreshDatabase() first');
+  const parent = parentOf(name);
+  const snapshot = await readSnapshot(owner(), layerSchema(name));
+  // Valid while built on the current base / parent snapshot (a rebuilt base drops every demo snapshot).
+  const parentStamp = parent ? (await readSnapshot(owner(), layerSchema(parent)))?.createdAt.toISOString() : baseCreatedAt;
+  if (snapshot && parentStamp && snapshot.base === parentStamp) {
+    clearCaches();
+    await restoreSnapshot(owner(), snapshot, await allTables());
+    return snapshot.createdAt.toISOString();
+  }
+  const stamp = parent ? await withSeedSnapshot(parent, s) : baseCreatedAt;
+  await DEMO_SEEDS[name].build(s);
+  return (await writeSnapshot(owner(), layerSchema(name), null, stamp, await allTables())).toISOString();
 }
 
 /** Registers a fresh database for every test in the file. Returns a getter for the seed. */
@@ -53,8 +101,9 @@ export function useFreshDatabase(): () => Seeded {
     seeded = await resetDatabase();
   });
   afterAll(async () => {
-    // Each test file gets its own module graph; close its pools so connections don't pile up.
-    await owner.end().catch(() => undefined);
+    // Close this file's pools so connections don't pile up (each file has its own module graph).
+    await ownerPool?.end().catch(() => undefined);
+    ownerPool = undefined;
     await disconnectDatabases();
   });
   return () => {
@@ -64,6 +113,15 @@ export function useFreshDatabase(): () => Seeded {
 }
 
 // ─── Auth helpers ───────────────────────────────────────────────────────────
+
+/** For 5xx answers: the server-side error behind it (last error log line), to make failures readable. */
+function serverError(status: number): string {
+  if (status < 500) return '';
+  const line = [...testLogSink].reverse().find((l) => l.includes('"level":50'));
+  if (!line) return '';
+  const { err, msg } = JSON.parse(line) as { msg?: string; err?: { type?: string; code?: string; message?: string } };
+  return ` — server: ${msg ?? ''} ${err?.type ?? ''} ${err?.code ?? ''} ${(err?.message ?? '').slice(0, 300)}`;
+}
 
 let deviceCounter = 0;
 export function device(platform: 'ANDROID' | 'IOS' | 'WEB' = 'ANDROID') {
@@ -83,7 +141,7 @@ export async function loginMobile(login: string, password: string, tenantId?: st
   const res = await api()
     .post('/api/v1/auth/login')
     .send({ login, password, client: 'mobile', device: dev, ...(tenantId ? { tenantId } : {}) });
-  if (res.status !== 200) throw new Error(`login failed: ${res.status} ${JSON.stringify(res.body)}`);
+  if (res.status !== 200) throw new Error(`login failed: ${res.status} ${JSON.stringify(res.body)}${serverError(res.status)}`);
   return { accessToken: res.body.data.accessToken, refreshToken: res.body.data.refreshToken, body: res.body, deviceId: dev.deviceId };
 }
 
@@ -114,12 +172,12 @@ export async function loginMunshi(tenantId: string): Promise<MobileSession> {
   const phone = SEED.malik.munshi.phone;
   await ageOtps(phone, 120);
   const req = await api().post('/api/v1/auth/otp/request').send({ phone });
-  if (req.status !== 200) throw new Error(`otp request failed: ${req.status} ${JSON.stringify(req.body)}`);
+  if (req.status !== 200) throw new Error(`otp request failed: ${req.status} ${JSON.stringify(req.body)}${serverError(req.status)}`);
   const dev = device();
   const res = await api()
     .post('/api/v1/auth/otp/verify')
     .send({ phone, code: lastOtp(phone), tenantId, client: 'mobile', device: dev });
-  if (res.status !== 200) throw new Error(`otp verify failed: ${res.status} ${JSON.stringify(res.body)}`);
+  if (res.status !== 200) throw new Error(`otp verify failed: ${res.status} ${JSON.stringify(res.body)}${serverError(res.status)}`);
   return { accessToken: res.body.data.accessToken, refreshToken: res.body.data.refreshToken, body: res.body, deviceId: dev.deviceId };
 }
 
@@ -145,7 +203,7 @@ export async function loginAdmin(): Promise<{ accessToken: string; refreshToken:
   const res = await api()
     .post('/api/v1/admin/auth/login')
     .send({ email: SEED.admin.email, password: SEED.admin.password, client: 'mobile' });
-  if (res.status !== 200) throw new Error(`admin login failed: ${res.status} ${JSON.stringify(res.body)}`);
+  if (res.status !== 200) throw new Error(`admin login failed: ${res.status} ${JSON.stringify(res.body)}${serverError(res.status)}`);
   return { accessToken: res.body.data.accessToken, refreshToken: res.body.data.refreshToken };
 }
 
@@ -163,4 +221,11 @@ export function projectRow(tenantId: string, name: string, data: { status?: 'DRA
   return prismaAdmin.project.create({
     data: { tenantId, name, code: `TST-${Date.now()}-${projectCounter}`, status: data.status ?? 'ACTIVE' },
   });
+}
+
+/** Gives a PM the old "canSeeFinancials" access (= the financial permission bundle as overrides). */
+export async function grantFinancials(tenantId: string, userId: string) {
+  const { setFinancialAccess } = await import('../src/modules/permissions/permissions.service.js');
+  const { ownerAccess } = await import('../src/core/auth/access.js');
+  await prismaAdmin.$transaction((tx) => setFinancialAccess(tx, { tenantId, userId, access: ownerAccess() }, userId, true));
 }

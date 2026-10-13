@@ -20,6 +20,7 @@ export async function maxOfficeUsers(tx: Db, tenantId: string): Promise<number |
 const userListInclude = {
   projectAccess: { select: { project: { select: { id: true, name: true } } } },
   devices: { select: { lastActiveAt: true }, orderBy: { lastActiveAt: 'desc' }, take: 1 },
+  permissionRole: { select: { id: true, key: true, name: true } },
 } satisfies Prisma.UserInclude;
 
 export type UserListRow = Prisma.UserGetPayload<{ include: typeof userListInclude }>;

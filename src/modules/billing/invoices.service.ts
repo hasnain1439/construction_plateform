@@ -4,6 +4,7 @@
  * sources, applies any project credit and makes the PDF. Cancelling (no payments yet)
  * releases the sources again. Issued invoices never change otherwise.
  */
+import { assertApprovalLimit, assertPerm, can, permissionDenied } from '../../core/auth/access.js';
 import { logger } from '../../config/logger.js';
 import { nextNumber } from '../../core/db/counters.js';
 import { Prisma } from '../../core/db/prisma.js';
@@ -17,7 +18,6 @@ import type { CreateInvoiceInput, InvoicesQuery, ManualLine, UpdateInvoiceInput 
 import {
   actor,
   addDays,
-  assertOwner,
   audit,
   billingProject,
   billingSettings,
@@ -31,6 +31,7 @@ import {
 } from './billing.shared.js';
 import { letterhead, salutation, shareOf, shortDay, storePdf, withinOrBackground } from './documents.js';
 import { applyCredit, LIVE, recomputeInvoice, resolveBouncedFor, resolveEvent, syncStage } from './ledger.js';
+import { track } from '../../core/observability/analytics.js';
 
 const include = {
   project: { select: { id: true, code: true, name: true, siteAddress: true, status: true } },
@@ -220,7 +221,7 @@ async function buildLines(tx: Tx, a: BillingActor, project: { id: string; status
       break;
     }
     case 'OTHER':
-      assertOwner(a, 'Only the owner can make a manual invoice');
+      assertPerm('billing.invoice.approve', a);
       lines = manualLines(input.lines!);
       break;
   }
@@ -259,7 +260,7 @@ async function writeLines(tx: Tx, tenantId: string, invoiceId: string, lines: Dr
 // ─── Endpoints ──────────────────────────────────────────────────────────────
 
 export async function createInvoiceTx(tx: Tx, a: BillingActor, projectId: string, input: CreateInvoiceInput, opts: { at?: Date } = {}) {
-  if (a.role === 'MUNSHI') throw new Forbidden('FORBIDDEN', 'Invoices are made by the office');
+  assertPerm('billing.invoice.create', a, 'Invoices are made by the office');
   const project = await billingProject(tx, a, projectId);
   if (project.status === 'DRAFT') throw new Conflict('PROJECT_IS_DRAFT', 'Activate the project first');
   const { stageId, forceNote, lines } = await buildLines(tx, a, project, input);
@@ -290,7 +291,8 @@ export async function createInvoice(projectId: string, input: CreateInvoiceInput
 async function findDraft(tx: Tx, a: BillingActor, id: string) {
   const inv = await find(tx, a, id);
   if (inv.status !== 'DRAFT') throw new Conflict('INVOICE_LOCKED', 'An issued invoice cannot be changed — cancel it instead', { status: inv.status });
-  if (a.role === 'PM' && inv.createdById !== a.userId) throw new Forbidden('FORBIDDEN', "Only the owner can change someone else's draft");
+  // Someone else's draft: only who may issue invoices (the owner by default).
+  if (inv.createdById !== a.userId && !can('billing.invoice.approve', a)) throw permissionDenied('billing.invoice.approve', "Only the owner can change someone else's draft");
   return inv;
 }
 
@@ -300,7 +302,7 @@ export async function updateInvoice(id: string, input: UpdateInvoiceInput) {
     const inv = await findDraft(tx, a, id);
     if (input.lines) {
       if (inv.type !== 'OTHER') throw new BadRequest('LINES_LOCKED', 'Only a manual (OTHER) invoice has editable lines');
-      assertOwner(a, 'Only the owner can change manual lines');
+      assertPerm('billing.invoice.approve', a);
       await tx.invoiceLine.deleteMany({ where: { tenantId: a.tenantId, invoiceId: inv.id } });
       await writeLines(tx, a.tenantId, inv.id, manualLines(input.lines));
       await writeTotals(tx, a, inv.id);
@@ -326,10 +328,11 @@ export async function deleteInvoice(id: string) {
 }
 
 export async function issueTx(tx: Tx, a: BillingActor, id: string, input: { issueDate?: string | undefined }, opts: { at?: Date } = {}) {
-  assertOwner(a, 'Only the owner issues invoices');
+  assertPerm('billing.invoice.approve', a);
   const inv = await find(tx, a, id);
   if (inv.status !== 'DRAFT') throw new Conflict('INVOICE_NOT_DRAFT', 'This invoice is already issued', { status: inv.status });
   if (inv.totalPaisa <= 0n) throw new BadRequest('EMPTY_INVOICE', 'The invoice total must be more than zero');
+  assertApprovalLimit('billing.invoice.approve', inv.totalPaisa, a);
   const issueDate = input.issueDate ?? today();
   if (issueDate > today()) throw new BadRequest('FUTURE_DATE', "An invoice can't be issued in the future");
 
@@ -367,11 +370,13 @@ export async function issue(id: string, input: { issueDate?: string | undefined 
     () => withTenant(a.tenantId, (tx) => makeInvoicePdf(tx, a, id)),
     (err) => logger.warn({ err, invoiceId: id }, 'invoice PDF not made on issue — it is made on first download'),
   );
-  return withTenant(a.tenantId, async (tx) => invoiceDto(await load(tx, id)));
+  const issued = await withTenant(a.tenantId, async (tx) => invoiceDto(await load(tx, id)));
+  track('invoice_issued', { kind: issued.type });
+  return issued;
 }
 
 export async function cancelTx(tx: Tx, a: BillingActor, id: string, reason: string, opts: { at?: Date } = {}) {
-  assertOwner(a, 'Only the owner cancels invoices');
+  assertPerm('billing.invoice.approve', a);
   const inv = await find(tx, a, id);
   if (inv.status === 'DRAFT') throw new Conflict('INVOICE_NOT_ISSUED', 'Delete a draft instead of cancelling it');
   if (inv.status === 'CANCELLED') throw new Conflict('INVOICE_CANCELLED', 'This invoice is already cancelled');

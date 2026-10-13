@@ -1,4 +1,5 @@
 /** Caller + period helpers shared by approvals, dashboard, finance and reports. */
+import { fieldAccess } from '../../core/auth/access.js';
 import { getCtx } from '../../core/context/requestContext.js';
 import type { Tx } from '../../core/db/withTenant.js';
 import { addDays, today } from '../billing/billing.shared.js';
@@ -23,9 +24,9 @@ export function readActor(): ReadActor {
     tenantId: ctx.tenantId!,
     userId: ctx.userId!,
     role: ctx.role as ReadActor['role'],
-    seesFinancials: ctx.permissions.includes('billing.view'),
-    seesProfit: ctx.permissions.includes('profit.view'),
-    seesRates: ctx.permissions.includes('rates.view'),
+    seesFinancials: fieldAccess().amounts,
+    seesProfit: fieldAccess().profit,
+    seesRates: fieldAccess().rates,
   };
 }
 

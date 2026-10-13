@@ -1,8 +1,12 @@
+import { defaultRoleId } from '../permissions/provision.js';
+import { assertAssignableRole } from '../permissions/permissions.service.js';
+import { FINANCIAL_BUNDLE } from '../../core/auth/permissionCatalog.js';
+import { accessOf, can } from '../../core/auth/access.js';
 import { isProduction } from '../../config/env.js';
 import { writeAudit } from '../../core/audit/audit.js';
 import { getCtx } from '../../core/context/requestContext.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
-import { BadRequest, Conflict, NotFound, TooManyRequests } from '../../core/errors/AppError.js';
+import { BadRequest, Conflict, Forbidden, NotFound, TooManyRequests } from '../../core/errors/AppError.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { assertWithinLimit, lockPlanUsage } from '../../core/plan/planLimits.js';
 import { hashSecret, randomToken } from '../../core/utils/crypto.js';
@@ -29,7 +33,7 @@ function newToken() {
 
 /** The one-time link by SMS, and by email when the invite has one. The token is never logged or stored in plain text. */
 async function sendInvite(
-  invitation: { phone: string; email: string | null; name: string; role: UserRole },
+  invitation: { tenantId: string; phone: string; email: string | null; name: string; role: UserRole },
   companyName: string,
   token: string,
 ): Promise<void> {
@@ -76,6 +80,7 @@ export async function listInvitations(query: ListInvitationsQuery) {
       email: r.email,
       role: r.role as InvitationDto['role'],
       canSeeFinancials: r.canSeeFinancials,
+      roleId: r.roleId,
       projects: r.projectIds.map((id) => byId.get(id)).filter((p): p is { id: string; name: string } => Boolean(p)),
       status: r.status,
       expiresAt: r.expiresAt.toISOString(),
@@ -110,6 +115,14 @@ export async function createInvitation(input: CreateInvitationInput): Promise<In
 
     const settings = await repo.findSettings(tx, tenantId);
     const canSeeFinancials = input.role === 'PM' ? (input.canSeeFinancials ?? settings?.pmCanSeeFinancials ?? false) : false;
+    // The permission role given on accept: the chosen one (fits the account, within the inviter's
+    // own permissions) or the system template of the invited role.
+    const manager = { tenantId, userId, access: accessOf() };
+    if (input.roleId) await assertAssignableRole(tx, manager, input.roleId, input.role);
+    if (canSeeFinancials && input.canSeeFinancials && !manager.access.owner) {
+      for (const k of FINANCIAL_BUNDLE) if (!can(k)) throw new Forbidden('GRANT_EXCEEDS_OWN', 'You can only give permissions you have yourself', { permission: k });
+    }
+    const roleId = input.roleId ?? (await defaultRoleId(tx, tenantId, input.role));
 
     const created = await repo.createInvitation(tx, {
       tenantId,
@@ -119,6 +132,7 @@ export async function createInvitation(input: CreateInvitationInput): Promise<In
       phone: input.phone,
       email: input.email ?? null,
       canSeeFinancials,
+      roleId,
       projectIds,
       status: 'PENDING',
       expiresAt,
@@ -131,7 +145,7 @@ export async function createInvitation(input: CreateInvitationInput): Promise<In
       action: 'invite.create',
       entityType: 'Invitation',
       entityId: created.id,
-      details: { role: input.role, projects: projectIds.length, canSeeFinancials },
+      details: { role: input.role, roleId, projects: projectIds.length, canSeeFinancials },
     });
     const tenant = await repo.findTenantName(tx, tenantId);
     return { invitation: created, companyName: tenant?.name ?? 'Your company' };

@@ -2,7 +2,7 @@ import { Router, type RequestHandler } from 'express';
 import { asyncHandler as h } from '../../core/http/asyncHandler.js';
 import { authenticate } from '../../core/middleware/authenticate.js';
 import { readOnlyGuard } from '../../core/middleware/readOnlyGuard.js';
-import { requireRole } from '../../core/middleware/requireRole.js';
+import { requirePerm } from '../../core/middleware/requirePerm.js';
 import { tenantContext } from '../../core/middleware/tenantContext.js';
 import { validate } from '../../core/middleware/validate.js';
 import * as c from './team.controller.js';
@@ -22,12 +22,13 @@ import {
 // Chains are attached per route (not router.use) because /invitations is shared with the
 // public auth route POST /invitations/:token/accept.
 const company: RequestHandler[] = [authenticate, tenantContext, readOnlyGuard];
-const thekedar: RequestHandler[] = [...company, requireRole('THEKEDAR')];
+/** THEKEDAR, or a user with team.member.manage (who can never change an owner). */
+const thekedar: RequestHandler[] = [...company, requirePerm('team.member.manage')];
 
 /** Mounted at /api/v1/users */
 export const usersRouter = Router();
 
-usersRouter.get('/', ...company, requireRole('THEKEDAR', 'PM'), validate({ query: listUsersQuery }), h(c.listUsers));
+usersRouter.get('/', ...company, requirePerm('team.member.view'), validate({ query: listUsersQuery }), h(c.listUsers));
 usersRouter.get('/:id', ...thekedar, validate({ params: userIdParams }), h(c.getUser));
 usersRouter.patch('/:id', ...thekedar, validate({ params: userIdParams, body: updateUserBody }), h(c.updateUser));
 usersRouter.delete('/:id', ...thekedar, validate({ params: userIdParams }), h(c.deactivateUser));

@@ -15,7 +15,7 @@ describe('company access', () => {
     expect((await api().get('/api/v1/company').set(bearer(s.accessToken))).status).toBe(200);
     const patch = await api().patch('/api/v1/company').set(bearer(s.accessToken)).send({ name: 'Hijacked' });
     expect(patch.status).toBe(403);
-    expect(patch.body.error.code).toBe('FORBIDDEN');
+    expect(patch.body.error).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'company.settings.manage' } });
     expect((await api().patch('/api/v1/company/settings').set(bearer(s.accessToken)).send({ taxEnabled: true })).status).toBe(403);
     expect((await api().get('/api/v1/company/settings').set(bearer(s.accessToken))).status).toBe(403);
   });

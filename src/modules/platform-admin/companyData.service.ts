@@ -7,6 +7,7 @@
  * around does not flood the log.
  */
 import { prismaAdmin } from '../../core/db/prisma.js';
+import { inSequence } from '../../core/db/inSequence.js';
 import type { Tx } from '../../core/db/withTenant.js';
 import { NotFound } from '../../core/errors/AppError.js';
 import { formatDateOnly } from '../../core/utils/dates.js';
@@ -49,10 +50,10 @@ async function look<T>(tenantId: string, section: CompanySection, read: (tx: Tx)
 
 /** Per project: money billed / received / still owed (issued invoices, cleared payments). */
 async function projectMoney(tx: Tx, tenantId: string) {
-  const [billed, open, received] = await Promise.all([
-    tx.invoice.groupBy({ by: ['projectId'], where: { tenantId, status: { in: [...BILLED] } }, _sum: { totalPaisa: true } }),
-    tx.invoice.groupBy({ by: ['projectId'], where: { tenantId, status: { in: [...OPEN] } }, _sum: { balancePaisa: true } }),
-    tx.clientPayment.groupBy({ by: ['projectId'], where: { tenantId, status: 'CLEARED' }, _sum: { amountPaisa: true } }),
+  const [billed, open, received] = await inSequence([
+    () => tx.invoice.groupBy({ by: ['projectId'], where: { tenantId, status: { in: [...BILLED] } }, _sum: { totalPaisa: true } }),
+    () => tx.invoice.groupBy({ by: ['projectId'], where: { tenantId, status: { in: [...OPEN] } }, _sum: { balancePaisa: true } }),
+    () => tx.clientPayment.groupBy({ by: ['projectId'], where: { tenantId, status: 'CLEARED' }, _sum: { amountPaisa: true } }),
   ]);
   const of = <R extends { projectId: string }>(rows: R[], pick: (r: R) => bigint | null | undefined) => new Map(rows.map((r) => [r.projectId, pick(r) ?? 0n]));
   return {
@@ -103,11 +104,11 @@ export function companyProjects(tenantId: string) {
 
 export function companyTeam(tenantId: string) {
   return look(tenantId, 'team', async (tx) => {
-    const [users, access, devices, pendingInvites] = await Promise.all([
-      tx.user.findMany({ where: { tenantId, isSystem: false }, orderBy: [{ status: 'asc' }, { role: 'asc' }, { name: 'asc' }] }),
-      tx.userProjectAccess.groupBy({ by: ['userId'], where: { tenantId }, _count: { _all: true } }),
-      tx.device.findMany({ where: { tenantId }, include: { user: { select: { id: true, name: true, role: true } } }, orderBy: [{ lastActiveAt: 'desc' }] }),
-      tx.invitation.count({ where: { tenantId, status: 'PENDING' } }),
+    const [users, access, devices, pendingInvites] = await inSequence([
+      () => tx.user.findMany({ where: { tenantId, isSystem: false }, orderBy: [{ status: 'asc' }, { role: 'asc' }, { name: 'asc' }] }),
+      () => tx.userProjectAccess.groupBy({ by: ['userId'], where: { tenantId }, _count: { _all: true } }),
+      () => tx.device.findMany({ where: { tenantId }, include: { user: { select: { id: true, name: true, role: true } } }, orderBy: [{ lastActiveAt: 'desc' }] }),
+      () => tx.invitation.count({ where: { tenantId, status: 'PENDING' } }),
     ]);
     const projectsOf = new Map(access.map((a) => [a.userId, a._count._all]));
     return {
@@ -142,20 +143,20 @@ export function companyTeam(tenantId: string) {
 export function companyActivity(tenantId: string, now = new Date()) {
   return look(tenantId, 'activity', async (tx) => {
     const since = new Date(now.getTime() - 30 * DAY_MS);
-    const [byStatus, workers, suppliers, attendance, purchases, dispatches, expenses, usage, dailyLogs, invoices, payments, lastUserAction, lastLogin] = await Promise.all([
-      tx.project.groupBy({ by: ['status'], where: { tenantId }, _count: { _all: true } }),
-      tx.worker.count({ where: { tenantId, isActive: true } }),
-      tx.supplier.findMany({ where: { tenantId }, select: { id: true } }),
-      tx.attendance.count({ where: { tenantId, date: { gte: since } } }),
-      tx.purchase.aggregate({ where: { tenantId, purchaseDate: { gte: since } }, _count: { _all: true }, _sum: { totalPaisa: true } }),
-      tx.dispatch.count({ where: { tenantId, dispatchedAt: { gte: since } } }),
-      tx.cashEntry.aggregate({ where: { tenantId, type: 'EXPENSE', occurredAt: { gte: since } }, _count: { _all: true }, _sum: { amountPaisa: true } }),
-      tx.materialUsage.count({ where: { tenantId, usageDate: { gte: since } } }),
-      tx.dailyLog.count({ where: { tenantId, logDate: { gte: since } } }),
-      tx.invoice.aggregate({ where: { tenantId, status: { in: [...BILLED] }, issueDate: { gte: since } }, _count: { _all: true }, _sum: { totalPaisa: true } }),
-      tx.clientPayment.aggregate({ where: { tenantId, status: 'CLEARED', receivedOn: { gte: since } }, _count: { _all: true }, _sum: { amountPaisa: true } }),
-      tx.auditLog.findFirst({ where: { tenantId, actorType: 'USER' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
-      tx.user.aggregate({ where: { tenantId }, _max: { lastLoginAt: true } }),
+    const [byStatus, workers, suppliers, attendance, purchases, dispatches, expenses, usage, dailyLogs, invoices, payments, lastUserAction, lastLogin] = await inSequence([
+      () => tx.project.groupBy({ by: ['status'], where: { tenantId }, _count: { _all: true } }),
+      () => tx.worker.count({ where: { tenantId, isActive: true } }),
+      () => tx.supplier.findMany({ where: { tenantId }, select: { id: true } }),
+      () => tx.attendance.count({ where: { tenantId, date: { gte: since } } }),
+      () => tx.purchase.aggregate({ where: { tenantId, purchaseDate: { gte: since } }, _count: { _all: true }, _sum: { totalPaisa: true } }),
+      () => tx.dispatch.count({ where: { tenantId, dispatchedAt: { gte: since } } }),
+      () => tx.cashEntry.aggregate({ where: { tenantId, type: 'EXPENSE', occurredAt: { gte: since } }, _count: { _all: true }, _sum: { amountPaisa: true } }),
+      () => tx.materialUsage.count({ where: { tenantId, usageDate: { gte: since } } }),
+      () => tx.dailyLog.count({ where: { tenantId, logDate: { gte: since } } }),
+      () => tx.invoice.aggregate({ where: { tenantId, status: { in: [...BILLED] }, issueDate: { gte: since } }, _count: { _all: true }, _sum: { totalPaisa: true } }),
+      () => tx.clientPayment.aggregate({ where: { tenantId, status: 'CLEARED', receivedOn: { gte: since } }, _count: { _all: true }, _sum: { amountPaisa: true } }),
+      () => tx.auditLog.findFirst({ where: { tenantId, actorType: 'USER' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
+      () => tx.user.aggregate({ where: { tenantId }, _max: { lastLoginAt: true } }),
     ]);
 
     // Money right now (same definitions as the company's own dashboard).

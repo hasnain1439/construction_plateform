@@ -28,6 +28,7 @@ import * as bl from '../src/modules/billing/billing.schema.js';
 import * as ap from '../src/modules/approvals/approvals.schema.js';
 import * as dl from '../src/modules/dailylogs/dailylogs.schema.js';
 import * as sy from '../src/modules/sync/sync.schema.js';
+import * as pe from '../src/modules/permissions/permissions.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
@@ -41,6 +42,8 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/subscription/payments': submitPaymentBody,
   'post /api/v1/subscription/change-plan': changePlanBody,
   'post /api/v1/admin/tenants': admin.createTenantBody,
+  'post /api/v1/admin/act-as-sessions': admin.startActAsBody,
+  'post /api/v1/admin/act-as-sessions/{id}/mode': admin.actAsModeBody,
   'patch /api/v1/admin/tenants/{id}/status': admin.tenantStatusBody,
   'patch /api/v1/admin/tenants/{id}/plan': admin.tenantPlanBody,
   'post /api/v1/admin/payments/{id}/approve': admin.approvePaymentBody,
@@ -149,6 +152,12 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/projects/{id}/daily-logs': dl.dailyLogBody,
   'patch /api/v1/daily-logs/{id}': dl.updateDailyLogBody,
   'post /api/v1/sync/push': sy.pushBody,
+  'post /api/v1/roles': pe.createRoleBody,
+  'patch /api/v1/roles/{id}': pe.updateRoleBody,
+  'post /api/v1/roles/{id}/duplicate': pe.duplicateRoleBody,
+  'put /api/v1/roles/{id}/permissions': pe.setRolePermissionsBody,
+  'put /api/v1/users/{id}/permission-overrides': pe.setOverridesBody,
+  'patch /api/v1/users/{id}/role': pe.setUserRoleBody,
 };
 
 type Spec = {
@@ -168,6 +177,7 @@ describe('API docs', () => {
       'Auth',
       'Company',
       'Team',
+      'Permissions',
       'Subscription',
       'Attachments',
       'Materials',
@@ -215,7 +225,7 @@ describe('API docs', () => {
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(222);
+    expect(Object.keys(res.body.paths)).toHaveLength(236); // +1: /health/ready
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

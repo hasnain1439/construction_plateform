@@ -22,12 +22,16 @@ type AuditDb = Pick<Prisma.TransactionClient, 'auditLog'>;
 export async function writeAudit(db: AuditDb, entry: AuditEntry): Promise<void> {
   const ctx = tryGetCtx();
   // A platform super admin acting inside a company: the row names the real admin, not the
-  // company's system user the change was made with.
+  // company's system user the change was made with — plus the act-as session, the admin's name
+  // and the reason (the write reason in WRITE mode), so the company's own audit log can show them.
   const admin = ctx?.platformAdminId && entry.actorType === 'USER' ? ctx.platformAdminId : null;
   const details: Prisma.InputJsonValue | undefined = admin
     ? {
         ...(entry.details && typeof entry.details === 'object' && !Array.isArray(entry.details) ? (entry.details as Prisma.InputJsonObject) : entry.details === undefined ? {} : { value: entry.details }),
         actingAsCompany: true,
+        ...(ctx?.actAs
+          ? { actAsSessionId: ctx.actAs.sessionId, adminName: ctx.actAs.adminName, actAsReason: ctx.actAs.writeReason ?? ctx.actAs.reason }
+          : {}),
       }
     : entry.details;
   await db.auditLog.create({

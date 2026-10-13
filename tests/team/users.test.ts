@@ -13,7 +13,7 @@ describe('role checks', () => {
     const p = await pm();
     const del = await api().delete(`/api/v1/users/${seeded().users.rafaqatMalik.id}`).set(bearer(p.accessToken));
     expect(del.status).toBe(403);
-    expect(del.body.error.code).toBe('FORBIDDEN');
+    expect(del.body.error).toMatchObject({ code: 'PERMISSION_DENIED', details: { permission: 'team.member.manage' } });
     expect((await api().get(`/api/v1/users/${seeded().users.rafaqatMalik.id}`).set(bearer(p.accessToken))).status).toBe(403);
 
     const m = await loginMunshi(seeded().malik.id);

@@ -1,4 +1,5 @@
 /** Purchase orders. The status follows the purchases linked to the order. */
+import { scopeAll } from '../../core/auth/access.js';
 import { NUMBER_FORMATS, nextNumber } from '../../core/db/counters.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
@@ -101,7 +102,7 @@ export async function activeSupplier(tx: Tx, tenantId: string, supplierId: strin
 
 /** PM sees orders for the store and their projects. */
 function scope(a: Actor): Prisma.PurchaseOrderWhereInput {
-  return a.role === 'THEKEDAR' ? {} : { OR: [{ projectId: null }, { project: projectScope(a) }] };
+  return scopeAll('procurement.order.view', a) ? {} : { OR: [{ projectId: null }, { project: projectScope(a) }] };
 }
 
 async function findOrder(tx: Tx, a: Actor, id: string) {

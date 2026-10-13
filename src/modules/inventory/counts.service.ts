@@ -1,4 +1,6 @@
 /** Physical stock counts: the difference to the system becomes a COUNT_ADJUSTMENT. */
+import { fieldsOf, visible } from '../../core/auth/fieldStrip.js';
+import { assertPerm, scopeAll } from '../../core/auth/access.js';
 import { NUMBER_FORMATS, nextNumber } from '../../core/db/counters.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Forbidden } from '../../core/errors/AppError.js';
@@ -49,12 +51,12 @@ function toCountDto(c: CountRow, a: Pick<Actor, 'seesRates'>) {
       difference: qn(i.difference),
       reason: i.reason,
       note: i.note,
-      ...(a.seesRates ? { valuePaisa: i.valuePaisa.toString() } : {}),
+      ...visible(fieldsOf(a), 'rates', { valuePaisa: i.valuePaisa.toString() }),
     })),
     summary: {
       materials: c.items.length,
       withDifference: c.items.filter((i) => !i.difference.eq(0)).length,
-      ...(a.seesRates ? { differenceValuePaisa: c.items.reduce((s, i) => s + i.valuePaisa, 0n).toString() } : {}),
+      ...visible(fieldsOf(a), 'rates', { differenceValuePaisa: c.items.reduce((s, i) => s + i.valuePaisa, 0n).toString() }),
     },
     createdBy: c.createdBy,
     createdAt: c.createdAt.toISOString(),
@@ -64,7 +66,7 @@ function toCountDto(c: CountRow, a: Pick<Actor, 'seesRates'>) {
 export async function createCountTx(tx: Tx, a: Actor, input: StockCountInput, opts: { at?: Date } = {}) {
   const target = await findLocation(tx, a.tenantId, input.locationId);
   if (target.type === 'TRANSIT') throw new BadRequest('INVALID_LOCATION', 'Stock in transit is counted when it is received');
-  if (target.type === 'STORE' && a.role !== 'THEKEDAR') throw new Forbidden('FORBIDDEN', 'Only the owner can count the store');
+  if (target.type === 'STORE') assertPerm('inventory.store.manage', a, 'Only the owner can count the store');
   const location = await visibleLocation(tx, a, target.id);
   let ownerCats = new Set<string>();
   if (location.type === 'SITE') {
@@ -141,7 +143,7 @@ export async function listCounts(query: StockCountsQuery) {
     else if (query.projectId) {
       const project = await findProjectFor(tx, a, query.projectId);
       where.location = { projectId: project.id };
-    } else if (a.role !== 'THEKEDAR') where.locationId = { in: (await visibleLocations(tx, a)).map((l) => l.id) };
+    } else if (!scopeAll('inventory.count.view', a)) where.locationId = { in: (await visibleLocations(tx, a)).map((l) => l.id) };
     const rows = await tx.stockCount.findMany({ where, include: countInclude, orderBy: [{ countedAt: 'desc' }, { createdAt: 'desc' }], ...skipTake(query) });
     const total = await tx.stockCount.count({ where });
     return { data: rows.map((c) => toCountDto(c, a)), meta: pageMeta(query, total) };

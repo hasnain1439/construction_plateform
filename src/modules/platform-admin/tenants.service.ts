@@ -10,6 +10,7 @@ import { slugify } from '../../core/utils/slug.js';
 import type { Plan, TenantStatus } from '../../generated/prisma/client.js';
 import { deliverInvite, inviteUrl } from '../auth/inviteMessages.js';
 import { provisionMasterData } from '../master-data/provision.js';
+import { provisionPermissions } from '../permissions/provision.js';
 import { assertPlanFits, parkProjectsOverLimit } from '../subscription/subscription.rules.js';
 import { syncTenantStatus, tenantStatusFor } from '../subscription/subscription.status.js';
 import { adminId, auditAdmin, nextReceiptNo } from './platformAdmin.shared.js';
@@ -287,6 +288,7 @@ export async function createTenant(input: CreateTenantInput) {
       }
 
       await provisionMasterData(tx, tenant.id);
+      await provisionPermissions(tx, tenant.id);
 
       const invitation = await tx.invitation.create({
         data: {
@@ -328,6 +330,7 @@ export async function createTenant(input: CreateTenantInput) {
     companyName: tenant.name,
     role: 'THEKEDAR',
     token,
+    tenantId: tenant.id,
     newCompany: true,
   });
 

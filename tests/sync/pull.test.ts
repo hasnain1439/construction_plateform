@@ -1,17 +1,14 @@
+import { defaultAccess } from '../../src/core/auth/access.js';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { seedMalikInventory } from '../../prisma/seedInventory.js';
-import { seedMalikLabor } from '../../prisma/seedLabor.js';
 import { prismaAdmin } from '../../src/core/db/prisma.js';
 import { serializeAssignment, serializeDispatch } from '../../src/modules/sync/sync.serializers.js';
 import { bearer, loginMobile, loginMunshi, SEED, useFreshDatabase } from '../helpers.js';
+import { seedMalikStockAndLabor } from '../dashboard/fixtures.js';
 import { api } from '../inventory/fixtures.js';
 
 const seeded = useFreshDatabase();
 beforeEach(async () => {
-  const s = seeded();
-  const base = { tenantId: s.malik.id, ownerId: s.users.khalid.id, bilalId: s.users.bilal.id, rafaqatId: s.users.rafaqatMalik.id, projects: s.projects };
-  await seedMalikInventory(prismaAdmin, base);
-  await seedMalikLabor(prismaAdmin, { ...base, asifId: s.users.asif.id });
+  await seedMalikStockAndLabor(seeded());
 });
 
 type Pull = { cursor: string; hasMore: boolean; resetRequired: boolean; changes: Record<string, { upserts: Array<Record<string, unknown>>; deletes: string[] }> };
@@ -130,7 +127,7 @@ describe('GET /sync/pull — incremental', () => {
 });
 
 describe('sync serializers', () => {
-  const viewer = (role: 'MUNSHI' | 'PM', blindCount = true) => ({ userId: 'u', role, blindCount });
+  const viewer = (role: 'MUNSHI' | 'PM', blindCount = true) => ({ userId: 'u', role, blindCount, fields: defaultAccess(role).fieldAccess });
   it('sub-contract rates only for the office; dispatch quantities hidden from a munshi while on the way', () => {
     const asg = {
       id: 'a',

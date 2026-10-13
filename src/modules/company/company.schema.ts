@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { paginationQuery } from '../../core/http/pagination.js';
 import { dateOnly, isoDateSchema } from '../../core/utils/dates.js';
 import { normalizePkAnyPhone } from '../../core/utils/phone.js';
 import { emailSchema, languageSchema, regionSchema } from '../auth/auth.schema.js';
@@ -179,3 +180,39 @@ export type SettingsDto = z.infer<typeof settingsDto>;
 export type HolidaysQuery = z.infer<typeof holidaysQuery>;
 export type CreateHolidayInput = z.infer<typeof createHolidayBody>;
 export type HolidayDto = z.infer<typeof holidayDto>;
+
+// ─── Audit log ──────────────────────────────────────────────────────────────
+
+export const companyAuditQuery = paginationQuery.extend({
+  actorType: z.enum(['USER', 'PLATFORM_ADMIN', 'SYSTEM']).optional().meta({ description: 'PLATFORM_ADMIN = platform support (act-as sessions and admin actions)' }),
+  action: z.string().trim().min(1).max(60).optional().meta({ description: 'Prefix, e.g. "admin.act_as" or "supplier."' }),
+  from: isoDateSchema.optional(),
+  to: isoDateSchema.optional(),
+});
+
+export const companyAuditEntryDto = z
+  .object({
+    id: z.uuid(),
+    action: z.string().meta({ example: 'admin.act_as_started' }),
+    entityType: z.string().nullable(),
+    entityId: z.string().nullable(),
+    actor: z.object({
+      type: z.enum(['USER', 'PLATFORM_ADMIN', 'SYSTEM']),
+      id: z.string().nullable(),
+      name: z.string().meta({ example: 'Platform support · Platform Admin' }),
+    }),
+    platformSupport: z
+      .object({
+        sessionId: z.string().nullable(),
+        adminName: z.string().nullable(),
+        reason: z.string().nullable(),
+      })
+      .nullable()
+      .meta({ description: 'Set for everything platform support did: the support person and their reason' }),
+    details: z.unknown(),
+    createdAt: z.string(),
+  })
+  .meta({ id: 'CompanyAuditEntry' });
+
+export type CompanyAuditQuery = z.infer<typeof companyAuditQuery>;
+export type CompanyAuditEntryDto = z.infer<typeof companyAuditEntryDto>;

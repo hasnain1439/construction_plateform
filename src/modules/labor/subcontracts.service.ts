@@ -1,4 +1,5 @@
 /** B5 — sub-contractor accounts: value of verified work, retention, payments, deductions. */
+import { assertPerm } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Forbidden } from '../../core/errors/AppError.js';
 import { Prisma } from '../../core/db/prisma.js';
@@ -6,7 +7,7 @@ import { cashMethodOf, payingAccount, rupees, spend } from '../cashbook/cash.js'
 import { occurredAtFor } from '../inventory/stock.js';
 import { findAssignment, toAssignmentDto, UNIT_OF } from './assignments.service.js';
 import type { DeductionInput, ProgressInput, SubcontractPaymentInput } from './labor.schema.js';
-import { actor, assertOffice, audit, laborSettings, num, projectFor, today, type Actor } from './labor.shared.js';
+import { actor, audit, laborSettings, num, projectFor, today, type Actor } from './labor.shared.js';
 import * as alerts from '../notifications/alerts.js';
 import { accountDto, postSubLedger, subAccounts } from './subcontractLedger.js';
 
@@ -14,7 +15,7 @@ const OFFICE_ONLY = 'Only the owner or a project manager can see sub-contract ac
 
 export async function listAccounts(projectId: string) {
   const a = actor();
-  assertOffice(a, OFFICE_ONLY);
+  assertPerm('labor.account.view', a, OFFICE_ONLY);
   return withTenant(a.tenantId, async (tx) => {
     await projectFor(tx, a, projectId);
     const rows = await tx.subcontractAssignment.findMany({
@@ -52,7 +53,7 @@ export async function listAccounts(projectId: string) {
 
 export async function ledger(id: string) {
   const a = actor();
-  assertOffice(a, OFFICE_ONLY);
+  assertPerm('labor.account.view', a, OFFICE_ONLY);
   return withTenant(a.tenantId, async (tx) => {
     const s = await findAssignment(tx, a, id);
     const entries = await tx.subcontractLedgerEntry.findMany({ where: { tenantId: a.tenantId, assignmentId: s.id }, orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }] });
@@ -77,7 +78,7 @@ export async function ledger(id: string) {
 }
 
 export async function progressTx(tx: Tx, a: Actor, id: string, input: ProgressInput, opts: { at?: Date } = {}) {
-  assertOffice(a, 'Only the owner or a project manager can post progress');
+  assertPerm('labor.subcontract.edit', a, 'Only the owner or a project manager can post progress');
   const s = await findAssignment(tx, a, id);
   await projectFor(tx, a, s.projectId, true);
   if (s.rateType !== 'LUMPSUM') throw new BadRequest('NOT_LUMPSUM', `This contract is paid per ${UNIT_OF[s.rateType]} — record a measurement instead`);
@@ -113,9 +114,9 @@ async function ledgerOf(tx: Tx, a: Actor, id: string) {
 const PAYMENT_ENTRY = { RUNNING: 'RUNNING_PAYMENT', FINAL: 'RUNNING_PAYMENT', RETENTION_RELEASE: 'RETENTION_RELEASE' } as const;
 
 export async function payTx(tx: Tx, a: Actor, id: string, input: SubcontractPaymentInput, opts: { at?: Date } = {}) {
-  if (a.role === 'MUNSHI') throw new Forbidden('FORBIDDEN', 'Only the owner can pay sub-contractors');
-  if (a.role === 'PM' && !(await laborSettings(tx, a.tenantId)).subcontractPaymentsByPm) {
-    throw new Forbidden('FORBIDDEN', 'Only the owner can pay sub-contractors (the company setting does not allow project managers)');
+  assertPerm('labor.subcontractpayment.create', a, 'Only the owner can pay sub-contractors');
+  if (a.role !== 'THEKEDAR' && !(await laborSettings(tx, a.tenantId)).subcontractPaymentsByPm) {
+    throw new Forbidden('PERMISSION_DENIED', 'Only the owner can pay sub-contractors (the company setting does not allow project managers)', { permission: 'labor.subcontractpayment.create' });
   }
   const s = await findAssignment(tx, a, id);
   await projectFor(tx, a, s.projectId, true);
@@ -180,7 +181,7 @@ export async function pay(id: string, input: SubcontractPaymentInput) {
 }
 
 export async function deductTx(tx: Tx, a: Actor, id: string, input: DeductionInput & { refType?: string; refId?: string }, opts: { at?: Date } = {}) {
-  if (a.role !== 'THEKEDAR') throw new Forbidden('FORBIDDEN', 'Only the owner can deduct from a sub-contractor');
+  assertPerm('labor.subcontract.manage', a, 'Only the owner can deduct from a sub-contractor');
   const s = await findAssignment(tx, a, id);
   const entry = await postSubLedger(tx, a, {
     assignmentId: s.id,

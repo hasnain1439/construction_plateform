@@ -3,7 +3,8 @@ import bcrypt from 'bcryptjs';
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import { writeAudit } from '../../core/audit/audit.js';
-import { permissionsFor } from '../../core/auth/permissions.js';
+import { accessFieldsOf, type Access } from '../../core/auth/access.js';
+import { loadAccess } from '../../core/auth/accessLoader.js';
 import { getCtx } from '../../core/context/requestContext.js';
 import { prismaAdmin } from '../../core/db/prisma.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
@@ -25,6 +26,9 @@ import { slugify } from '../../core/utils/slug.js';
 import type { TenantStatus } from '../../generated/prisma/enums.js';
 import { optionalSignedUrl } from '../attachments/attachments.service.js';
 import { provisionMasterData } from '../master-data/provision.js';
+import { defaultRoleId, provisionPermissions } from '../permissions/provision.js';
+import { setFinancialAccess } from '../permissions/permissions.service.js';
+import { ownerAccess } from '../../core/auth/access.js';
 import * as repo from './auth.repository.js';
 import type {
   AcceptInvitationInput,
@@ -70,7 +74,14 @@ export interface AuthResult {
   tenant: TenantDto;
   subscription: SubscriptionDto | null;
   permissions: string[];
+  legacyPermissions: string[];
+  fieldAccess: Access['fieldAccess'];
+  scopes: Access['scopes'];
+  approvalLimits: Access['approvalLimits'];
+  permissionRole: Access['role'];
 }
+
+export { accessFieldsOf };
 
 // ─── Errors ─────────────────────────────────────────────────────────────────
 
@@ -156,6 +167,7 @@ interface SessionTarget {
   id: string;
   tenantId: string;
   role: repo.UserWithTenant['role'];
+  roleId: string | null;
   canSeeFinancials: boolean;
 }
 
@@ -197,10 +209,11 @@ async function openSession(tx: Tx, user: SessionTarget, deviceInput: DeviceInput
     ip: ctx.ip,
     userAgent: ctx.userAgent,
   });
-  const access = companyAccessToken(user, session.id);
+  const effective = await loadAccess(tx, { id: user.id, tenantId: user.tenantId, role: user.role, roleId: user.roleId, canSeeFinancials: user.canSeeFinancials });
+  const access = companyAccessToken(user, session.id, effective);
   return {
     sessionId: session.id,
-    permissions: access.permissions,
+    access: effective,
     tokens: { accessToken: access.token, accessTokenExpiresIn: accessTokenTtlSeconds, refreshToken: refresh.token },
   };
 }
@@ -242,7 +255,7 @@ async function completeLogin(
       details: { method },
     });
     const { dto } = await loadProfileDtos(tx, user.id, user.tenantId);
-    return { tokens: session.tokens, permissions: session.permissions, ...dto };
+    return { tokens: session.tokens, ...accessFieldsOf(session.access), ...dto };
   });
 }
 
@@ -290,6 +303,7 @@ export async function signup(input: SignupInput): Promise<AuthResult> {
     });
     // Starting master data: material catalog, quality categories, labour rates, billing template.
     await provisionMasterData(tx, tenant.id);
+    await provisionPermissions(tx, tenant.id);
     await repo.markLoginSuccess(tx, user.id, now);
     const session = await openSession(tx, user, input.device, now);
     await writeAudit(tx, {
@@ -302,7 +316,7 @@ export async function signup(input: SignupInput): Promise<AuthResult> {
       details: { plan: plan.code, region: input.region },
     });
     const { dto } = await loadProfileDtos(tx, user.id, tenant.id);
-    return { tokens: session.tokens, permissions: session.permissions, ...dto };
+    return { tokens: session.tokens, ...accessFieldsOf(session.access), ...dto };
   });
 
   logger.info({ tenantId: result.tenant.id }, 'tenant signed up');
@@ -388,6 +402,7 @@ export async function requestLoginOtp(input: OtpRequestInput) {
     emails.map((to) =>
       trySendMail({
         to,
+        type: 'OTP',
         subject: 'Your login code',
         text: `Your login code is ${code}. It expires in ${minutes} minutes.\nDo not share it with anyone. If you did not try to sign in, ignore this email.`,
       }),
@@ -485,7 +500,11 @@ export async function refresh(refreshToken: string | undefined): Promise<Refresh
 
   if (!rotated) throw await reuseDetected();
 
-  const access = companyAccessToken(session.user, rotated.id);
+  // Refresh recomputes the permissions from the database.
+  const effective = await withTenant(session.tenantId, (tx) =>
+    loadAccess(tx, { id: session.user.id, tenantId: session.tenantId, role: session.user.role, roleId: session.user.roleId, canSeeFinancials: session.user.canSeeFinancials }),
+  );
+  const access = companyAccessToken(session.user, rotated.id, effective);
   return { tokens: { accessToken: access.token, accessTokenExpiresIn: accessTokenTtlSeconds, refreshToken: next.token } };
 }
 
@@ -540,6 +559,7 @@ export async function forgotPassword(input: ForgotPasswordInput): Promise<{ sent
       for (const email of emails) {
         await mailProvider().send({
           to: email,
+          type: 'PASSWORD_RESET',
           subject: 'Your password reset code',
           text: `Your password reset code is ${code}. It expires in ${Math.round(env.OTP_TTL_SECONDS / 60)} minutes.\nIf you did not request this, you can ignore this email.`,
         });
@@ -610,7 +630,8 @@ export async function getMe(): Promise<MeDto> {
     // admin acting in the company works through it.
     if (user.status !== 'ACTIVE' && !(ctx.platformAdminId && user.isSystem)) throw new Unauthorized('TOKEN_INVALID', 'Account is disabled');
     const assigned = user.role === 'THEKEDAR' ? [] : await repo.assignedProjectIds(tx, user.id);
-    return { ...dto, permissions: permissionsFor(user), assignedProjectIds: assigned };
+    const access = ctx.access ?? (await loadAccess(tx, { id: user.id, tenantId: user.tenantId, role: user.role, roleId: user.roleId, canSeeFinancials: user.canSeeFinancials }));
+    return { ...dto, ...accessFieldsOf(access), assignedProjectIds: assigned };
   });
 }
 
@@ -732,8 +753,13 @@ export async function acceptInvitation(token: string, input: AcceptInvitationInp
       email: invitation.email,
       passwordHash,
       role: invitation.role,
-      canSeeFinancials: invitation.role === 'PM' && invitation.canSeeFinancials,
+      roleId: invitation.role === 'THEKEDAR' ? null : (invitation.roleId ?? (await defaultRoleId(tx, tenantId, invitation.role))),
     });
+    // The old flag on a PM invite = the financial bundle as overrides.
+    if (invitation.role === 'PM' && invitation.canSeeFinancials) {
+      await setFinancialAccess(tx, { tenantId, userId: user.id, access: ownerAccess() }, user.id, true);
+      user.canSeeFinancials = true;
+    }
     if (!(await repo.markInvitationAccepted(tx, invitation.id, user.id, now))) {
       throw new Conflict('INVITE_ALREADY_ACCEPTED', 'This invitation has already been used. Log in instead.');
     }
@@ -754,7 +780,7 @@ export async function acceptInvitation(token: string, input: AcceptInvitationInp
     });
     await alerts.inviteAccepted(tx, { tenantId, userId: user.id, name: user.name, role: invitation.role, at: now });
     const { dto } = await loadProfileDtos(tx, user.id, tenantId);
-    return { tokens: session.tokens, permissions: session.permissions, ...dto };
+    return { tokens: session.tokens, ...accessFieldsOf(session.access), ...dto };
   });
   return result;
 }

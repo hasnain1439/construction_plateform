@@ -177,6 +177,49 @@ export const auditQuery = paginationQuery.extend({
   to: isoDateSchema.optional(),
 });
 
+// ─── Act-as sessions ────────────────────────────────────────────────────────
+
+const actAsReason = (what: string) =>
+  z
+    .string({ error: `${what} is required (5–300 characters)` })
+    .trim()
+    .min(5, `${what} must be at least 5 characters`)
+    .max(300, `${what} must be at most 300 characters`);
+export const actAsModeSchema = z.enum(['READ_ONLY', 'WRITE']);
+
+export const startActAsBody = z.object({
+  tenantId: uuid('tenantId'),
+  reason: actAsReason('Reason').meta({ description: 'Why support needs to open this company — shown to the company owner', example: 'Owner asked us to check a wrong supplier balance (ticket 1042)' }),
+  durationMinutes: z
+    .number()
+    .int()
+    .min(5, 'durationMinutes must be 5–240')
+    .max(240, 'durationMinutes must be 5–240')
+    .default(60)
+    .meta({ description: 'Minutes until the session expires (default 60)' }),
+});
+
+export const actAsModeBody = z
+  .object({
+    mode: actAsModeSchema,
+    reason: actAsReason('Write reason').optional().meta({ description: 'Required to switch to WRITE: what you need to change and why' }),
+  })
+  .refine((b) => b.mode === 'READ_ONLY' || Boolean(b.reason), { path: ['reason'], message: 'A reason is required to switch to write mode' });
+
+export const actAsSessionsQuery = paginationQuery.extend({
+  tenantId: uuid('tenantId').optional(),
+  adminId: uuid('adminId').optional(),
+  active: z
+    .enum(['true', 'false'])
+    .transform((v) => v === 'true')
+    .optional()
+    .meta({ description: 'true: only live sessions (not ended, not expired); false: only finished ones' }),
+});
+
+export type StartActAsInput = z.infer<typeof startActAsBody>;
+export type ActAsModeInput = z.infer<typeof actAsModeBody>;
+export type ActAsSessionsQuery = z.infer<typeof actAsSessionsQuery>;
+
 export type TenantsQuery = z.infer<typeof tenantsQuery>;
 export type CreateTenantInput = z.infer<typeof createTenantBody>;
 export type TenantStatusInput = z.infer<typeof tenantStatusBody>;

@@ -3,8 +3,8 @@
  * come from billing (`moneyOf`, `companyReceivables`), cost from the cost engine, supplier dues
  * from the FIFO supplier balances, cash from the cash book.
  */
+import { assertPerm } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
-import { Forbidden } from '../../core/errors/AppError.js';
 import { dateOnly } from '../../core/utils/dates.js';
 import { addDays, today, ymd } from '../billing/billing.shared.js';
 import { LIVE } from '../billing/ledger.js';
@@ -23,9 +23,6 @@ const NON_DRAFT = ['ACTIVE', 'CLOSEOUT', 'HANDED_OVER', 'CLOSED'] as const;
 export const SUPPLIER_TERMS_DAYS = 30;
 export const RUN_RATE_WEEKS = 8;
 
-function ownerOnly(a: ReadActor, what: string) {
-  if (a.role !== 'THEKEDAR') throw new Forbidden('FORBIDDEN', `Only the owner sees ${what}`);
-}
 
 // ─── Receivables (Step 8 + ageing) ──────────────────────────────────────────
 
@@ -165,7 +162,7 @@ async function buildCashFlow(tx: Tx, a: ReadActor, months: number) {
 
 export async function cashFlow(query: CashFlowQuery) {
   const a = readActor();
-  ownerOnly(a, 'the cash-flow outlook');
+  assertPerm('finance.cashflow.view', a, 'Only the owner sees the cash-flow outlook');
   return cached(a.tenantId, `cashflow|${query.months}`, () => withTenant(a.tenantId, (tx) => buildCashFlow(tx, a, query.months)));
 }
 
@@ -252,8 +249,7 @@ async function buildPnl(tx: Tx, a: ReadActor, query: PnlQuery) {
 
 export async function pnl(query: PnlQuery) {
   const a = readActor();
-  if (a.role === 'PM' && !a.seesProfit) throw new Forbidden('FORBIDDEN', 'You need profit access to see the P&L');
-  if (a.role === 'MUNSHI') throw new Forbidden('FORBIDDEN', 'Only the office sees the P&L');
+  assertPerm('finance.pnl.view', a, 'You need profit access to see the P&L');
   return cached(a.tenantId, `pnl|${a.userId}|${query.projectId ?? ''}|${query.from ?? ''}|${query.to ?? ''}`, () => withTenant(a.tenantId, (tx) => buildPnl(tx, a, query)));
 }
 

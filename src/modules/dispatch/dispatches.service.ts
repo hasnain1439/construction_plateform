@@ -2,6 +2,8 @@
  * Dispatches (gate passes): stock leaves a location (DISPATCH_OUT at average cost), sits in
  * TRANSIT (TRANSIT_IN, same value) until the destination counts it (TRANSIT_OUT + RECEIPT_IN).
  */
+import { fieldsOf, visible } from '../../core/auth/fieldStrip.js';
+import { can, scopeAll } from '../../core/auth/access.js';
 import { logger } from '../../config/logger.js';
 import { NUMBER_FORMATS, nextNumber } from '../../core/db/counters.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
@@ -90,11 +92,11 @@ async function toDispatchDto(tx: Tx, d: DispatchRow, a: Actor) {
           differenceQty: good === null || hide ? null : qn(good.sub(i.sentQty)),
           note: i.note,
           photoUrl: await optionalSignedUrl(i.photo),
-          ...(a.seesRates ? { unitCostPaisa: i.unitCostPaisa.toString(), valuePaisa: valueOf(i.sentQty, i.unitCostPaisa).toString() } : {}),
+          ...visible(fieldsOf(a), 'rates', { unitCostPaisa: i.unitCostPaisa.toString(), valuePaisa: valueOf(i.sentQty, i.unitCostPaisa).toString() }),
         };
       }),
     ),
-    ...(a.seesRates ? { totalValuePaisa: d.items.reduce((s, i) => s + valueOf(i.sentQty, i.unitCostPaisa), 0n).toString() } : {}),
+    ...visible(fieldsOf(a), 'rates', { totalValuePaisa: d.items.reduce((s, i) => s + valueOf(i.sentQty, i.unitCostPaisa), 0n).toString() }),
     shortages: d.shortages.map((s) => ({
       id: s.id,
       kind: s.kind,
@@ -102,7 +104,7 @@ async function toDispatchDto(tx: Tx, d: DispatchRow, a: Actor) {
       qty: qn(s.qty),
       status: s.status,
       resolution: s.resolution,
-      ...(a.seesRates ? { valuePaisa: s.valuePaisa.toString() } : {}),
+      ...visible(fieldsOf(a), 'rates', { valuePaisa: s.valuePaisa.toString() }),
     })),
     receivedBy: d.receivedBy,
     receivedAt: d.receivedAt?.toISOString() ?? null,
@@ -117,7 +119,7 @@ async function toDispatchDto(tx: Tx, d: DispatchRow, a: Actor) {
 
 /** THEKEDAR all; PM / MUNSHI dispatches to or from locations they can see (PM also the store). */
 async function scope(tx: Tx, a: Actor): Promise<Prisma.DispatchWhereInput> {
-  if (a.role === 'THEKEDAR') return {};
+  if (scopeAll('procurement.dispatch.view', a)) return {};
   const ids = (await visibleLocations(tx, a)).filter((l) => l.type === 'SITE').map((l) => l.id);
   return { OR: [{ fromLocationId: { in: ids } }, { toLocationId: { in: ids } }] };
 }
@@ -163,7 +165,7 @@ async function notifySite(tx: Tx, tenantId: string, projectId: string, text: str
   });
   for (const p of people) {
     await smsProvider()
-      .send({ to: p.phone, body: text })
+      .send({ to: p.phone, body: text, type: 'DISPATCH', tenantId })
       .catch((err: unknown) => logger.warn({ err }, 'dispatch sms failed'));
   }
 }
@@ -257,8 +259,8 @@ async function planLocations(tx: Tx, a: Actor, input: Pick<CreateDispatchInput, 
       throw new NotFound('LOCATION_NOT_FOUND', 'Stock location not found');
     });
     if (project.status === 'DRAFT') throw projectNotFound();
-  } else if (a.role !== 'THEKEDAR') {
-    throw new Forbidden('FORBIDDEN', 'Only the owner can dispatch from the store; a PM can transfer from a site they manage');
+  } else if (!can('inventory.store.manage', a)) {
+    throw new Forbidden('PERMISSION_DENIED', 'Only the owner can dispatch from the store; a PM can transfer from a site they manage', { permission: 'inventory.store.manage' });
   }
 
   let to: StockLocation;
@@ -358,7 +360,7 @@ export async function receiveDispatchTx(tx: Tx, a: Actor, id: string, input: Rec
   if (d.status === 'CANCELLED') throw new Conflict('DISPATCH_CANCELLED', 'This dispatch was cancelled');
   if (d.status !== 'ON_THE_WAY') throw new Conflict('ALREADY_RECEIVED', 'This dispatch has already been received', { status: d.status });
   if (d.toLocation.type === 'SITE') await findProjectFor(tx, a, d.toLocation.projectId!);
-  else if (a.role === 'MUNSHI') throw dispatchNotFound();
+  else if (!can('inventory.store.view', a)) throw dispatchNotFound();
 
   const byMaterial = new Map(input.items.map((i) => [i.materialId, i]));
   const missing = d.items.filter((i) => !byMaterial.has(i.materialId)).map((i) => i.materialId);

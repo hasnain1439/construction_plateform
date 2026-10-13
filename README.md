@@ -2,7 +2,11 @@
 
 Multi-tenant backend for a Construction Management SaaS. Express 5 · TypeScript (strict, ESM) · Prisma 7 · PostgreSQL (row-level security) · Zod.
 
-Tenant = construction company. Company users are `THEKEDAR` (owner), `PM` (project manager) and `MUNSHI` (site supervisor, phone OTP). Platform owners are `PLATFORM_ADMIN` in a separate table.
+Tenant = construction company. Company users are `THEKEDAR` (owner), `PM` (project manager, office account) and `MUNSHI` (site supervisor, phone OTP). What a PM or Munshi may do comes from **permissions** (role templates + per-user overrides, see [Permissions](#permissions)); the THEKEDAR always has every permission. Platform owners are `PLATFORM_ADMIN` in a separate table.
+
+> Where the tables below say "THEKEDAR, PM" / "THEKEDAR" / "all", that is the **default** access (the system templates reproduce exactly the old role rules); the API checks permission keys.
+
+Changelog: see [CHANGELOG.md](CHANGELOG.md). Deployment (Docker, VPS, HTTPS, CI/CD, backups, rollback): see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Getting started
 
@@ -21,9 +25,13 @@ npm run dev                     # http://localhost:4000  ·  docs at /api/docs
 | `db:setup` | Create/update DB roles + database from the URLs in `.env` |
 | `db:migrate` / `db:migrate:deploy` | `prisma migrate dev` / `deploy` |
 | `db:generate` / `db:seed` / `db:studio` | Prisma client · seed · Studio |
-| `test` / `test:watch` | Vitest against the `construction_test` database (`.env.test`) |
+| `db:backup` / `db:restore-check` | `pg_dump -Fc` with retention into `./backups` · restore the newest dump into a scratch DB and run sanity checks (Git Bash / Linux; `-- --env-file .env`). See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#8-backups) |
+| `test` / `test:watch` | Vitest, test files in parallel — one copy of the `construction_test` database per worker (`.env.test`; see [Tests](#tests)) |
+| `test:serial` | Same suite one file at a time on `construction_test` itself (fallback / debugging) |
 | `typecheck` | Type-checks src, tests, prisma and scripts |
 | `jobs:subscriptions` | Run the subscription lifecycle once (also runs in the server at start-up and daily 02:00 PKT) |
+| `backfill:permissions` | Permission role templates for every company, a template for users without a role, `canSeeFinancials` PMs → overrides (idempotent) |
+| `storage:migrate -- --from local\|cloudinary --to s3 [--dry-run]` | Copy existing attachment files to the S3 / R2 bucket and update their keys (idempotent, source files kept) — see [Providers](#providers) |
 | `dev:otp -- <phone>` | Development / E2E only: issues a fresh login code for the phone and prints `OTP=123456` (refuses in production) |
 | `docker:up` / `docker:down` | Postgres 16 + Redis 7 (optional; local Postgres works too) |
 
@@ -54,6 +62,10 @@ Every table with a `tenantId` has RLS **enabled and forced** with the policy `"t
 ---
 
 ## Auth
+
+**Security overview:** [docs/SECURITY.md](docs/SECURITY.md) — threat model, tenant isolation, permissions, act-as sessions, tokens / cookies, rate limits, secrets and the pre-launch checklist.
+
+**Rate limits** (429 `RATE_LIMITED`): sign-in routes 10 / min per IP + phone / email (`AUTH_RATE_LIMIT_MAX`) and 30 / min per IP across all of them (`AUTH_IP_RATE_LIMIT_MAX`); OTP request + forgot password 20 / hour per IP (`OTP_SEND_IP_RATE_LIMIT_MAX`); `/sync/push` 60 / min per user (`SYNC_PUSH_RATE_LIMIT_MAX`); everything 300 / min per IP (`GENERAL_RATE_LIMIT_MAX`). Login / SMS codes: `OTP_TTL_SECONDS` ≤ 600, one use, 3 wrong tries. Full table in [docs/SECURITY.md](docs/SECURITY.md#6-rate-limits).
 
 ### Two clients, one API
 
@@ -103,7 +115,7 @@ Passwords: bcrypt cost 12, at least 8 characters with a letter and a number. Cha
 📱 [SMS → +923211234567] Your login code is 482913. It expires in 5 minutes. …
 ```
 
-Codes never go to the structured (pino) log. Password-reset emails are printed the same way. To add a real gateway, implement `SmsProvider` / `MailProvider` in `src/modules/auth/sms.provider.ts` / `mail.provider.ts`.
+Codes never go to the structured (pino) log. Password-reset emails are printed the same way. Real SMS / email / WhatsApp: see [Providers](#providers).
 
 ### Email (invites and login codes)
 
@@ -114,7 +126,7 @@ Everything that goes by SMS also goes by email when the person has an email addr
 - **Login code** (`POST /auth/otp/request`): the code by SMS and to every email on that phone; the response says `emailed: true`.
 - **Password reset**: as before.
 
-Mail is best effort: a failed email never fails the request (the link can be resent). `MAIL_PROVIDER=console` prints mail to the terminal; for real email set `MAIL_PROVIDER=smtp` and `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` (see `.env.example`; Gmail works with an App Password).
+Mail is best effort: a failed email never fails the request (the link can be resent). `MAIL_PROVIDER=console` prints mail to the terminal; for real email set `MAIL_PROVIDER=ses` (Amazon SES, recommended — see [Providers](#providers)) or `MAIL_PROVIDER=smtp` and `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` (see `.env.example`; Gmail works with an App Password).
 
 A Munshi signs in on the mobile app with **phone + code** or **phone + password**. The password is chosen when accepting the invite (optional for a Munshi) or set later by the Thekedar (`PUT /users/:id/password`).
 
@@ -139,7 +151,7 @@ A Munshi signs in on the mobile app with **phone + code** or **phone + password*
 import { authenticate } from '../../core/middleware/authenticate.js';
 import { tenantContext } from '../../core/middleware/tenantContext.js';
 import { readOnlyGuard } from '../../core/middleware/readOnlyGuard.js';
-import { requirePermission, requireRole } from '../../core/middleware/requireRole.js';
+import { requirePerm } from '../../core/middleware/requirePerm.js';
 import { validate } from '../../core/middleware/validate.js';
 import { getCtx } from '../../core/context/requestContext.js';
 import { withTenant } from '../../core/db/withTenant.js';
@@ -149,7 +161,7 @@ router.post(
   authenticate,                 // 401 unless a valid company token (cookie or Bearer)
   tenantContext,                // 403 COMPANY_SUSPENDED; flags READ_ONLY companies
   readOnlyGuard,                // 403 ACCOUNT_READ_ONLY for writes on READ_ONLY companies
-  requireRole('THEKEDAR', 'PM'),// or requirePermission('projects.manage')
+  requirePerm('projects.project.create'), // 403 PERMISSION_DENIED { permission } — keys in core/auth/permissionCatalog.ts
   validate({ body: createProjectBody }),
   h(controller.create),
 );
@@ -163,7 +175,7 @@ export function createProject(input: CreateProjectInput) {
 
 Platform-admin routes use `...requirePlatformAdmin` instead of the first four middlewares.
 
-Permissions (`src/core/auth/permissions.ts`): THEKEDAR has all; PM has `projects.manage`, `rates.view`, `site.entry` plus `billing.view` / `profit.view` when `canSeeFinancials`; MUNSHI has only `site.entry`.
+Every company route has a `requirePerm(key)` (or none for things every user may do: own profile, notifications, sync, uploads, holidays list, static presets). In services use `assertPerm(key, actor)`, `can(key, actor)`, `scopeAll(key, actor)`, `assertApprovalLimit(key, paisa, actor)` (`src/core/auth/access.ts`) and `assertProjectScope(tx, key, projectId)` (`projects/access.ts`). See [Permissions](#permissions).
 
 ### Endpoints
 
@@ -176,6 +188,134 @@ All under `/api/v1`, documented with examples at **`/api/docs`** (raw spec: `/ap
 `tenant.signup`, `auth.login`, `auth.login_failed`, `auth.otp_verified`, `auth.refresh_reuse_detected`, `auth.logout`, `auth.logout_all`, `auth.password_reset`, `auth.password_changed`, `invite.accept`, `admin.login` — with IP, user agent and request id; never passwords, tokens or codes.
 
 ---
+
+## Providers
+
+Production needs real SMS, email and file storage. Every provider is chosen by environment variables (all listed in `.env.example`) and checked at start-up by `src/config/env.ts`. **With `NODE_ENV=production` the API refuses to start with `SMS_PROVIDER=console`, `MAIL_PROVIDER=console` or `STORAGE_PROVIDER=local`**; a staging server may set `ALLOW_DEV_PROVIDERS_IN_PRODUCTION=true` to run with them anyway.
+
+| Channel | Setting | Values | Code |
+|---|---|---|---|
+| SMS | `SMS_PROVIDER` | `console` (dev / tests) · `http` (any HTTP gateway) | `src/modules/auth/sms.provider.ts` |
+| Email | `MAIL_PROVIDER` | `console` · `smtp` · `ses` (Amazon SES API v2) | `src/modules/auth/mail.provider.ts` |
+| WhatsApp | `WHATSAPP_ENABLED` | `false` (default) · `true` (Meta Cloud API, template messages) | `src/modules/auth/whatsapp.provider.ts` |
+| Files | `STORAGE_PROVIDER` | `local` · `cloudinary` · `s3` (AWS S3 / Cloudflare R2 / MinIO) | `src/modules/attachments/*.provider.ts` |
+
+### What you must set up (owner checklist)
+
+Nothing here is bought or created by the code — these are accounts and settings the owner arranges:
+
+1. **SMS gateway** (Pakistan): an account with a PTA-compliant bulk SMS aggregator that offers an HTTP API, a **sender ID / mask** approved for your brand, and (if the gateway requires it) registered message templates. You need: endpoint URL, method, auth style + key, the answer it gives on success (for `SMS_HTTP_SUCCESS_MATCH` / `SMS_HTTP_ID_PATH`). Then set `SMS_PROVIDER=http` and the `SMS_HTTP_*` / `SMS_SENDER_ID` / `SMS_TEMPLATES` keys.
+2. **Amazon SES**: an AWS account; in SES (a region such as `eu-west-1`, `ap-south-1` or `me-central-1`) **verify your sending domain** with Easy DKIM, add the SPF / DMARC records below, **request production access** (leave the sandbox), and create an IAM user or role allowed `ses:SendEmail` only. Optional: a configuration set publishing bounces / complaints. Then `MAIL_PROVIDER=ses`, `SES_REGION`, `MAIL_FROM` (+ `SES_ACCESS_KEY_ID` / `SES_SECRET_ACCESS_KEY` unless the server has an IAM role).
+3. **DNS for email** (on the domain of `MAIL_FROM`, ideally a subdomain like `mail.example.pk`): SPF, DKIM, DMARC — see below.
+4. **File bucket**: a **private** S3 bucket (Block Public Access on, default encryption SSE-S3) or a Cloudflare R2 bucket (no public access / no r2.dev URL), and an access key limited to that bucket (`s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`, `s3:ListBucket` for the migration's HeadObject). For uploads from the web app nothing else is needed (files go through the API; downloads are presigned URLs). Then `STORAGE_PROVIDER=s3`, `S3_BUCKET`, `S3_REGION` (`auto` for R2), `S3_ENDPOINT` (R2 / MinIO only), keys. Run `npm run storage:migrate -- --from local --to s3 --dry-run`, then without `--dry-run`.
+5. **WhatsApp (optional)**: a Meta Business account, a WhatsApp Business phone number in the Cloud API, a **permanent System User access token** with `whatsapp_business_messaging`, and the four **message templates approved** in WhatsApp Manager (names / variables below). Then `WHATSAPP_ENABLED=true`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_ACCESS_TOKEN`.
+6. Keep every secret in the server's secret store / environment, never in git. Rotate them if they leak (see `docs/SECURITY.md`).
+
+### Delivery log
+
+Every SMS, email and WhatsApp message is recorded in `MessageDelivery` (migration `20261021090000_message_deliveries`): `channel` SMS / EMAIL / WHATSAPP, `type` (OTP, PASSWORD_RESET, INVITE, NOTIFICATION, SUBSCRIPTION_REMINDER, CASHBOOK, DISPATCH, PLATFORM, SUPPORT_ACCESS, INVOICE, STATEMENT, GENERIC), `provider`, **masked** `to` (`+92300*****67`, `k***@example.pk`), `status` QUEUED → SENT / FAILED, `providerId` (gateway id, SES MessageId, WhatsApp `wamid`), `error` (no message text, no codes), `tenantId` (null for login codes and other platform messages). Message bodies are never stored. The platform writes it (app_admin); a company can only read its own rows (RLS, `SELECT` for app_user). Logging never blocks or fails a send.
+
+### SMS — generic HTTP gateway (`SMS_PROVIDER=http`)
+
+One adapter covers most gateways by configuration:
+
+- `SMS_HTTP_URL` + `SMS_HTTP_METHOD` (GET / POST). Placeholders `{to}`, `{message}`, `{sender}`, `{type}`, `{templateId}` work in the URL (URL-encoded) and in `SMS_HTTP_BODY_TEMPLATE` (JSON-escaped for `SMS_HTTP_CONTENT_TYPE=json`, URL-encoded for `form`). Default bodies: `{"to":"{to}","message":"{message}","sender":"{sender}"}` / `to={to}&message={message}&sender={sender}`; a GET without `{message}` in the URL gets the form string as its query.
+- Auth `SMS_HTTP_AUTH`: `none`, `bearer` (`Authorization: Bearer <SMS_HTTP_API_KEY>`), `basic` (`SMS_HTTP_USERNAME` / `SMS_HTTP_PASSWORD`), `header` (`<SMS_HTTP_AUTH_HEADER>: <key>`), `query` (`?<SMS_HTTP_AUTH_QUERY_PARAM>=<key>`).
+- `{to}` format `SMS_HTTP_PHONE_FORMAT`: `international` 923001234567 (default), `e164` +923001234567, `local` 03001234567.
+- Success = HTTP 2xx **and** `SMS_HTTP_SUCCESS_MATCH` matches the body (if set) **and** `SMS_HTTP_FAILURE_MATCH` doesn't (for gateways that answer 200 with an error). `SMS_HTTP_ID_PATH` (e.g. `data.messageId`) reads the gateway's id from a JSON answer. Timeout `SMS_HTTP_TIMEOUT_MS` (10 s).
+- Per-type text: `SMS_TEMPLATES` JSON, e.g. `{"OTP":"Munshi App code: {code} ({minutes} min)","INVITE":"{company}: {url}"}`. Placeholders: OTP / PASSWORD_RESET `{code}`, `{minutes}`; INVITE `{name}`, `{company}`, `{role}`, `{url}`; every type `{message}` (the built-in text). A template with a placeholder the message doesn't have is ignored (built-in text sent). `SMS_TEMPLATE_IDS` JSON (`{"OTP":"1001"}`) fills `{templateId}` for gateways with registered templates.
+- If the login-code SMS fails (and WhatsApp is off or failed too), `POST /auth/otp/request` answers `503 SMS_UNAVAILABLE` and the undelivered code is dropped, so the user can retry at once. Other SMS (notifications, dispatch, cash, invites) stay best effort.
+
+Example (JSON API with bearer key):
+
+```env
+SMS_PROVIDER=http
+SMS_SENDER_ID=MUNSHI
+SMS_HTTP_URL=https://sms-gateway.example.pk/api/v1/send
+SMS_HTTP_AUTH=bearer
+SMS_HTTP_API_KEY=…
+SMS_HTTP_BODY_TEMPLATE='{"recipient":"{to}","text":"{message}","mask":"{sender}"}'
+SMS_HTTP_SUCCESS_MATCH='"status":\s*"(ok|success)"'
+SMS_HTTP_ID_PATH=data.id
+```
+
+### Email — Amazon SES (`MAIL_PROVIDER=ses`)
+
+`SendEmail` (SES API v2, `@aws-sdk/client-sesv2`) with text + HTML, from `MAIL_FROM`, optional `SES_CONFIGURATION_SET`. Credentials: `SES_ACCESS_KEY_ID` / `SES_SECRET_ACCESS_KEY` when both are set, otherwise the standard AWS chain (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`, profile, IAM role). Mail stays best effort (a failure is logged FAILED; the request still succeeds).
+
+**SPF / DKIM / DMARC** — without them mail lands in spam or is rejected (Gmail and Yahoo require them for bulk senders):
+
+- **DKIM**: in SES → Identities → your domain → Easy DKIM (2048-bit). SES gives three `CNAME` records `<token>._domainkey.mail.example.pk → <token>.dkim.amazonses.com`; add them all.
+- **SPF**: with a custom **MAIL FROM domain** (SES → identity → "Custom MAIL FROM", e.g. `bounce.mail.example.pk`) add `MX 10 feedback-smtp.<region>.amazonses.com` and `TXT "v=spf1 include:amazonses.com ~all"` on that subdomain. If you also send from SMTP / Google Workspace on the same domain, keep **one** SPF record listing every sender.
+- **DMARC**: `TXT` on `_dmarc.example.pk`: start with `v=DMARC1; p=none; rua=mailto:dmarc@example.pk`, watch the reports for a few weeks, then move to `p=quarantine` and `p=reject`.
+- Request SES production access (out of the sandbox) and set up bounce / complaint handling (configuration set → SNS) before sending at volume.
+
+### WhatsApp — Meta Cloud API (`WHATSAPP_ENABLED=true`)
+
+Off by default. When on, **invites and login codes also go by WhatsApp** (an extra channel: SMS and email still go, and the web / mobile **share links stay the fallback**). Plain `fetch` to `https://graph.facebook.com/<WHATSAPP_API_VERSION>/<WHATSAPP_PHONE_NUMBER_ID>/messages` with `Authorization: Bearer <WHATSAPP_ACCESS_TOKEN>`; failures are logged and never fail the request. Business-initiated messages must use templates approved in WhatsApp Manager, in `WHATSAPP_TEMPLATE_LANGUAGE` (default `en`):
+
+| Type | Setting (default name) | Body variables | Wired |
+|---|---|---|---|
+| Invite | `WHATSAPP_TEMPLATE_INVITE` (`team_invite`) | {{1}} name, {{2}} company, {{3}} role, {{4}} invite link | team invites + new-company owner invites |
+| OTP | `WHATSAPP_TEMPLATE_OTP` (`login_code`) | {{1}} code — an **Authentication** template with a copy-code button (the code is sent as the button parameter too) | login and password-reset codes |
+| Invoice | `WHATSAPP_TEMPLATE_INVOICE` (`invoice_issued`) | {{1}} client, {{2}} invoice no, {{3}} amount, {{4}} PDF link | helper `whatsAppTemplates.invoice()` (not wired yet — invoices are shared by the existing WhatsApp share link) |
+| Statement | `WHATSAPP_TEMPLATE_STATEMENT` (`account_statement`) | {{1}} client, {{2}} period, {{3}} balance, {{4}} link | helper `whatsAppTemplates.statement()` (same) |
+
+### Files — S3-compatible (`STORAGE_PROVIDER=s3`)
+
+See [Storage providers](#storage-providers). Objects go to `S3_BUCKET` under `<tenantId>/<yyyy>/<mm>/<attachmentId>.<ext>` with `ServerSideEncryption: AES256` (`S3_SERVER_SIDE_ENCRYPTION=none` only for a service that rejects the header) and no ACL (the bucket stays private). The stored key is `s3:<that key>`; clients get **presigned GET URLs** valid `SIGNED_URL_TTL_SECONDS`. Cloudflare R2: `S3_REGION=auto`, `S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com`; MinIO: `S3_ENDPOINT` + `S3_FORCE_PATH_STYLE=true`.
+
+**Moving existing files** — `npm run storage:migrate -- --from local|cloudinary --to s3 [--dry-run] [--tenant <id>] [--batch 100]` (`scripts/migrate-storage.ts`, needs the `S3_*` keys; `STORAGE_PROVIDER` may still be the old one): for each attachment still on the source it uploads the file unless the object is already in the bucket, then switches the row's key — only while the row still has its old key, so re-running is safe and resumes after an interruption. Failed files are listed and left untouched (exit code 1). Source files are **not** deleted: check the app, then remove `STORAGE_DIR` / the Cloudinary folder yourself. Switch `STORAGE_PROVIDER=s3` before or after — old keys stay readable either way.
+
+### Tests
+
+No test reaches a real provider: `tests/providers/` covers the HTTP gateway (mocked `fetch`, success / failure / delivery log rows / RLS), SES (`aws-sdk-client-mock`), WhatsApp disabled / enabled (mocked `fetch`), S3 put / presign / delete / migration (`aws-sdk-client-mock`; presigning is the real offline SDK code) and the production start-up refusal.
+
+## Observability
+
+Everything here is **optional and off by default**: with the env keys empty nothing is initialised and no data leaves the server. Code: `src/core/observability/` (`sentry.ts`, `scrub.ts`, `analytics.ts`, `hash.ts`), `src/instrument.ts`, `src/modules/health/`.
+
+### Health
+
+| Route | Use for | Checks | Answer |
+|---|---|---|---|
+| `GET /health` | liveness (restart) probe | none — no database | `200 { success, data: { status: "ok" } }` (unchanged) |
+| `GET /health/ready` | readiness / load-balancer probe | **database** (`SELECT 1`, app_user pool) · **storage** (local folder writable / S3 `HeadBucket` / Cloudinary `ping`, cached 30 s) · **scheduler** (in-process jobs: `enabled`, `running`, last status of each `JobRun` via the admin pool) | `200 { data: { status: "ok", checks } }` or `503 { error: { code: "NOT_READY", details: { status: "fail", checks } } }` |
+
+Each check has a 3 s budget and reports `ok`, `latencyMs` and on failure only an error **code** (`P1001`, `TIMEOUT`, `NoSuchBucket (404)`) — never hosts or connection strings. A FAILED background job is shown but does not make the API unready. Both routes sit outside `/api/v1` (no rate limit), are not request-logged and are never traced. Documented in OpenAPI (tag Health).
+
+### Logs
+
+pino (JSON in production). Every line written while handling a request — and the request line itself — carries `requestId`, `tenantId`, `userId` (and `platformAdminId` during a support session) from the request context (`logger` mixin + pino-http `customSuccessObject`). Ids only; bodies, cookies, auth headers, passwords, tokens and codes stay redacted.
+
+### Sentry (errors + performance)
+
+`SENTRY_DSN` on → `Sentry.init` (`@sentry/node`) with `SENTRY_ENVIRONMENT` (default `NODE_ENV`), `SENTRY_RELEASE`, `SENTRY_TRACES_SAMPLE_RATE` (default 0.1; `/health*` never sampled).
+
+- **Errors**: every 500 (unhandled errors and `AppError` ≥ 500 except `503 SERVICE_BUSY`) is captured in `errorHandler` with tags `requestId`, `tenantId`, `actorType`, `userIdHash`, `route`; the Sentry user is `{ id: <hashed user id> }` only.
+- **Performance**: Express / http / pg spans need Sentry loaded before Express — `npm start` runs `node --import ./dist/instrument.js dist/server.js` and `npm run dev` passes `--import ./src/instrument.ts` (server.ts also imports it first, so errors are reported either way). Transactions get the same tags (isolation scope set in `requestContext` / `authenticate`).
+- **PII scrubbing** (`scrub.ts`, `beforeSend` / `beforeSendTransaction` / `beforeBreadcrumb`, plus SDK `dataCollection` off for user info, cookies, bodies, query strings, SQL values, local variables): emails, Pakistani / E.164 phones, CNICs, JWTs, `Bearer` values, long tokens, `token= / code= / sig= / password=` params, invitation tokens in URLs, signed-link query strings, `Authorization` / `Cookie` / `X-Act-As-Session` / `X-Forwarded-For` headers, **all request bodies** (auth bodies hold passwords and codes), IP address, and any key named like password / token / otp / code / phone / email / cnic / session. Money is not scrubbed (not personal data).
+
+### Product analytics (PostHog)
+
+`POSTHOG_KEY` on → `posthog-node` (batched, GeoIP off). One helper: `track(event, props)` in `src/core/observability/analytics.ts`.
+
+| Event | Tracked by | Props |
+|---|---|---|
+| `login` | web + mobile apps (where identify happens) | `client`, `method`, `role` |
+| `project_activated` | API `POST /projects/:id/activate` | `role` |
+| `hazri_marked` | API attendance (REST, and sync with `source: "sync"`) | `count` (entries) |
+| `purchase_saved` | API `POST /purchases` (REST, and sync `SITE_PURCHASE_CREATE`) | `kind` (STORE / SITE), `method` (payment mode) |
+| `invoice_issued` | API `POST /invoices/:id/issue` | `kind` (invoice type) |
+| `sync_error` | API: one per `/sync/push` batch with REJECTED / RETRY results; mobile: client-side sync failures | `kind`, `status`, `count`, `error_code` |
+
+Rules (same allow-list in all three apps): only the props `client, platform, method, source, role, status, kind, count, error_code, app_version, offline, duration_ms`; numbers only for `count` / `duration_ms`; strings ≤ 64 chars that don't look like an email, a phone (≥ 7 digits), a token or an amount; keys containing amount / paisa / price / rate / total / balance / money / name / phone / email / cnic / address / token are dropped. **No money values, names, phones or free text.** Person = `distinctId` = first 32 hex of SHA-256(`"user:" + userId`) (web and mobile compute the same); company = PostHog group `company` keyed by the tenant id (never the name). Support sessions (platform admin acting as a company) are not tracked.
+
+### Owner set-up
+
+1. **Sentry**: create an organisation and three projects (Node API, Next.js web, React Native mobile); copy each DSN → `SENTRY_DSN` here, `NEXT_PUBLIC_SENTRY_DSN` in web, `EXPO_PUBLIC_SENTRY_DSN` in mobile. Optional: an auth token (`SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`) in the web / EAS build environments for source maps. In Sentry → Project settings → Security & Privacy also turn on "Data scrubber" and "Prevent storing of IP addresses".
+2. **PostHog**: a project (US or EU cloud) → project API key → `POSTHOG_KEY` / `POSTHOG_HOST` here and the `NEXT_PUBLIC_POSTHOG_*` / `EXPO_PUBLIC_POSTHOG_*` keys in the apps. Enable "Group analytics" for the `company` group type (paid add-on; events still arrive without it).
+3. Point the load balancer / container health checks at `GET /health` (liveness) and `GET /health/ready` (readiness).
 
 ## Attachments
 
@@ -197,6 +337,7 @@ All under `/api/v1`, documented with examples at **`/api/docs`** (raw spec: `/ap
 | `STORAGE_PROVIDER` | Where files go | Signed URL |
 |---|---|---|
 | `local` (default — dev and tests) | `STORAGE_DIR` (default `./storage`, git-ignored), key `tenantId/yyyy/mm/<id>.<ext>` | `/api/v1/attachments/:id/file?tid=&exp=&sig=`, `sig = HMAC-SHA256(JWT_REFRESH_PEPPER, id:tid:exp)`, served by this API (`403 INVALID_SIGNATURE` / `LINK_EXPIRED`). Set `API_PUBLIC_URL` for the public host. |
+| `s3` | Private S3 / R2 / MinIO bucket `S3_BUCKET`, object key `tenantId/yyyy/mm/<id>.<ext>`, SSE AES256, no ACL. Key stored: `s3:<object key>` | Presigned `GetObject` URL (SigV4, `X-Amz-Expires` = TTL). See [Providers](#files--s3-compatible-storage_providers3) |
 | `cloudinary` | Cloudinary **authenticated** assets (never public), folder `construction/{tenantId}/{yyyy}/{mm}`, `public_id` = attachment id; `resource_type` image (images), video (audio), raw (PDF). Key stored: `cloudinary:<resource_type>:<public_id>` | `private_download_url` with `expires_at` — signed by Cloudinary, expires after the TTL. Image thumbnails (`signedUrlFor(att, { thumbnailWidth: 400 })` → `w_400`, auto quality/format) are expiring only if `CLOUDINARY_AUTH_TOKEN_KEY` (token-based auth, a paid Cloudinary feature) is set; otherwise the expiring original is returned. |
 
 **Switch to Cloudinary:**
@@ -210,7 +351,7 @@ CLOUDINARY_API_SECRET=…
 # CLOUDINARY_AUTH_TOKEN_KEY=…
 ```
 
-The three `CLOUDINARY_*` credentials are validated at start-up only when `STORAGE_PROVIDER=cloudinary`. Switching is safe in both directions: each stored key says which provider holds it (`storageForKey`), so existing local files stay readable after moving to Cloudinary (keep `STORAGE_DIR` until you migrate them). Tests always use the local provider; the Cloudinary provider is tested with a mocked SDK (`tests/cloudinaryProvider.test.ts`) and never calls Cloudinary.
+The three `CLOUDINARY_*` credentials are validated at start-up only when `STORAGE_PROVIDER=cloudinary`. Switching is safe in both directions: each stored key says which provider holds it (`storageForKey`), so existing local files stay readable after moving to Cloudinary (keep `STORAGE_DIR` until you migrate them). Tests always use the local provider; the Cloudinary and S3 providers are tested with mocked SDKs (`tests/cloudinaryProvider.test.ts`, `tests/providers/s3Storage.test.ts`) and never call the services. `s3:` keys are read by the S3 provider whatever `STORAGE_PROVIDER` says; copy older files over with `npm run storage:migrate`.
 - `GET /api/v1/attachments/:id` returns metadata + a fresh URL (RLS: other companies get 404).
 
 Other modules call `signedUrlFor()` / `optionalSignedUrl()` from `attachments.service.ts` (company logo, user photo in `/auth/me`).
@@ -223,6 +364,7 @@ Other modules call `signedUrlFor()` / `optionalSignedUrl()` from `attachments.se
 |---|---|---|
 | `GET /company` | THEKEDAR, PM | Profile incl. signed `logoUrl` |
 | `PATCH /company` | THEKEDAR | name 3–100, NTN `1234567-8`, logo (attachment of kind LOGO in this company, else 404), address, phone (mobile or landline → E.164), email, region, marlaStandard 225 / 272.25. Audit `company.update` stores changed field **names** only. |
+| `GET /company/audit-logs` | owner (`company.audit.view`) | The company's own audit log, newest first, paginated; platform support rows name the support person and their reason (see [Working inside a company](#working-inside-a-company-company-data)). |
 | `GET /company/settings` · `PATCH` | THEKEDAR | `kharchaApprovalLimitPaisa` (paisa as string), `overuseAlertPercent` 1–20, `missingLogAlertTime` HH:MM, `quoteValidityDays` 1–90, `taxEnabled`, `pmCanSeeFinancials` (default for new PM invites), `defaultLanguage`. Audit `settings.update` with before/after. |
 | `GET /company/holidays` | everyone | `year` or `from`+`to`. Platform holidays (nationwide or the company's region, `editable: false`) merged with company holidays, sorted. |
 | `POST /company/holidays` · `DELETE /:id` | THEKEDAR | name, startDate (not in the past, company time zone), endDate ≥ startDate, type `NON_WORKING` / `PARTIAL`. Platform holidays can't be deleted (404). |
@@ -235,7 +377,7 @@ The seed adds the fixed-date national holidays (Kashmir Day, Pakistan Day, Labou
 
 **Users** (`/api/v1/users`)
 - `GET /users` (THEKEDAR, PM): `search`, `role`, `status`, `projectId`, `page`, `limit` (25, max 100). `meta.usage = { officeUsers, maxOfficeUsers }` — office users are active THEKEDAR + PM; Munshis are free. PMs don't see `canSeeFinancials`.
-- `GET /users/:id`, `PATCH /users/:id` (THEKEDAR): role only PM ↔ MUNSHI; nobody changes their own role (`CANNOT_CHANGE_OWN_ROLE`) or an owner's (`CANNOT_CHANGE_OWNER_ROLE`); `canSeeFinancials` only for PMs; MUNSHI → PM needs a free seat (`402`); duplicate phone `409 PHONE_TAKEN`. New role/permissions reach the user's token at their next refresh (`/auth/refresh` always recomputes from the database).
+- `GET /users/:id`, `PATCH /users/:id` (THEKEDAR): role only PM ↔ MUNSHI; nobody changes their own role (`CANNOT_CHANGE_OWN_ROLE`) or an owner's (`CANNOT_CHANGE_OWNER_ROLE`); `canSeeFinancials` only for PMs; MUNSHI → PM needs a free seat (`402`); duplicate phone `409 PHONE_TAKEN`. A role change also gives the user the default template of the new account type; permission changes apply on the user's next request.
 - `DELETE /users/:id` = soft deactivate: status `INACTIVE`, all sessions and devices revoked. Not yourself (`CANNOT_DEACTIVATE_SELF`), never the last active THEKEDAR (`LAST_THEKEDAR`). `assertNoOpenCashBalance()` is the hook for the cash module (TODO → `409 CASH_BALANCE_OPEN`).
 - `POST /users/:id/reactivate` (PM re-checks the seat limit), `PUT /users/:id/projects` replaces the project list in one transaction (`400 INVALID_PROJECT` for ids outside the company, `400 THEKEDAR_HAS_ALL_PROJECTS`).
 
@@ -248,6 +390,37 @@ The seed adds the fixed-date national holidays (Kashmir Day, Pakistan Day, Labou
 - `DELETE /:id` revokes the device and its sessions — its refresh then fails with `401 DEVICE_REVOKED` until the user logs in again. Your own current device → `400 CANNOT_REVOKE_CURRENT_DEVICE`.
 
 Audit actions added: `attachment.upload`, `company.update`, `settings.update`, `holiday.create`, `holiday.delete`, `user.update`, `user.deactivate`, `user.reactivate`, `user.projects_update`, `invite.create`, `invite.resend`, `invite.cancel`, `device.revoke`.
+
+## Permissions
+
+`src/core/auth/permissionCatalog.ts` is the single source of every permission (exported as `GET /api/v1/permissions/catalog`); `src/core/auth/access.ts` resolves and checks them; `src/modules/permissions` manages roles and overrides. Contract for the web and mobile apps: `../PERMISSIONS_API.md`.
+
+- **Keys** `<module>.<resource>.<action>` (view / create / edit / approve / manage), e.g. `labor.settlement.approve`, `cashbook.expense.create`, `procurement.dispatch.create`, `billing.invoice.view`. Each has a module, labels in English / Roman Urdu / Urdu, a description and flags: `ownerOnly` (never grantable: `company.settings.manage`, `subscription.manage`), `scoped` (project data: a grant is `ASSIGNED_PROJECTS` or `ALL_PROJECTS`), `limit` (approve keys accept `maxAmountPaisa`).
+- **Field permissions** `fields.rates` (material / supplier / sub-contract rates, purchase amounts, stock values, supplier balances), `fields.amounts` (billing money, receivables, money KPIs), `fields.profit` (P&L, margins), `fields.contract` (contract value, rate, stage amounts). Serializers strip by them through one helper (`core/auth/fieldStrip.ts` — `visible()` / `stripFields()`), on REST and in the sync serializers.
+- **Resolution**: THEKEDAR → every key, all projects, no limits. Others → role permissions + ALLOW overrides − DENY overrides (owner-only keys never). Resolved per request in `tenantContext` and cached per user; the cache key is `User.permVersion` + `Role.version` (bumped by every change), so a change applies on the **next request** on every API instance (refresh also recomputes). The JWT `perms` claim now only carries the short legacy list — the full set (~100 keys) would bloat the cookie and could go stale.
+- **Tables** (migration `20261019090000_permissions`, RLS + grants): `Role` (key, name / nameRoman / nameUrdu, `isSystem`, `baseRole` PM / MUNSHI / OTHER, version), `RolePermission` (key, scope, maxAmountPaisa), `UserPermissionOverride` (ALLOW / DENY, scope, limit, note), `User.roleId` + `permVersion`, `Invitation.roleId`.
+- **System templates per company** (read-only; duplicate to change): **Project Manager** = exactly the old PM rights without financials; **Munshi** = the old MUNSHI rights; **Accountant** (billing, payments, cash, receivables, reports — all projects) and **Store Keeper** (purchases, receiving, dispatch, store, counts, usage — no rates). The old `canSeeFinancials` = the *financial bundle* (`billing.invoice.view|create`, `billing.payment.view|create`, `finance.pnl.view`, `fields.amounts|profit|contract`) as ALLOW overrides; `PATCH /users/:id { canSeeFinancials }` and invites still accept the flag and write those overrides (the column is kept in step for old clients).
+- **Provisioning**: sign-up, admin company create and the seed call `provisionPermissions()`; existing companies: `npm run backfill:permissions` (idempotent; re-syncs system templates to the code, assigns templates, migrates `canSeeFinancials` PMs). Until it runs, a user without a role resolves to the code template (+ the bundle when `canSeeFinancials`), so access never changes.
+- **Scope**: `projectScope(caller, key)` / `assertProjectScope(tx, key, projectId)`: assigned projects, or all with `ALL_PROJECTS` (outside → 404 as before).
+- **Approval limits**: kharcha approve (`cashbook.expense.approve`), top-up approve, settlement approve (net), measurement verify (value), invoice issue (total), supplier payment (`amountFrom` on the route) → above the limit `403 APPROVAL_LIMIT_EXCEEDED { permission, maxAmountPaisa, amountPaisa }`. Also enforced through `/approvals/bulk` and sync push (the services check).
+- **Account-type rules that stay with `User.role`** (not permissions): a MUNSHI marks hazri at most 7 days back, gives peshgi / pays wages from site cash only, gets blind count on receiving, sees only their own cash in day summaries; office seats count THEKEDAR + PM accounts.
+- **Sync**: `/sync/pull` returns `access` (same as `/auth/me`), pulls only tables the caller may view (`TABLE_PERMISSIONS`) and strips fields by field permissions; a permission change records a `UserAccess` change → the next incremental pull answers `resetRequired`. `/sync/push` maps each mutation type to its key (`MUTATION_PERMISSIONS`); missing → `REJECTED` `PERMISSION_DENIED`.
+
+| Endpoint | Who | Notes |
+|---|---|---|
+| `GET /permissions/catalog` | any company user | modules, keys (labels, flags), templates, financial bundle |
+| `GET /roles` · `GET /roles/:id` | THEKEDAR or `team.member.manage` | with permissions and user count |
+| `POST /roles` | same | `{ name, nameRoman?, nameUrdu?, description?, baseRole?, fromRoleId?, permissions? }`; audit `role.create` |
+| `POST /roles/:id/duplicate` | same | the way to edit a system template |
+| `PATCH /roles/:id` | same | names / base role; system → `403 ROLE_IS_SYSTEM`; audit `role.update` |
+| `PUT /roles/:id/permissions` | same | full list `[{ key, scope?, maxAmountPaisa? }]`; audit `role.permissions_update` (before / after) |
+| `GET /users/:id/permissions` | same | effective keys with source (owner / role / override), scope, limit; overrides; denied |
+| `PUT /users/:id/permission-overrides` | same | full list `[{ key, effect: ALLOW or DENY, scope?, maxAmountPaisa?, note? }]`; audit `user.permissions_update` |
+| `PATCH /users/:id/role` | same | `{ roleId }`, base role must fit the account; audit `user.role_change` |
+
+Rules: never a THEKEDAR (`403 CANNOT_EDIT_OWNER`), never owner-only keys (`OWNER_ONLY_PERMISSION`); a non-owner manager can't change their own permissions (`CANNOT_EDIT_OWN_PERMISSIONS`) and can only grant what they hold, scope and limit included (`GRANT_EXCEEDS_OWN`). Validation: `UNKNOWN_PERMISSION`, `SCOPE_NOT_SUPPORTED`, `LIMIT_NOT_SUPPORTED`, `DUPLICATE_PERMISSION`, `ROLE_NOT_FOR_ACCOUNT`, `ROLE_NAME_TAKEN`. Invitations accept `roleId` (default: the template of the invited role); accepting assigns it.
+
+`tests/permissions/parity.test.ts` calls every company route (enumerated from the Express app — `listRoutes()`, `src/core/http/routeList.ts`) as THEKEDAR, PM, PM with financials and MUNSHI and compares with `parity.snapshot.json`, recorded from the code before permissions existed.
 
 ## Subscription
 
@@ -312,15 +485,23 @@ Every transition is a conditional update + `SYSTEM` audit row, so running it twi
 | `GET/POST /admin/plans`, `PATCH /admin/plans/:id` | All plans with company counts; code unique + immutable; price changes apply to future payments; the last active paid plan can't be deactivated (`409 LAST_ACTIVE_PLAN`) |
 | `GET/POST /admin/holidays`, `PATCH/DELETE /admin/holidays/:id` | Platform holidays: date range, `NON_WORKING` / `PARTIAL`, nationwide or one region; merged into every company calendar |
 | `GET /admin/audit-logs` | Filters `tenantId`, `actorType`, `action` (prefix), `from` / `to`; newest first; secret-looking fields always `[REDACTED]` |
+| `POST /admin/act-as-sessions` | Start a support session in a company: `{ tenantId, reason (5–300), durationMinutes? (5–240, default 60) }` → READ_ONLY session; the admin's other live sessions end; owners notified (in-app + email); audit `admin.act_as_started` |
+| `GET /admin/act-as-sessions` · `/:id` | Sessions newest first, filters `tenantId`, `adminId`, `active` (true = live, false = ended / expired); `status` ACTIVE / EXPIRED / ENDED, `secondsLeft` |
+| `POST /admin/act-as-sessions/:id/mode` | Own live session only: `{ mode: "WRITE", reason }` (second reason required) or `{ mode: "READ_ONLY" }`; audit `admin.act_as_mode_changed`; `409 ACT_AS_SESSION_NOT_ACTIVE` |
+| `POST /admin/act-as-sessions/:id/end` | End now (idempotent; any admin may end any session); audit `admin.act_as_ended` |
 | `GET /admin/tenants/:id/projects` · `/team` · `/activity` | Read-only look into one company: projects with client and money; users and phones; activity of the last 30 days and money now. Each look is audited (`admin.company_data_viewed`, once per admin and section every 10 minutes) |
 
 ### Working inside a company (Company data)
 
-The super admin can view, add, edit and delete anything in any company — through the **company's own API**, so every rule, calculation and delete check is the same as for the owner. The admin console sends the admin's own token plus `X-Act-As-Tenant: <companyId>` to the normal company routes (`src/modules/auth/actAs.ts`, `authenticate`):
+The super admin can view, add, edit and delete anything in any company — through the **company's own API**, so every rule, calculation and delete check is the same as for the owner. The admin first starts a **support session** with a reason (`POST /admin/act-as-sessions`, `ActAsSession` table), then sends the admin's own token plus `X-Act-As-Tenant: <companyId>` **and** `X-Act-As-Session: <session id>` to the normal company routes (`src/modules/auth/actAs.ts`, `authenticate`):
 
 - The admin token must be a live platform session (logout ends it at once); a company token with the header is refused (401). Unknown company → 404, a malformed id → 400.
+- The session must be this admin's, for this company, not ended and not past `expiresAt` (default 60 minutes): otherwise `403 ACT_AS_SESSION_REQUIRED` (header missing — the company header alone is no longer enough), `ACT_AS_SESSION_INVALID`, `ACT_AS_SESSION_EXPIRED` or `ACT_AS_SESSION_ENDED`. Expiry needs no job: every request checks it.
+- Sessions start **READ_ONLY**: every POST / PUT / PATCH / DELETE is `403 ACT_AS_READ_ONLY`. `POST /admin/act-as-sessions/:id/mode { mode: "WRITE", reason }` switches writing on with a second reason (and back with `{ mode: "READ_ONLY" }`).
+- Starting a session notifies every active owner: in-app `PLATFORM_SUPPORT_ACCESS` (WARNING, link `/settings/audit-log`) and an email through the mail provider — *"Platform support accessed your account: <reason>"*.
+- Start, mode change and end are audited in the company's audit log (`admin.act_as_started|mode_changed|ended`, details `adminName` + `reason`), and every change made in the session carries `actAsSessionId`, `adminName` and `actAsReason` (the write reason). The owner reads them at `GET /company/audit-logs` (`company.audit.view`, owner-only): `actor.name` "Platform support · <admin>", `platformSupport { sessionId, adminName, reason }`, filters `actorType`, `action` prefix, `from` / `to`.
 - The request runs as the company's hidden **"Super Admin (Platform)"** user (`User.isSystem`, role THEKEDAR, every permission), created the first time. It is `INACTIVE` so it can never sign in, and it is kept out of the team list, plan seat counts, owner SMS and notifications.
-- `writeAudit` records such changes with `actorType PLATFORM_ADMIN`, `actorId` = the real admin and `details.actingAsCompany = true`.
+- `writeAudit` records such changes with `actorType PLATFORM_ADMIN`, `actorId` = the real admin and `details.actingAsCompany = true` (+ the session fields above).
 - Suspended, closed and read-only companies stay open to the admin.
 
 ### Payment approval flow
@@ -777,16 +958,16 @@ curl -s localhost:4000/api/v1/sync/push -H "authorization: Bearer $TOKEN" -H 'co
 
 | HTTP | Codes |
 |---|---|
-| 400 | `VALIDATION_ERROR`, `INVALID_JSON`, `USE_OTP_LOGIN`, `OTP_INVALID`, `CURRENT_PASSWORD_WRONG`, `FILE_REQUIRED`, `FILE_TOO_LARGE`, `INVALID_FILE_TYPE`, `INVALID_UPLOAD`, `HOLIDAY_IN_PAST`, `FINANCIALS_PM_ONLY`, `INVALID_PROJECT`, `THEKEDAR_HAS_ALL_PROJECTS`, `CANNOT_REVOKE_CURRENT_DEVICE`, `AMOUNT_MISMATCH`, `INVALID_PLAN`, `PLAN_REQUIRED`, `PAID_ON_IN_FUTURE`, `PAID_ON_TOO_OLD`, `SAME_PLAN`, `DOWNGRADE_USERS_OVER_LIMIT`, `KEEP_PROJECTS_REQUIRED`, `TOO_MANY_PROJECTS`, `INVALID_GROUP`, `UNIT_LOCKED`, `CATEGORY_ARCHIVED`, `CATEGORY_IS_DEFAULT`, `LAST_ACTIVE_CATEGORY`, `INVALID_MATERIAL`, `INVALID_LABOR_KEY`, `INVALID_LABOR_UNIT`, `PERCENT_TOTAL_INVALID`, `RETENTION_STAGE_INVALID`, `TEMPLATE_IS_DEFAULT`, `DAILY_RATE_REQUIRED`, `INVALID_CLIENT`, `INVALID_PM`, `INVALID_MUNSHI`, `INVALID_DATES`, `CONTRACT_VALUE_REQUIRED`, `RATE_REQUIRED`, `INVALID_TEMPLATE`, `QUALITY_CATEGORY_REQUIRED`, `QUALITY_CATEGORY_NOT_ALLOWED`, `INVALID_QUALITY_CATEGORY`, `OPENINGS_EXCEED_WALL`, `INVALID_TARGET_FLOOR`, `PROJECT_NOT_READY`, `INSUFFICIENT_STOCK`, `DATE_IN_FUTURE`, `REASON_REQUIRED`, `INVALID_LOCATION`, `SAME_LOCATION`, `SHORTAGE_NOTE_REQUIRED`, `DAMAGED_EXCEEDS_COUNTED`, `ITEMS_MISMATCH`, `INVALID_PAID_AMOUNT`, `CHALLAN_REQUIRED`, `INVALID_ATTACHMENT`, `RATES_NOT_ALLOWED`, `NOT_IN_PURCHASE`, `NOTHING_TO_CORRECT`, `RETURN_EXCEEDS_PURCHASE`, `RETURN_EXCEEDS_STOCK`, `PO_SUPPLIER_MISMATCH`, `SUPPLIER_INACTIVE`, `RESOLUTION_NOT_ALLOWED`, `NOT_OWNER_SUPPLIED`, `INVALID_WORKER`, `INVALID_SUBCONTRACTOR`, `WORKER_NOT_ASSIGNED`, `FUTURE_DATE`, `DATE_TOO_OLD`, `RANGE_TOO_LONG`, `INVALID_ASSIGNMENT`, `LUMPSUM_USES_PROGRESS`, `LUMPSUM_HAS_NO_RATE`, `NOT_LUMPSUM`, `PROGRESS_NOT_AHEAD`, `INVALID_WEEK_START`, `FUTURE_WEEK`, `ADVANCE_TOO_HIGH`, `EMPTY_SETTLEMENT`, `LINE_NOT_FOUND`, `EXCEEDS_BALANCE`, `EXCEEDS_RETENTION`, `NOTHING_TO_CHARGE`, `INSUFFICIENT_CASH`, `NO_CASH_ACCOUNT`, `INVALID_HOLDER`, `INVALID_RECEIVER`, `NOTE_REQUIRED`, `INVALID_END_DATE`, `NOT_RUNNING_BILLS`, `USE_RETENTION_INVOICE`, `NOTHING_TO_BILL`, `INVALID_RECOVERABLE`, `NO_RETENTION_STAGE`, `LINE_AMOUNT_REQUIRED`, `LINES_LOCKED`, `EMPTY_INVOICE`, `WHT_NOT_ENABLED`, `INVALID_ALLOCATION`, `ALLOCATION_EXCEEDS_BALANCE`, `ALLOCATION_EXCEEDS_PAYMENT`, `METHOD_REQUIRED`, `UNSUPPORTED_ACTION`, `DEVICE_MISMATCH` |
+| 400 | `UNKNOWN_PERMISSION`, `SCOPE_NOT_SUPPORTED`, `LIMIT_NOT_SUPPORTED`, `DUPLICATE_PERMISSION`, `DENY_HAS_NO_SCOPE`, `ROLE_NOT_FOR_ACCOUNT`, `VALIDATION_ERROR`, `INVALID_JSON`, `USE_OTP_LOGIN`, `OTP_INVALID`, `CURRENT_PASSWORD_WRONG`, `FILE_REQUIRED`, `FILE_TOO_LARGE`, `INVALID_FILE_TYPE`, `INVALID_UPLOAD`, `HOLIDAY_IN_PAST`, `FINANCIALS_PM_ONLY`, `INVALID_PROJECT`, `THEKEDAR_HAS_ALL_PROJECTS`, `CANNOT_REVOKE_CURRENT_DEVICE`, `AMOUNT_MISMATCH`, `INVALID_PLAN`, `PLAN_REQUIRED`, `PAID_ON_IN_FUTURE`, `PAID_ON_TOO_OLD`, `SAME_PLAN`, `DOWNGRADE_USERS_OVER_LIMIT`, `KEEP_PROJECTS_REQUIRED`, `TOO_MANY_PROJECTS`, `INVALID_GROUP`, `UNIT_LOCKED`, `CATEGORY_ARCHIVED`, `CATEGORY_IS_DEFAULT`, `LAST_ACTIVE_CATEGORY`, `INVALID_MATERIAL`, `INVALID_LABOR_KEY`, `INVALID_LABOR_UNIT`, `PERCENT_TOTAL_INVALID`, `RETENTION_STAGE_INVALID`, `TEMPLATE_IS_DEFAULT`, `DAILY_RATE_REQUIRED`, `INVALID_CLIENT`, `INVALID_PM`, `INVALID_MUNSHI`, `INVALID_DATES`, `CONTRACT_VALUE_REQUIRED`, `RATE_REQUIRED`, `INVALID_TEMPLATE`, `QUALITY_CATEGORY_REQUIRED`, `QUALITY_CATEGORY_NOT_ALLOWED`, `INVALID_QUALITY_CATEGORY`, `OPENINGS_EXCEED_WALL`, `INVALID_TARGET_FLOOR`, `PROJECT_NOT_READY`, `INSUFFICIENT_STOCK`, `DATE_IN_FUTURE`, `REASON_REQUIRED`, `INVALID_LOCATION`, `SAME_LOCATION`, `SHORTAGE_NOTE_REQUIRED`, `DAMAGED_EXCEEDS_COUNTED`, `ITEMS_MISMATCH`, `INVALID_PAID_AMOUNT`, `CHALLAN_REQUIRED`, `INVALID_ATTACHMENT`, `RATES_NOT_ALLOWED`, `NOT_IN_PURCHASE`, `NOTHING_TO_CORRECT`, `RETURN_EXCEEDS_PURCHASE`, `RETURN_EXCEEDS_STOCK`, `PO_SUPPLIER_MISMATCH`, `SUPPLIER_INACTIVE`, `RESOLUTION_NOT_ALLOWED`, `NOT_OWNER_SUPPLIED`, `INVALID_WORKER`, `INVALID_SUBCONTRACTOR`, `WORKER_NOT_ASSIGNED`, `FUTURE_DATE`, `DATE_TOO_OLD`, `RANGE_TOO_LONG`, `INVALID_ASSIGNMENT`, `LUMPSUM_USES_PROGRESS`, `LUMPSUM_HAS_NO_RATE`, `NOT_LUMPSUM`, `PROGRESS_NOT_AHEAD`, `INVALID_WEEK_START`, `FUTURE_WEEK`, `ADVANCE_TOO_HIGH`, `EMPTY_SETTLEMENT`, `LINE_NOT_FOUND`, `EXCEEDS_BALANCE`, `EXCEEDS_RETENTION`, `NOTHING_TO_CHARGE`, `INSUFFICIENT_CASH`, `NO_CASH_ACCOUNT`, `INVALID_HOLDER`, `INVALID_RECEIVER`, `NOTE_REQUIRED`, `INVALID_END_DATE`, `NOT_RUNNING_BILLS`, `USE_RETENTION_INVOICE`, `NOTHING_TO_BILL`, `INVALID_RECOVERABLE`, `NO_RETENTION_STAGE`, `LINE_AMOUNT_REQUIRED`, `LINES_LOCKED`, `EMPTY_INVOICE`, `WHT_NOT_ENABLED`, `INVALID_ALLOCATION`, `ALLOCATION_EXCEEDS_BALANCE`, `ALLOCATION_EXCEEDS_PAYMENT`, `METHOD_REQUIRED`, `UNSUPPORTED_ACTION`, `DEVICE_MISMATCH` |
 | 401 | `UNAUTHENTICATED`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `SESSION_REVOKED`, `ACCOUNT_DISABLED`, `INVALID_CREDENTIALS`, `REFRESH_INVALID`, `REFRESH_TOKEN_REUSED`, `DEVICE_REVOKED` |
 | 402 | `PLAN_LIMIT_REACHED` |
-| 403 | `FORBIDDEN`, `COMPANY_SUSPENDED`, `ACCOUNT_READ_ONLY`, `INVALID_SIGNATURE`, `LINK_EXPIRED`, `CANNOT_CHANGE_OWN_ROLE`, `CANNOT_CHANGE_OWNER_ROLE`, `CANNOT_DEACTIVATE_SELF`, `LAST_THEKEDAR`, `RATE_CHANGE_NOT_ALLOWED`, `PAID_FROM_NOT_ALLOWED`, `OWN_EXPENSE` |
-| 404 | `ROUTE_NOT_FOUND`, `NOT_FOUND`, `PHONE_NOT_REGISTERED`, `INVITE_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `HOLIDAY_NOT_FOUND`, `USER_NOT_FOUND`, `DEVICE_NOT_FOUND`, `COMPANY_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`, `NO_PENDING_CHANGE`, `TENANT_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `PLAN_NOT_FOUND`, `MATERIAL_NOT_FOUND`, `PLATFORM_MATERIAL_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `TEMPLATE_NOT_FOUND`, `SUPPLIER_NOT_FOUND`, `WORKER_NOT_FOUND`, `SUBCONTRACTOR_NOT_FOUND`, `CLIENT_NOT_FOUND`, `PROJECT_NOT_FOUND`, `FLOOR_NOT_FOUND`, `ROOM_NOT_FOUND`, `OPENING_NOT_FOUND`, `LOCATION_NOT_FOUND`, `STORE_NOT_FOUND`, `PURCHASE_NOT_FOUND`, `PURCHASE_ORDER_NOT_FOUND`, `DISPATCH_NOT_FOUND`, `SHORTAGE_NOT_FOUND`, `PROJECT_WORKER_NOT_FOUND`, `ASSIGNMENT_NOT_FOUND`, `MEASUREMENT_NOT_FOUND`, `SETTLEMENT_NOT_FOUND`, `CASH_ACCOUNT_NOT_FOUND`, `FLOAT_NOT_FOUND`, `EXPENSE_NOT_FOUND`, `TOPUP_NOT_FOUND`, `STAGE_NOT_FOUND`, `PROGRESS_NOT_FOUND`, `INVOICE_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `DAILY_LOG_NOT_FOUND` |
-| 409 | `ALREADY_EXISTS`, `PHONE_TAKEN`, `EMAIL_TAKEN`, `MULTIPLE_COMPANIES`, `INVITE_ALREADY_ACCEPTED`, `INVITE_CANCELLED`, `INVITE_PENDING`, `ALREADY_MEMBER`, `HOLIDAY_EXISTS`, `USER_ALREADY_ACTIVE`, `PAYMENT_PENDING`, `DUPLICATE_TRANSACTION`, `SLUG_TAKEN`, `PLAN_CODE_TAKEN`, `LAST_ACTIVE_PLAN`, `ALREADY_PROCESSED`, `CANNOT_EXTEND_TRIAL`, `TENANT_CLOSED`, `MATERIAL_EXISTS`, `MATERIAL_IN_USE`, `PLATFORM_MATERIAL_EXISTS`, `CATEGORY_EXISTS`, `TEMPLATE_EXISTS`, `SUPPLIER_EXISTS`, `WORKER_PHONE_TAKEN`, `SUBCONTRACTOR_EXISTS`, `CLIENT_PHONE_TAKEN`, `PROJECT_CODE_TAKEN`, `PROJECT_NOT_DRAFT`, `PROJECT_LOCKED`, `INVALID_STATUS_TRANSITION`, `SUPPLY_RULE_LOCKED`, `BILLING_STAGES_LOCKED`, `FLOOR_HAS_ROOMS`, `FLOOR_NOT_EMPTY`, `PROJECT_IS_DRAFT`, `PO_CLOSED`, `PURCHASE_ORDER_LOCKED`, `PURCHASE_ORDER_HAS_RECEIPTS`, `PURCHASE_ORDER_CANCELLED`, `RATES_ALREADY_SET`, `PURCHASE_NOT_FINAL`, `ALREADY_RECEIVED`, `DISPATCH_NOT_CANCELLABLE`, `DISPATCH_CANCELLED`, `SHORTAGE_RESOLVED`, `NOT_A_CHEQUE`, `CHEQUE_ALREADY_SETTLED`, `CASH_BALANCE_OPEN`, `WORKER_ALREADY_ASSIGNED`, `WEEK_LOCKED`, `SETTLEMENT_LOCKED`, `SETTLEMENT_NOT_SUBMITTED`, `SETTLEMENT_NOT_APPROVED`, `SETTLEMENT_PAID`, `ALREADY_PAID`, `MEASUREMENT_NOT_PENDING`, `ALREADY_ACKNOWLEDGED`, `EXPENSE_NOT_PENDING`, `TOPUP_PENDING`, `TOPUP_DECIDED`, `STAGE_NOT_READY`, `STAGE_ALREADY_INVOICED`, `SOURCE_ALREADY_BILLED`, `RETENTION_NOT_DUE`, `PROGRESS_BILLED`, `PROGRESS_ON_DRAFT`, `INVOICE_LOCKED`, `INVOICE_NOT_DRAFT`, `INVOICE_NOT_ISSUED`, `INVOICE_CANCELLED`, `INVOICE_HAS_PAYMENTS`, `LOG_LOCKED` |
+| 403 | `PERMISSION_DENIED` (`details.permission`, `details.anyOf`), `APPROVAL_LIMIT_EXCEEDED` (`details.permission / maxAmountPaisa / amountPaisa`), `OWNER_ONLY_PERMISSION`, `ROLE_IS_SYSTEM`, `CANNOT_EDIT_OWNER`, `CANNOT_EDIT_OWN_PERMISSIONS`, `GRANT_EXCEEDS_OWN`, `FORBIDDEN`, `COMPANY_SUSPENDED`, `ACCOUNT_READ_ONLY`, `INVALID_SIGNATURE`, `LINK_EXPIRED`, `CANNOT_CHANGE_OWN_ROLE`, `CANNOT_CHANGE_OWNER_ROLE`, `CANNOT_DEACTIVATE_SELF`, `LAST_THEKEDAR`, `RATE_CHANGE_NOT_ALLOWED`, `PAID_FROM_NOT_ALLOWED`, `OWN_EXPENSE` |
+| 404 | `ROLE_NOT_FOUND`, `ROUTE_NOT_FOUND`, `NOT_FOUND`, `PHONE_NOT_REGISTERED`, `INVITE_NOT_FOUND`, `ATTACHMENT_NOT_FOUND`, `HOLIDAY_NOT_FOUND`, `USER_NOT_FOUND`, `DEVICE_NOT_FOUND`, `COMPANY_NOT_FOUND`, `SUBSCRIPTION_NOT_FOUND`, `NO_PENDING_CHANGE`, `TENANT_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `PLAN_NOT_FOUND`, `MATERIAL_NOT_FOUND`, `PLATFORM_MATERIAL_NOT_FOUND`, `CATEGORY_NOT_FOUND`, `TEMPLATE_NOT_FOUND`, `SUPPLIER_NOT_FOUND`, `WORKER_NOT_FOUND`, `SUBCONTRACTOR_NOT_FOUND`, `CLIENT_NOT_FOUND`, `PROJECT_NOT_FOUND`, `FLOOR_NOT_FOUND`, `ROOM_NOT_FOUND`, `OPENING_NOT_FOUND`, `LOCATION_NOT_FOUND`, `STORE_NOT_FOUND`, `PURCHASE_NOT_FOUND`, `PURCHASE_ORDER_NOT_FOUND`, `DISPATCH_NOT_FOUND`, `SHORTAGE_NOT_FOUND`, `PROJECT_WORKER_NOT_FOUND`, `ASSIGNMENT_NOT_FOUND`, `MEASUREMENT_NOT_FOUND`, `SETTLEMENT_NOT_FOUND`, `CASH_ACCOUNT_NOT_FOUND`, `FLOAT_NOT_FOUND`, `EXPENSE_NOT_FOUND`, `TOPUP_NOT_FOUND`, `STAGE_NOT_FOUND`, `PROGRESS_NOT_FOUND`, `INVOICE_NOT_FOUND`, `PAYMENT_NOT_FOUND`, `NOTIFICATION_NOT_FOUND`, `DAILY_LOG_NOT_FOUND` |
+| 409 | `ROLE_NAME_TAKEN`, `ROLE_IN_USE`, `ALREADY_EXISTS`, `PHONE_TAKEN`, `EMAIL_TAKEN`, `MULTIPLE_COMPANIES`, `INVITE_ALREADY_ACCEPTED`, `INVITE_CANCELLED`, `INVITE_PENDING`, `ALREADY_MEMBER`, `HOLIDAY_EXISTS`, `USER_ALREADY_ACTIVE`, `PAYMENT_PENDING`, `DUPLICATE_TRANSACTION`, `SLUG_TAKEN`, `PLAN_CODE_TAKEN`, `LAST_ACTIVE_PLAN`, `ALREADY_PROCESSED`, `CANNOT_EXTEND_TRIAL`, `TENANT_CLOSED`, `MATERIAL_EXISTS`, `MATERIAL_IN_USE`, `PLATFORM_MATERIAL_EXISTS`, `CATEGORY_EXISTS`, `TEMPLATE_EXISTS`, `SUPPLIER_EXISTS`, `WORKER_PHONE_TAKEN`, `SUBCONTRACTOR_EXISTS`, `CLIENT_PHONE_TAKEN`, `PROJECT_CODE_TAKEN`, `PROJECT_NOT_DRAFT`, `PROJECT_LOCKED`, `INVALID_STATUS_TRANSITION`, `SUPPLY_RULE_LOCKED`, `BILLING_STAGES_LOCKED`, `FLOOR_HAS_ROOMS`, `FLOOR_NOT_EMPTY`, `PROJECT_IS_DRAFT`, `PO_CLOSED`, `PURCHASE_ORDER_LOCKED`, `PURCHASE_ORDER_HAS_RECEIPTS`, `PURCHASE_ORDER_CANCELLED`, `RATES_ALREADY_SET`, `PURCHASE_NOT_FINAL`, `ALREADY_RECEIVED`, `DISPATCH_NOT_CANCELLABLE`, `DISPATCH_CANCELLED`, `SHORTAGE_RESOLVED`, `NOT_A_CHEQUE`, `CHEQUE_ALREADY_SETTLED`, `CASH_BALANCE_OPEN`, `WORKER_ALREADY_ASSIGNED`, `WEEK_LOCKED`, `SETTLEMENT_LOCKED`, `SETTLEMENT_NOT_SUBMITTED`, `SETTLEMENT_NOT_APPROVED`, `SETTLEMENT_PAID`, `ALREADY_PAID`, `MEASUREMENT_NOT_PENDING`, `ALREADY_ACKNOWLEDGED`, `EXPENSE_NOT_PENDING`, `TOPUP_PENDING`, `TOPUP_DECIDED`, `STAGE_NOT_READY`, `STAGE_ALREADY_INVOICED`, `SOURCE_ALREADY_BILLED`, `RETENTION_NOT_DUE`, `PROGRESS_BILLED`, `PROGRESS_ON_DRAFT`, `INVOICE_LOCKED`, `INVOICE_NOT_DRAFT`, `INVOICE_NOT_ISSUED`, `INVOICE_CANCELLED`, `INVOICE_HAS_PAYMENTS`, `LOG_LOCKED` |
 | 410 | `OTP_EXPIRED`, `INVITE_EXPIRED`, `INVITE_CANCELLED` |
 | 423 | `ACCOUNT_LOCKED` |
 | 429 | `RATE_LIMITED`, `OTP_RESEND_WAIT`, `OTP_LIMIT_REACHED`, `OTP_TOO_MANY_ATTEMPTS`, `INVITE_RESEND_WAIT` |
-| 503 | `SERVICE_BUSY` (no database connection / transaction slot in time; `Retry-After: 1`, safe to retry), `PDF_UNAVAILABLE` (chromium missing — `npx playwright install chromium`) |
+| 503 | `SERVICE_BUSY` (no database connection / transaction slot in time; `Retry-After: 1`, safe to retry), `PDF_UNAVAILABLE` (chromium missing — `npx playwright install chromium`), `SMS_UNAVAILABLE` (the login code could not be sent by SMS or WhatsApp; the code was dropped — retry at once) |
 
 ## Migrations
 
@@ -808,10 +989,31 @@ curl -s localhost:4000/api/v1/sync/push -H "authorization: Bearer $TOKEN" -H 'co
 | `20261016090000_daily_logs` | `SiteCondition`, `DailyLog` (RLS, SELECT / INSERT / UPDATE), `Attachment.clientId` (unique per company), `NotificationType.MISSING_DAILY_LOG` |
 | `20261016100000_sync_changes` | `SyncOp`, `SyncChange` (bigserial seq; RLS; app_user SELECT only) written by the `sync_track()` SECURITY DEFINER trigger on every synced table, `SyncWatermark` |
 | `20261016110000_sync_push` | `SyncMutationStatus`, `SyncIdMap` (clientId → server entity / rejection, device, deviceCreatedAt; RLS, SELECT / INSERT) |
+| `20261019090000_permissions` | `RoleBase`, `PermissionScope`, `PermissionEffect`; `Role`, `RolePermission`, `UserPermissionOverride` (RLS, grants; Role no DELETE); `User.roleId` + `permVersion`, `Invitation.roleId` (composite FKs); trigger `sync_track_access` on `User.permVersion` (sync change `UserAccess` → phone resync). Then run `npm run backfill:permissions` once. |
+| `20261020090000_act_as_sessions` | `ActAsMode`, `ActAsSession` (RLS: a company may only read its own rows), `NotificationType.PLATFORM_SUPPORT_ACCESS` |
+| `20261021090000_message_deliveries` | `MessageChannel`, `MessageStatus`, `MessageDelivery` (delivery log of every SMS / email / WhatsApp: masked recipient, status, provider id, error; tenantId nullable) — written by app_admin; RLS + `SELECT` for app_user (own company only) |
 | `20261018090000_worker_types` | Company-defined worker types: `Worker.type` enum → text (values kept; `WorkerType` enum dropped); `LaborRate.labelRoman`, `labelUrdu`, `isActive`; default DAILY types backfilled with Roman Urdu / Urdu names and plain-English labels (Mason, Tile mason, Labourer, Steel-fixer helper, Watchman — only where the label was still the old default); `sync_track` trigger on `LaborRate` (sync table `worker_types`). RLS / grants on `LaborRate` unchanged |
 
 Prisma's `migrate dev` refuses to run non-interactively when a change has warnings (enum value removed). Generate SQL with `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, hand-edit renames (e.g. `ALTER TYPE … RENAME VALUE`, `RENAME COLUMN`) so data is kept, save it as a new migration folder and run `npx prisma migrate deploy`.
 
 ## Tests
 
-`npm test` uses `.env.test` (copy `.env.test.example`). Global setup creates the `construction_test` database and applies the migrations; every test starts from a truncated + re-seeded database. The suite refuses to run against a database whose name doesn't end in `_test`.
+`npm test` uses `.env.test` (copy `.env.test.example`). The suite refuses to run against a database whose name doesn't end in `_test`, and never touches the dev database.
+
+**How a run works** (about 2 minutes for the full suite on a 6-core / 12-thread machine; it was ~20 minutes one file at a time):
+
+1. Global setup (`tests/setup/globalSetup.ts`) creates the roles and `construction_test` (`db:setup`), applies the migrations, and builds the **seed snapshots** in it (`tests/setup/buildSeedSnapshots.ts`): the test seed and the demo data sets of `tests/setup/demoSeeds.ts`, each copied into a `test_seed*` schema.
+2. That database is the **template**: each Vitest worker gets its own copy, `construction_w<n>_test` (`CREATE DATABASE … TEMPLATE construction_test`, n = `VITEST_POOL_ID`), with the same schema, RLS policies, grants and snapshots. The roles are cluster-wide, so `app_user` (RLS) and `app_admin` (BYPASSRLS) behave exactly as in production.
+3. `tests/setup/workerDatabase.ts` (first `setupFiles` entry, runs before any app module loads) points the worker's `DATABASE_URL` / `DATABASE_ADMIN_URL` / `DATABASE_MIGRATION_URL` at its copy, `STORAGE_DIR` at its own temp folder, and uses smaller pools (`DB_POOL_MAX=5`). Workers are separate processes (`pool: 'forks'`) and every test file gets a fresh process, so Prisma clients, caches, rate limiters and the console SMS / mail outbox are never shared.
+4. Every test starts from the seeded database: `resetDatabase()` (`useFreshDatabase()`) deletes all rows and copies the snapshot back in one transaction (~50 ms instead of ~1.5 s of seeding). Same rows and ids as the seed; in-memory caches keyed by those ids are cleared. Files that need the bigger demo call `seedMalikDemo(seeded())` / `seedMalikStockAndLabor(seeded())` (`tests/dashboard/fixtures.ts`), restored the same way. To snapshot another data set, add it to `tests/setup/demoSeeds.ts` and load it with `withSeedSnapshot(name, seeded())`.
+5. At the end the worker databases and the uploaded test files are dropped (also at the start of the next run, if one was interrupted).
+
+| Setting | Default | |
+|---|---|---|
+| `TEST_MAX_WORKERS` | half the CPU threads | Parallel workers (= databases). Postgres and the workers share the CPU; more is rarely faster. |
+| `TEST_DB_POOL_MAX` | `5` | Connections per pool per worker (each file opens up to two app pools + one reset pool) — keep workers × pools under Postgres `max_connections`. |
+| `npm run test:serial` | | One file at a time on `construction_test` itself, no copies (`vitest run --mode serial`, or `TEST_SERIAL=1`). |
+
+`DATABASE_MIGRATION_URL` must be a superuser (as for `db:setup`): it creates the worker databases, and the reset uses `session_replication_role = replica` (no FK checks or triggers while copying rows back). The test databases commit with `synchronous_commit = off` and the tests allow 30 s for a connection (`DB_TX_MAX_WAIT_MS`, production 10 s), so a busy CPU doesn't turn into `503 SERVICE_BUSY`.
+
+`tests/setup/pgConcurrency.ts` (vitest `setupFiles`) fails any test in which two queries overlap on one pg connection — e.g. `Promise.all` on a `tx`. Inside a transaction use `inSequence([() => tx.a…, () => tx.b…])` (`src/core/db/inSequence.ts`) instead.

@@ -9,7 +9,8 @@ export function registerSyncDocs(): void {
     summary: 'Pull changes (mobile read model)',
     description:
       'Company bearer token of a device that is not revoked (else `401 DEVICE_REVOKED`). No `cursor` → full snapshot of the caller’s scope; with a cursor → rows changed after it (paged by `limit`, `hasMore`), and tombstones (`deletes`) for deleted rows. ' +
-      '`resetRequired: true` when the cursor is older than the 30-day retention or the caller’s project access changed — wipe the local DB and pull without a cursor. ' +
+      '`resetRequired: true` when the cursor is older than the 30-day retention, the caller’s project access changed or their permissions changed — wipe the local DB and pull without a cursor. ' +
+      'Every pull returns `access` (permissions, fieldAccess, scopes, approvalLimits, permissionRole — same as /auth/me). Tables the caller has no view permission for come back empty (e.g. attendance needs labor.attendance.view); sub-contract rates need fields.rates. ' +
       'Scope: assigned ACTIVE / CLOSEOUT projects (every running project for THEKEDAR), their site stock locations, materials, workers, the company’s worker types (`worker_types`: id, key, label, labelRoman, labelUrdu, ratePaisa, overtimeMultiplier, isActive, updatedAt — active and inactive), attendance (3 weeks), settlements (8 weeks), advances, measurements, incoming dispatches / purchases, owner deliveries, usage, site stock (quantities), counts, daily logs (30 days), the caller’s OWN cash account / entries / top-ups, settings subset, holidays and own notifications. ' +
       'Never material rates, purchase amounts, supplier balances, contract values or other people’s cash; a MUNSHI gets no sub-contract rates or measured values, and with blind count on no sent / challan quantities until counted. ' +
       'A change is handed out once it is 30 s old (transactions commit out of order), so the cursor never skips one.',
@@ -20,6 +21,14 @@ export function registerSyncDocs(): void {
         hasMore: false,
         resetRequired: false,
         serverTime: '2026-10-06T12:00:00.000Z',
+        access: {
+          permissions: ['cashbook.expense.create', 'labor.attendance.create', 'labor.attendance.view', 'projects.project.view'],
+          legacyPermissions: ['site.entry'],
+          fieldAccess: { rates: false, amounts: false, profit: false, contract: false },
+          scopes: { 'labor.attendance.view': 'ASSIGNED_PROJECTS', 'projects.project.view': 'ASSIGNED_PROJECTS' },
+          approvalLimits: {},
+          permissionRole: { id: '0199a8c0-0000-7000-8000-000000000302', key: 'MUNSHI', name: 'Munshi' },
+        },
         changes: {
           attendance: {
             upserts: [{ id: '0199a8c0-0000-7000-8000-000000000c01', projectId: IDS.dha, workerId: '0199a8c0-0000-7000-8000-000000000c02', date: '2026-10-06', status: 'FULL', overtimeHours: 0, note: null, clientId: null, lateSync: false }],
@@ -46,7 +55,7 @@ export function registerSyncDocs(): void {
     summary: 'Push queued mutations',
     description:
       'Up to 100 mutations, applied in order, each through the same service and permission checks as its REST endpoint, each in its own transaction. ' +
-      'Result per mutation: **APPLIED** (serverId) · **DUPLICATE** (clientId seen before — same serverId, nothing done again) · **REJECTED** (permanent: code, message, details — e.g. WEEK_LOCKED, INVALID_WORKER_TYPE, INSUFFICIENT_CASH, ALREADY_RECEIVED, INSUFFICIENT_STOCK, VALIDATION_ERROR, DEPENDENCY_REJECTED) · **RETRY** (transient; everything after it is RETRY too). ' +
+      'Result per mutation: **APPLIED** (serverId) · **DUPLICATE** (clientId seen before — same serverId, nothing done again) · **REJECTED** (permanent: code, message, details — e.g. PERMISSION_DENIED (details.permission — the mutation type needs the same permission as its REST route), WEEK_LOCKED, INVALID_WORKER_TYPE, INSUFFICIENT_CASH, ALREADY_RECEIVED, INSUFFICIENT_STOCK, VALIDATION_ERROR, DEPENDENCY_REJECTED) · **RETRY** (transient; everything after it is RETRY too). ' +
       'Payload = the REST body plus its path ids (projectId, settlementId, dispatchId, purchaseId, entryId); any id may be the clientId of an earlier mutation or of an attachment uploaded with a clientId. ' +
       'Header `X-Pending-Mutations` = items still queued on the phone (shown to the office). Entries reaching the server more than 48 h after `deviceCreatedAt` are flagged `lateSync`.',
     request: {
@@ -79,7 +88,7 @@ export function registerSyncDocs(): void {
         rejected: 1,
         retry: 0,
       }),
-      ...errors({ 400: ['VALIDATION_ERROR', 'DEVICE_MISMATCH'], ...AUTH, 403: WRITE_403 }),
+      ...errors({ 400: ['VALIDATION_ERROR', 'DEVICE_MISMATCH'], ...AUTH, 403: WRITE_403, 429: ['RATE_LIMITED'] }),
     },
   });
   path(SYNC_TAG, 'get', '/api/v1/sync/status', {

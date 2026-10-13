@@ -24,6 +24,10 @@ describe('attachments', () => {
     expect(file.status).toBe(200);
     expect(file.headers['content-type']).toBe('image/png');
     expect(file.headers['cross-origin-resource-policy']).toBe('cross-origin');
+    // The web app may show it in an <iframe> (PDF preview); no other site may.
+    expect(file.headers['x-frame-options']).toBeUndefined();
+    expect(file.headers['content-security-policy']).toContain(`frame-ancestors 'self' ${new URL(process.env['APP_URL']!).origin}`);
+    expect(file.headers['x-content-type-options']).toBe('nosniff');
     expect(Buffer.compare(file.body as Buffer, bytes)).toBe(0);
 
     // Metadata returns a fresh signed URL

@@ -107,7 +107,7 @@ async function remind(
   const body = `Aap ka ${sub.planName} plan ${formatDisplayDate(endsAt)} ko khatam ho raha hai. Payment slip upload karein.`;
   for (const owner of owners) {
     try {
-      await smsProvider().send({ to: owner.phone, body });
+      await smsProvider().send({ to: owner.phone, body, type: 'SUBSCRIPTION_REMINDER', tenantId: sub.tenantId });
     } catch (err) {
       logger.error({ err, phone: maskPhone(owner.phone) }, 'subscription reminder sms failed');
     }

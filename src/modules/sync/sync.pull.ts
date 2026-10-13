@@ -12,11 +12,13 @@
  * so a change is only handed out once it is SYNC_LAG old (longer than any transaction may run);
  * the cursor never passes a change that is younger. Tests run with no lag.
  */
+import { accessFieldsOf } from '../../core/auth/access.js';
+import { accessOf, scopeAll } from '../../core/auth/access.js';
 import { isTest } from '../../config/env.js';
 import { getCtx } from '../../core/context/requestContext.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import type { SyncChange } from '../../generated/prisma/client.js';
-import { syncScope, TABLES, type SyncActor, type SyncRow, type SyncScope } from './sync.tables.js';
+import { mayPull, syncScope, TABLES, type SyncActor, type SyncRow, type SyncScope } from './sync.tables.js';
 
 let SYNC_LAG_MS = isTest ? 0 : 30_000;
 /** Tests / tools: how old a change must be before it is handed out. */
@@ -53,7 +55,7 @@ async function boundary(tx: Tx, cutoff: Date): Promise<bigint> {
 
 async function snapshot(tx: Tx, sc: SyncScope): Promise<Changes> {
   const out: Changes = {};
-  for (const t of TABLES) out[t.name] = { upserts: await t.load(tx, sc), deletes: [] };
+  for (const t of TABLES) out[t.name] = { upserts: mayPull(t.name, sc) ? await t.load(tx, sc) : [], deletes: [] };
   return out;
 }
 
@@ -67,7 +69,7 @@ function mayTombstone(c: Pick<SyncChange, 'projectId' | 'userId'>, sc: SyncScope
 async function incremental(tx: Tx, sc: SyncScope, batch: SyncChange[]): Promise<Changes> {
   const out: Changes = {};
   for (const t of TABLES) {
-    if (t.snapshotOnly) continue;
+    if (t.snapshotOnly || !mayPull(t.name, sc)) continue;
     const mine = batch.filter((c) => t.sources.includes(c.tableName));
     if (!mine.length) continue;
     if (t.refresh) {
@@ -80,7 +82,7 @@ async function incremental(tx: Tx, sc: SyncScope, batch: SyncChange[]): Promise<
     const deletes = [...new Set(mine.filter((c) => c.op === 'DELETE' && !found.has(c.rowId) && mayTombstone(c, sc)).map((c) => c.rowId))];
     // A project leaving the caller's scope (handed over, closed) is removed from the phone.
     if (t.name === 'projects') {
-      for (const id of ids) if (!found.has(id) && !sc.projectIds.includes(id) && (sc.a.role === 'THEKEDAR' || (await tx.userProjectAccess.count({ where: { userId: sc.a.userId, projectId: id } })))) deletes.push(id);
+      for (const id of ids) if (!found.has(id) && !sc.projectIds.includes(id) && (scopeAll('projects.project.view', sc.a) || (await tx.userProjectAccess.count({ where: { userId: sc.a.userId, projectId: id } })))) deletes.push(id);
     }
     if (upserts.length || deletes.length) out[t.name] = { upserts, deletes: [...new Set(deletes)] };
   }
@@ -111,7 +113,8 @@ export async function pull(query: { cursor?: string | undefined; limit?: number 
         const young = rows.findIndex((r) => r.changedAt.getTime() > cutoff.getTime());
         const eligible = young === -1 ? rows : rows.slice(0, young);
         const batch = eligible.slice(0, limit);
-        const scopeMoved = batch.some((c) => c.tableName === 'UserProjectAccess' && c.userId === a.userId);
+        // The scope itself moved (project access, or the permissions: tables / fields / scopes) → resync.
+        const scopeMoved = batch.some((c) => (c.tableName === 'UserProjectAccess' || c.tableName === 'UserAccess') && c.userId === a.userId);
         result = scopeMoved
           ? { ...base, resetRequired: true, cursor: query.cursor, changes: {} }
           : {
@@ -123,6 +126,7 @@ export async function pull(query: { cursor?: string | undefined; limit?: number 
       }
     }
     if (device) await tx.device.update({ where: { id: device.id }, data: { lastSyncAt: now, lastActiveAt: now } });
-    return result;
+    // The caller's effective permissions travel with every pull (same fields as /auth/me).
+    return { ...result, access: accessFieldsOf(accessOf(a)) };
   });
 }

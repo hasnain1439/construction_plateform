@@ -8,11 +8,12 @@
  *   own money    spent to date − received (negative = the owner has paid ahead)
  *   ageing       outstanding by days since the invoice was issued (0–15 / 16–30 / 31–60 / 60+)
  */
+import { assertPerm } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import type { Project } from '../../generated/prisma/client.js';
 import { projectScope } from '../projects/access.js';
 import type { ReceivablesQuery } from './billing.schema.js';
-import { actor, assertOwner, billingProject, daysBetween, today, ymd } from './billing.shared.js';
+import { actor, billingProject, daysBetween, today, ymd } from './billing.shared.js';
 import { overdueOf } from './invoices.service.js';
 import { LIVE, projectCredit } from './ledger.js';
 import { costDto, projectCost } from './projectCost.service.js';
@@ -129,7 +130,7 @@ export async function projectReceivables(projectId: string) {
 /** Company view (THEKEDAR): one row per non-draft project, plus totals. */
 export async function companyReceivables(query: ReceivablesQuery) {
   const a = actor();
-  assertOwner(a, 'Only the owner sees company receivables');
+  assertPerm('finance.receivables.view', a);
   return withTenant(a.tenantId, async (tx) => {
     const projects = await tx.project.findMany({
       where: { tenantId: a.tenantId, ...projectScope(a), status: query.status ? query.status : { notIn: ['DRAFT'] } },

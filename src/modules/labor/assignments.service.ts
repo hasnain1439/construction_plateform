@@ -1,10 +1,11 @@
 /** B1 — who works on a project: daily-wage workers (with the project's rate) and sub-contracts. */
+import { assertPerm, fieldAccess } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../core/errors/AppError.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
 import type { Prisma, SubcontractRateType } from '../../generated/prisma/client.js';
 import type { AssignSubcontractInput, AssignWorkerInput, UpdateProjectWorkerInput, UpdateSubcontractInput } from './labor.schema.js';
-import { actor, assertOffice, audit, num, paisa, projectFor, today, type Actor } from './labor.shared.js';
+import { actor, audit, num, paisa, projectFor, today, type Actor } from './labor.shared.js';
 
 export const UNIT_OF: Record<SubcontractRateType, string> = {
   PER_SQFT: 'sqft',
@@ -61,7 +62,7 @@ export async function assignWorkerTx(tx: Tx, a: Actor, projectId: string, input:
   const project = await projectFor(tx, a, projectId, true);
   const worker = await tx.worker.findFirst({ where: { tenantId: a.tenantId, id: input.workerId } });
   if (!worker || !worker.isActive) throw new BadRequest('INVALID_WORKER', 'Choose an active worker');
-  if (a.role === 'MUNSHI' && input.dailyRatePaisa !== undefined && input.dailyRatePaisa !== worker.dailyRatePaisa) {
+  if (!fieldAccess(a).rates && input.dailyRatePaisa !== undefined && input.dailyRatePaisa !== worker.dailyRatePaisa) {
     throw new Forbidden('RATE_CHANGE_NOT_ALLOWED', "A munshi assigns at the worker's normal rate — the office can change it");
   }
   const rate = input.dailyRatePaisa ?? worker.dailyRatePaisa;
@@ -90,7 +91,7 @@ export async function assignWorker(projectId: string, input: AssignWorkerInput) 
 
 export async function updateProjectWorker(id: string, input: UpdateProjectWorkerInput) {
   const a = actor();
-  assertOffice(a);
+  assertPerm('labor.team.edit', a);
   return withTenant(a.tenantId, async (tx) => {
     const pw = await findProjectWorker(tx, a, id);
     const data: Prisma.ProjectWorkerUncheckedUpdateInput = {};
@@ -116,7 +117,7 @@ export async function updateProjectWorker(id: string, input: UpdateProjectWorker
 /** Removes a worker who never worked here; one with hazri / peshgi is only taken off (inactive). */
 export async function removeProjectWorker(id: string) {
   const a = actor();
-  assertOffice(a);
+  assertPerm('labor.team.edit', a);
   return withTenant(a.tenantId, async (tx) => {
     const pw = await findProjectWorker(tx, a, id);
     const used =
@@ -150,9 +151,9 @@ export async function assignedWorkers(tx: Tx, tenantId: string, projectId: strin
 const subInclude = { subcontractor: { select: { id: true, name: true, trade: true, phone: true } } } as const;
 type AssignmentRow = Prisma.SubcontractAssignmentGetPayload<{ include: typeof subInclude }>;
 
-/** MUNSHI never sees rates / contract value / retention. */
-export function toAssignmentDto(s: AssignmentRow, a: Pick<Actor, 'role'>) {
-  const money = a.role !== 'MUNSHI';
+/** Rates / contract value / retention need fields.rates (never a munshi by default). */
+export function toAssignmentDto(s: AssignmentRow, a: Pick<Actor, 'role' | 'userId'>) {
+  const money = fieldAccess(a).rates;
   return {
     id: s.id,
     projectId: s.projectId,
@@ -192,7 +193,7 @@ export async function listSubcontracts(projectId: string, query: { active?: bool
 }
 
 export async function assignSubcontractTx(tx: Tx, a: Actor, projectId: string, input: AssignSubcontractInput) {
-  assertOffice(a);
+  assertPerm('labor.subcontract.create', a);
   const project = await projectFor(tx, a, projectId, true);
   const sub = await tx.subcontractor.findFirst({ where: { tenantId: a.tenantId, id: input.subcontractorId } });
   if (!sub || !sub.isActive) throw new BadRequest('INVALID_SUBCONTRACTOR', 'Choose an active sub-contractor');
@@ -239,7 +240,7 @@ export async function assignSubcontract(projectId: string, input: AssignSubcontr
 
 export async function updateSubcontract(id: string, input: UpdateSubcontractInput) {
   const a = actor();
-  assertOffice(a);
+  assertPerm('labor.subcontract.edit', a);
   return withTenant(a.tenantId, async (tx) => {
     const s = await findAssignment(tx, a, id);
     if (input.ratePaisa !== undefined && s.rateType === 'LUMPSUM') throw new BadRequest('LUMPSUM_HAS_NO_RATE', 'A lump-sum contract has a value, not a rate');

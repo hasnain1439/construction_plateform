@@ -1,4 +1,5 @@
 /** B3 — work measured for piece-rate sub-contracts; verifying one adds its value to the account. */
+import { assertApprovalLimit, assertPerm, fieldAccess } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
@@ -7,7 +8,7 @@ import type { Prisma } from '../../generated/prisma/client.js';
 import { occurredAtFor } from '../inventory/stock.js';
 import { findAssignment, UNIT_OF } from './assignments.service.js';
 import type { MeasurementInput, MeasurementsQuery } from './labor.schema.js';
-import { actor, assertOffice, audit, num, projectFor, times, today, type Actor, type Created } from './labor.shared.js';
+import { actor, audit, num, projectFor, times, today, type Actor, type Created } from './labor.shared.js';
 import * as alerts from '../notifications/alerts.js';
 import { postSubLedger } from './subcontractLedger.js';
 
@@ -16,7 +17,7 @@ const include = {
 } as const;
 type Row = Prisma.WorkMeasurementGetPayload<{ include: typeof include }>;
 
-function toDto(m: Row, a: Pick<Actor, 'role'>, value?: bigint | null) {
+function toDto(m: Row, a: Pick<Actor, 'role' | 'userId'>, value?: bigint | null) {
   return {
     id: m.id,
     projectId: m.projectId,
@@ -27,7 +28,7 @@ function toDto(m: Row, a: Pick<Actor, 'role'>, value?: bigint | null) {
     unit: m.unit,
     attachmentIds: m.attachmentIds,
     status: m.status,
-    ...(a.role !== 'MUNSHI'
+    ...(fieldAccess(a).rates
       ? { ratePaisa: m.assignment.ratePaisa?.toString() ?? null, valuePaisa: (value ?? (m.assignment.ratePaisa ? times(m.quantity, m.assignment.ratePaisa) : 0n)).toString() }
       : {}),
     verifiedById: m.verifiedById,
@@ -126,11 +127,12 @@ export async function listMeasurements(projectId: string, query: MeasurementsQue
 }
 
 export async function verifyMeasurementTx(tx: Tx, a: Actor, id: string, opts: { at?: Date } = {}) {
-  assertOffice(a, 'Only the owner or a project manager can verify measurements');
+  assertPerm('labor.measurement.approve', a, 'Only the owner or a project manager can verify measurements');
   const m = await find(tx, a, id);
   if (m.status !== 'RECORDED') throw new Conflict('MEASUREMENT_NOT_PENDING', `This measurement is already ${m.status.toLowerCase()}`, { status: m.status });
   const rate = m.assignment.ratePaisa ?? 0n;
   const value = times(m.quantity, rate);
+  assertApprovalLimit('labor.measurement.approve', value, a);
   const at = opts.at ?? new Date();
   await tx.workMeasurement.update({ where: { id: m.id }, data: { status: 'VERIFIED', verifiedById: a.userId, verifiedAt: at } });
   await postSubLedger(tx, a, {
@@ -153,7 +155,7 @@ export async function verifyMeasurement(id: string) {
 
 export async function rejectMeasurement(id: string, note: string) {
   const a = actor();
-  assertOffice(a, 'Only the owner or a project manager can reject measurements');
+  assertPerm('labor.measurement.approve', a, 'Only the owner or a project manager can reject measurements');
   return withTenant(a.tenantId, async (tx) => {
     const m = await find(tx, a, id);
     if (m.status !== 'RECORDED') throw new Conflict('MEASUREMENT_NOT_PENDING', `This measurement is already ${m.status.toLowerCase()}`, { status: m.status });

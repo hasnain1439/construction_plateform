@@ -3,6 +3,8 @@ import type { TenantStatus } from '../../generated/prisma/enums.js';
 import { getCtx } from '../context/requestContext.js';
 import { withTenant, type Tx } from '../db/withTenant.js';
 import { Forbidden, Unauthorized } from '../errors/AppError.js';
+import { cachedAccess } from '../auth/accessLoader.js';
+import type { CompanyRole } from '../auth/access.js';
 
 const CACHE_TTL_MS = 60_000;
 const cache = new Map<string, { status: TenantStatus; expiresAt: number }>();
@@ -24,6 +26,11 @@ export function invalidateTenantStatus(tenantId?: string): void {
 
 interface SessionState {
   user_status: string;
+  user_role: CompanyRole;
+  role_id: string | null;
+  perm_version: number;
+  role_version: number | null;
+  can_see_financials: boolean;
   device_revoked: boolean;
   family_active: boolean;
 }
@@ -39,6 +46,11 @@ interface SessionState {
 async function sessionState(tx: Tx, sessionId: string): Promise<SessionState | null> {
   const rows = await tx.$queryRaw<SessionState[]>`
     SELECT u.status::text AS user_status,
+           u.role::text AS user_role,
+           u."roleId" AS role_id,
+           u."permVersion" AS perm_version,
+           r.version AS role_version,
+           u."canSeeFinancials" AS can_see_financials,
            (d."revokedAt" IS NOT NULL) AS device_revoked,
            EXISTS (
              SELECT 1 FROM "Session" f
@@ -47,6 +59,7 @@ async function sessionState(tx: Tx, sessionId: string): Promise<SessionState | n
     FROM "Session" s
     JOIN "User" u ON u.id = s."userId"
     JOIN "Device" d ON d.id = s."deviceId"
+    LEFT JOIN "Role" r ON r.id = u."roleId"
     WHERE s.id = ${sessionId}::uuid`;
   return rows[0] ?? null;
 }
@@ -71,10 +84,20 @@ export const tenantContext: RequestHandler = async (_req, _res, next) => {
   }
   const sessionId = ctx.sessionId!;
 
-  const { status, session } = await withTenant(tenantId, async (tx) => ({
-    session: await sessionState(tx, sessionId),
-    status: await tenantStatus(tx, tenantId),
-  }));
+  const { status, session, access } = await withTenant(tenantId, async (tx) => {
+    const session = await sessionState(tx, sessionId);
+    const status = await tenantStatus(tx, tenantId);
+    // Effective permissions, cached per user; the stamp changes with every permission change.
+    const access =
+      session && session.user_status === 'ACTIVE'
+        ? await cachedAccess(
+            tx,
+            { id: ctx.userId!, tenantId, role: session.user_role, roleId: session.role_id, canSeeFinancials: session.can_see_financials },
+            [session.user_role, session.role_id ?? '-', session.perm_version, session.role_version ?? '-', session.can_see_financials].join('|'),
+          )
+        : undefined;
+    return { session, status, access };
+  });
 
   if (!status) throw new Unauthorized('TOKEN_INVALID', 'Company no longer exists');
   if (!session || !session.family_active) throw new Unauthorized('SESSION_REVOKED', 'You have been signed out. Please log in again.');
@@ -84,5 +107,9 @@ export const tenantContext: RequestHandler = async (_req, _res, next) => {
     throw new Forbidden('COMPANY_SUSPENDED', 'This company account is suspended. Please contact support.');
   }
   ctx.readOnly = status === 'READ_ONLY';
+  // Role and permissions come from the database, so a change applies on the next request.
+  ctx.role = session.user_role;
+  ctx.access = access;
+  ctx.permissions = access?.permissions ?? [];
   next();
 };

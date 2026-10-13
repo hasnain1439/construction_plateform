@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { CookieOptions, Request, Response } from 'express';
 import { accessTokenTtlSeconds, env, isProduction } from '../../config/env.js';
 import { COOKIES, signAccessToken, type Audience } from '../../core/auth/jwt.js';
-import { permissionsFor } from '../../core/auth/permissions.js';
+import { legacyPermissions, type Access } from '../../core/auth/access.js';
 import { hashSecret, randomToken } from '../../core/utils/crypto.js';
 import type { UserRole } from '../../generated/prisma/enums.js';
 import type { Client } from './auth.schema.js';
@@ -33,17 +33,22 @@ export function refreshExpiry(now = new Date()): Date {
   return new Date(now.getTime() + env.REFRESH_TOKEN_TTL_DAYS * 86_400_000);
 }
 
+/**
+ * The `perms` claim carries only the short legacy list (informational, kept for old clients);
+ * the API resolves the real permissions from the database on every request (tenantContext).
+ */
 export function companyAccessToken(
-  user: { id: string; tenantId: string; role: UserRole; canSeeFinancials: boolean },
+  user: { id: string; tenantId: string; role: UserRole },
   sessionId: string,
+  access: Access,
 ): { token: string; permissions: string[] } {
-  const permissions = permissionsFor(user);
+  const permissions = access.permissions;
   const token = signAccessToken({
     aud: 'company',
     sub: user.id,
     tid: user.tenantId,
     role: user.role,
-    perms: permissions,
+    perms: legacyPermissions(access),
     sid: sessionId,
   });
   return { token, permissions };
