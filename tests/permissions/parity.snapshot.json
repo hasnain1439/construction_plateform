@@ -1,0 +1,1406 @@
+{
+ "GET /api/v1/invitations": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/invitations": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/invitations/:id/resend": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "DELETE /api/v1/invitations/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/attachments": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/attachments/:id": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/company": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "PATCH /api/v1/company": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/company/settings": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 200
+ },
+ "PATCH /api/v1/company/settings": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/company/holidays": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/company/holidays": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "DELETE /api/v1/company/holidays/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/users": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/users/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "PATCH /api/v1/users/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "DELETE /api/v1/users/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/users/:id/reactivate": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/users/:id/login-code": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "PUT /api/v1/users/:id/password": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "PUT /api/v1/users/:id/projects": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/devices": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 200
+ },
+ "DELETE /api/v1/devices/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/subscription": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/subscription/plans": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/subscription/payments": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/subscription/payments": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/subscription/change-plan": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "DELETE /api/v1/subscription/change-plan": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/material-groups": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/materials": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/materials": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "PATCH /api/v1/materials/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/materials/:id/hide": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/materials/:id/show": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "DELETE /api/v1/materials/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/quality-categories": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/quality-categories": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "PATCH /api/v1/quality-categories/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/quality-categories/:id/duplicate": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/quality-categories/:id/archive": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/price-list": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "PUT /api/v1/price-list": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/price-list/bulk-percent": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/price-list/history": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/labor-rates": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "PUT /api/v1/labor-rates": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/worker-types": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/worker-types": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "PATCH /api/v1/worker-types/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/payment-templates": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/payment-templates": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "PATCH /api/v1/payment-templates/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "DELETE /api/v1/payment-templates/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/suppliers/:id/ledger": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/suppliers": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/suppliers": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/suppliers/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "PATCH /api/v1/suppliers/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/suppliers/:id/deactivate": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/suppliers/:id/activate": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/suppliers/:id/rates": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "PUT /api/v1/suppliers/:id/rates": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/supplier-payments": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/supplier-payments": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "PATCH /api/v1/supplier-payments/:id/cheque-status": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/purchase-orders": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/purchase-orders": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/purchase-orders/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "PATCH /api/v1/purchase-orders/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/purchase-orders/:id/cancel": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/purchases": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/purchases": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/purchases/:id": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "PATCH /api/v1/purchases/:id/rates": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/purchases/:id/corrections": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/purchases/:id/returns": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/purchases/:id/receive": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/purchase-returns": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/workers/:id/labor-summary": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/subcontractors/:id/labor-summary": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/workers": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/workers": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "PATCH /api/v1/workers/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/workers/:id/deactivate": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/workers/:id/activate": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/subcontractors": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/subcontractors": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "PATCH /api/v1/subcontractors/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/subcontractors/:id/deactivate": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/subcontractors/:id/activate": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/clients": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/clients": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/clients/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "PATCH /api/v1/clients/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/stock-locations": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/stores/:locationId/stock": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "PUT /api/v1/stores/:locationId/low-stock-levels": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/stock/movements": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/stock-counts": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/stock-counts": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/dispatches": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/dispatches": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/dispatches/:id": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/dispatches/:id/cancel": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/dispatches/:id/receive": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/shortages": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/shortages/:id/resolve": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id/stock": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/projects/:id/material-usage": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/projects/:id/material-usage": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id/incoming": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/projects/:id/owner-deliveries": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/projects/:id/owner-deliveries": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id/labor/workers": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/projects/:id/labor/workers": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id/labor/subcontracts": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/projects/:id/labor/subcontracts": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/projects/:id/attendance": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id/attendance": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/projects/:id/attendance/today": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/projects/:id/work-measurements": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id/work-measurements": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/projects/:id/advances": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id/advances": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/projects/:id/settlements/generate": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id/settlements": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/projects/:id/subcontract-accounts": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/projects/:id/cashbook": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/projects/:id/billing-stages": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/projects/:id/billing-progress": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/projects/:id/billing-progress": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id/invoices": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/projects/:id/invoices": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id/payments": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/projects/:id/payments": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id/receivables": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/projects/:id/owner-statement": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/projects/:id/owner-statement/pdf": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/projects/:id/daily-logs": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/projects/:id/daily-logs": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/projects": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/projects": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "DELETE /api/v1/projects/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "PATCH /api/v1/projects/:id/basic": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "PUT /api/v1/projects/:id/team": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "PATCH /api/v1/projects/:id/contract": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "PATCH /api/v1/projects/:id/plot-structure": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id/review": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/projects/:id/activate": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "PATCH /api/v1/projects/:id/status": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/projects/:id/floors": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "PATCH /api/v1/projects/:id/coverage": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/billing-stages/:id/mark-ready": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "PATCH /api/v1/billing-stages/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "PATCH /api/v1/billing-progress/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "DELETE /api/v1/billing-progress/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/invoices/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "PATCH /api/v1/invoices/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "DELETE /api/v1/invoices/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/invoices/:id/issue": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/invoices/:id/cancel": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/invoices/:id/pdf": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/payments/:id": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "PATCH /api/v1/payments/:id/cheque-status": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/payments/:id/receipt-pdf": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/receivables": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/billing-events": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/notifications": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/notifications/unread-count": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "PATCH /api/v1/notifications/read-all": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "PATCH /api/v1/notifications/:id/read": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/approvals": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/approvals/bulk": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/dashboard/overview": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/dashboard/site/:projectId": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/finance/receivables": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/finance/cash-flow": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/finance/pnl": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/finance/cash-floats": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/reports/project-summary": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/reports/material-audit": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/reports/labor-peshgi": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/reports/cash-book": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/reports/supplier-ageing": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/reports/receivables-ageing": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/reports/stock-valuation": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/daily-logs/:id": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "PATCH /api/v1/daily-logs/:id": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/sync/pull": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/sync/push": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/sync/status": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "PATCH /api/v1/project-workers/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "DELETE /api/v1/project-workers/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "PATCH /api/v1/subcontract-assignments/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/subcontract-assignments/:id/ledger": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/subcontract-assignments/:id/progress": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/subcontract-assignments/:id/payments": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/subcontract-assignments/:id/deductions": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/work-measurements/:id/verify": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/work-measurements/:id/reject": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/settlements": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/settlements/:id": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "PATCH /api/v1/settlements/:id/lines/:lineId": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/settlements/:id/submit": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/settlements/:id/approve": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/settlements/:id/return": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/settlements/:id/pay": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/labor/overview": {
+  "MUNSHI": "DENIED",
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/cash-accounts": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "GET /api/v1/cash-accounts/:id": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/cash-accounts/:id/entries": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/cash-floats": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/cash-floats/:entryId/acknowledge": {
+  "MUNSHI": 404,
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "GET /api/v1/cash-expenses": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/cash-expenses": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/cash-expenses/:id/approve": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/cash-expenses/:id/reject": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/topup-requests": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/topup-requests": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/topup-requests/:id/approve": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/topup-requests/:id/reject": {
+  "MUNSHI": "DENIED",
+  "PM": "DENIED",
+  "PM_FIN": "DENIED",
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/cash-counts": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/cash-counts": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/cash-handovers": {
+  "MUNSHI": 400,
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "GET /api/v1/supply-presets": {
+  "MUNSHI": 200,
+  "PM": 200,
+  "PM_FIN": 200,
+  "THEKEDAR": 200
+ },
+ "POST /api/v1/floors/:id/rooms": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "POST /api/v1/floors/:id/copy": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "PATCH /api/v1/rooms/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "DELETE /api/v1/rooms/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ },
+ "POST /api/v1/rooms/:id/openings": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "PATCH /api/v1/openings/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 400,
+  "PM_FIN": 400,
+  "THEKEDAR": 400
+ },
+ "DELETE /api/v1/openings/:id": {
+  "MUNSHI": "DENIED",
+  "PM": 404,
+  "PM_FIN": 404,
+  "THEKEDAR": 404
+ }
+}

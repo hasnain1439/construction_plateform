@@ -1,8 +1,9 @@
 /** B6 — billing events for dashboard alerts (the daily overdue check is jobs/billingOverdue.ts). */
+import { assertPerm } from '../../core/auth/access.js';
 import { withTenant } from '../../core/db/withTenant.js';
 import { rs } from '../../core/pdf/templates.js';
 import type { BillingEvent } from '../../generated/prisma/client.js';
-import { actor, assertOwner } from './billing.shared.js';
+import { actor } from './billing.shared.js';
 
 const ACTION: Record<string, (projectId: string, refId: string) => string> = {
   INVOICE_OVERDUE: (p, r) => `/projects/${p}/billing/invoices/${r}`,
@@ -34,7 +35,7 @@ export const eventHref = (e: Pick<BillingEvent, 'type' | 'projectId' | 'refId'>)
 
 export async function listEvents(query: { openOnly?: boolean }) {
   const a = actor();
-  assertOwner(a, 'Only the owner sees billing alerts');
+  assertPerm('finance.receivables.view', a);
   return withTenant(a.tenantId, async (tx) => {
     const rows = await tx.billingEvent.findMany({
       where: { tenantId: a.tenantId, ...(query.openOnly ? { resolvedAt: null } : {}) },

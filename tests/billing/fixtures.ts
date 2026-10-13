@@ -2,7 +2,7 @@ import { prismaAdmin } from '../../src/core/db/prisma.js';
 import { setPdfRenderer } from '../../src/core/pdf/renderer.js';
 import { todayIn } from '../../src/core/utils/dates.js';
 import { api, attachment, owner, pm, rs, type Auth } from '../inventory/fixtures.js';
-import { bearer, loginMobile, SEED } from '../helpers.js';
+import { bearer, grantFinancials, loginMobile, SEED } from '../helpers.js';
 
 export { api, attachment, owner, pm, rs, type Auth };
 
@@ -28,7 +28,8 @@ export async function stagesOf(projectId: string) {
 
 /** A PM who may see money (billing.view). */
 export async function pmWithFinancials(tenantId: string): Promise<Auth> {
-  await prismaAdmin.user.updateMany({ where: { tenantId, phone: SEED.malik.pm.phone }, data: { canSeeFinancials: true } });
+  const pm = await prismaAdmin.user.findFirstOrThrow({ where: { tenantId, phone: SEED.malik.pm.phone } });
+  await grantFinancials(tenantId, pm.id);
   return bearer((await loginMobile(SEED.malik.pm.phone, SEED.malik.pm.password)).accessToken);
 }
 

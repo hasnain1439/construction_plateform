@@ -149,6 +149,7 @@ model PlatformAdmin {
   updatedAt        DateTime               @updatedAt @db.Timestamptz(3)
   sessions         PlatformAdminSession[]
   reviewedPayments SubscriptionPayment[]
+  actAsSessions    ActAsSession[]
 }
 
 model PlatformAdminSession {
@@ -166,6 +167,70 @@ model PlatformAdminSession {
 
   @@index([familyId])
   @@index([adminId])
+}
+
+enum ActAsMode {
+  READ_ONLY
+  WRITE
+}
+
+/// A platform super admin working inside one company ("act as"). Started with a reason,
+/// READ_ONLY by default (WRITE needs a second reason); ends at expiresAt or when ended.
+/// Platform table: app_user may only SELECT its own company's rows (RLS).
+model ActAsSession {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  adminId        String        @db.Uuid
+  tenantId       String        @db.Uuid
+  reason         String
+  mode           ActAsMode     @default(READ_ONLY)
+  /// Why writing was switched on (the second reason)
+  writeReason    String?
+  writeEnabledAt DateTime?     @db.Timestamptz(3)
+  startedAt      DateTime      @default(now()) @db.Timestamptz(3)
+  expiresAt      DateTime      @db.Timestamptz(3)
+  endedAt        DateTime?     @db.Timestamptz(3)
+  admin          PlatformAdmin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, endedAt])
+  @@index([tenantId, startedAt])
+}
+
+enum MessageChannel {
+  SMS
+  EMAIL
+  WHATSAPP
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+/// One row per outgoing SMS / email / WhatsApp message (written by the platform through
+/// app_admin). `to` is masked; message bodies (codes, links) are never stored. `type` is the
+/// message type (OTP, PASSWORD_RESET, INVITE, NOTIFICATION, INVOICE, …). tenantId is null for
+/// messages that don't belong to one company (e.g. a login code before a company is chosen).
+/// Platform table: app_user may only SELECT its own company's rows (RLS).
+model MessageDelivery {
+  id         String         @id @default(uuid(7)) @db.Uuid
+  tenantId   String?        @db.Uuid
+  channel    MessageChannel
+  type       String
+  provider   String
+  /// Masked recipient (+92300*****67 / a***@example.com)
+  to         String
+  status     MessageStatus  @default(QUEUED)
+  /// Message id returned by the provider (gateway id, SES MessageId, WhatsApp wamid)
+  providerId String?
+  error      String?
+  createdAt  DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime       @default(now()) @updatedAt @db.Timestamptz(3)
+  tenant     Tenant?        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([channel, status, createdAt])
 }
 
 model Plan {
@@ -258,6 +323,9 @@ model Tenant {
   subscription           Subscription?
   subscriptionPayments   SubscriptionPayment[]
   users                  User[]
+  roles                  Role[]
+  rolePermissions        RolePermission[]
+  permissionOverrides    UserPermissionOverride[]
   projects               Project[]
   userProjectAccess      UserProjectAccess[]
   invitations            Invitation[]
@@ -266,6 +334,8 @@ model Tenant {
   companyHolidays        CompanyHoliday[]
   attachments            Attachment[]
   auditLogs              AuditLog[]
+  actAsSessions          ActAsSession[]
+  messageDeliveries      MessageDelivery[]
   materials              Material[]
   qualityCategories      QualityCategory[]
   materialRates          MaterialRate[]
@@ -433,8 +503,8 @@ model SubscriptionPayment {
 }
 
 model User {
-  id                   String                @id @default(uuid(7)) @db.Uuid
-  tenantId             String                @db.Uuid
+  id                   String                   @id @default(uuid(7)) @db.Uuid
+  tenantId             String                   @db.Uuid
   name                 String
   /// E.164, e.g. +923001234567
   phone                String
@@ -442,51 +512,58 @@ model User {
   /// null for OTP-only users (typically MUNSHI)
   passwordHash         String?
   role                 UserRole
-  status               UserStatus            @default(ACTIVE)
-  language             Language              @default(ROMAN_URDU)
-  photoAttachmentId    String?               @db.Uuid
-  canSeeFinancials     Boolean               @default(false)
+  status               UserStatus               @default(ACTIVE)
+  language             Language                 @default(ROMAN_URDU)
+  photoAttachmentId    String?                  @db.Uuid
+  /// Deprecated: kept in sync for old clients. Financial access is the FINANCIAL_BUNDLE of permission overrides.
+  canSeeFinancials     Boolean                  @default(false)
+  /// Permission role template (null for THEKEDAR = every permission; null for others = the system template of their role).
+  roleId               String?                  @db.Uuid
+  /// Bumped on every change of the user's role / overrides — the permission cache key.
+  permVersion          Int                      @default(0)
   /// Hidden per-company "Super Admin (Platform)" user that records what the platform super admin does inside the company. Never signs in (INACTIVE), never listed or counted.
-  isSystem             Boolean               @default(false)
-  failedLoginCount     Int                   @default(0)
-  lockedUntil          DateTime?             @db.Timestamptz(3)
-  passwordChangedAt    DateTime?             @db.Timestamptz(3)
-  lastLoginAt          DateTime?             @db.Timestamptz(3)
-  deactivatedAt        DateTime?             @db.Timestamptz(3)
-  createdAt            DateTime              @default(now()) @db.Timestamptz(3)
-  updatedAt            DateTime              @updatedAt @db.Timestamptz(3)
-  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  photo                Attachment?           @relation("UserPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  isSystem             Boolean                  @default(false)
+  failedLoginCount     Int                      @default(0)
+  lockedUntil          DateTime?                @db.Timestamptz(3)
+  passwordChangedAt    DateTime?                @db.Timestamptz(3)
+  lastLoginAt          DateTime?                @db.Timestamptz(3)
+  deactivatedAt        DateTime?                @db.Timestamptz(3)
+  createdAt            DateTime                 @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime                 @updatedAt @db.Timestamptz(3)
+  tenant               Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  photo                Attachment?              @relation("UserPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
   projectAccess        UserProjectAccess[]
   devices              Device[]
   sessions             Session[]
-  acceptedInvites      Invitation[]          @relation("InvitationAcceptedUser")
-  sentInvites          Invitation[]          @relation("InvitationInvitedBy")
-  uploads              Attachment[]          @relation("AttachmentUploadedBy")
-  submittedPayments    SubscriptionPayment[] @relation("PaymentSubmittedBy")
-  materialsCreated     Material[]            @relation("MaterialCreatedBy")
-  materialRatesCreated MaterialRate[]        @relation("MaterialRateCreatedBy")
-  supplierRatesCreated SupplierRate[]        @relation("SupplierRateCreatedBy")
-  workersCreated       Worker[]              @relation("WorkerCreatedBy")
-  clientsCreated       Client[]              @relation("ClientCreatedBy")
-  projectsCreated      Project[]             @relation("ProjectCreatedBy")
-  stockMovements       StockMovement[]       @relation("StockMovementCreatedBy")
-  purchaseOrders       PurchaseOrder[]       @relation("PurchaseOrderCreatedBy")
-  purchasesCreated     Purchase[]            @relation("PurchaseCreatedBy")
-  purchasesReceived    Purchase[]            @relation("PurchaseReceivedBy")
-  purchaseCorrections  PurchaseCorrection[]  @relation("PurchaseCorrectionCreatedBy")
-  purchaseReturns      PurchaseReturn[]      @relation("PurchaseReturnCreatedBy")
-  supplierLedger       SupplierLedgerEntry[] @relation("SupplierLedgerCreatedBy")
-  supplierPayments     SupplierPayment[]     @relation("SupplierPaymentCreatedBy")
-  dispatchesCreated    Dispatch[]            @relation("DispatchCreatedBy")
-  dispatchesReceived   Dispatch[]            @relation("DispatchReceivedBy")
-  shortagesResolved    Shortage[]            @relation("ShortageResolvedBy")
-  ownerDeliveries      OwnerDelivery[]       @relation("OwnerDeliveryCreatedBy")
-  materialUsages       MaterialUsage[]       @relation("MaterialUsageCreatedBy")
-  stockCounts          StockCount[]          @relation("StockCountCreatedBy")
-  cashAccounts         CashAccount[]         @relation("CashAccountHolder")
-  notifications        Notification[]        @relation("NotificationRecipient")
-  dailyLogs            DailyLog[]            @relation("DailyLogAuthor")
+  acceptedInvites      Invitation[]             @relation("InvitationAcceptedUser")
+  sentInvites          Invitation[]             @relation("InvitationInvitedBy")
+  uploads              Attachment[]             @relation("AttachmentUploadedBy")
+  submittedPayments    SubscriptionPayment[]    @relation("PaymentSubmittedBy")
+  materialsCreated     Material[]               @relation("MaterialCreatedBy")
+  materialRatesCreated MaterialRate[]           @relation("MaterialRateCreatedBy")
+  supplierRatesCreated SupplierRate[]           @relation("SupplierRateCreatedBy")
+  workersCreated       Worker[]                 @relation("WorkerCreatedBy")
+  clientsCreated       Client[]                 @relation("ClientCreatedBy")
+  projectsCreated      Project[]                @relation("ProjectCreatedBy")
+  stockMovements       StockMovement[]          @relation("StockMovementCreatedBy")
+  purchaseOrders       PurchaseOrder[]          @relation("PurchaseOrderCreatedBy")
+  purchasesCreated     Purchase[]               @relation("PurchaseCreatedBy")
+  purchasesReceived    Purchase[]               @relation("PurchaseReceivedBy")
+  purchaseCorrections  PurchaseCorrection[]     @relation("PurchaseCorrectionCreatedBy")
+  purchaseReturns      PurchaseReturn[]         @relation("PurchaseReturnCreatedBy")
+  supplierLedger       SupplierLedgerEntry[]    @relation("SupplierLedgerCreatedBy")
+  supplierPayments     SupplierPayment[]        @relation("SupplierPaymentCreatedBy")
+  dispatchesCreated    Dispatch[]               @relation("DispatchCreatedBy")
+  dispatchesReceived   Dispatch[]               @relation("DispatchReceivedBy")
+  shortagesResolved    Shortage[]               @relation("ShortageResolvedBy")
+  ownerDeliveries      OwnerDelivery[]          @relation("OwnerDeliveryCreatedBy")
+  materialUsages       MaterialUsage[]          @relation("MaterialUsageCreatedBy")
+  stockCounts          StockCount[]             @relation("StockCountCreatedBy")
+  cashAccounts         CashAccount[]            @relation("CashAccountHolder")
+  notifications        Notification[]           @relation("NotificationRecipient")
+  dailyLogs            DailyLog[]               @relation("DailyLogAuthor")
+  permissionRole       Role?                    @relation("UserPermissionRole", fields: [tenantId, roleId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  permissionOverrides  UserPermissionOverride[] @relation("UserPermissionOverrides")
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -577,6 +654,85 @@ model Project {
   @@index([tenantId, clientId])
 }
 
+enum RoleBase {
+  PM
+  MUNSHI
+  OTHER
+}
+
+enum PermissionScope {
+  ASSIGNED_PROJECTS
+  ALL_PROJECTS
+}
+
+enum PermissionEffect {
+  ALLOW
+  DENY
+}
+
+/// Permission role template of a company. System templates (isSystem) are seeded per company and read-only.
+model Role {
+  id          String           @id @default(uuid(7)) @db.Uuid
+  tenantId    String           @db.Uuid
+  /// PROJECT_MANAGER / MUNSHI / ACCOUNTANT / STORE_KEEPER for system templates; generated for custom roles.
+  key         String
+  name        String
+  nameRoman   String?
+  nameUrdu    String?
+  description String?
+  isSystem    Boolean          @default(false)
+  /// Which accounts may hold it: PM (office users), MUNSHI (site users) or OTHER (both).
+  baseRole    RoleBase
+  /// Bumped on every permission change — part of the permission cache key.
+  version     Int              @default(0)
+  createdAt   DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @db.Timestamptz(3)
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  permissions RolePermission[]
+  users       User[]           @relation("UserPermissionRole")
+  invitations Invitation[]     @relation("InvitationPermissionRole")
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, key])
+}
+
+model RolePermission {
+  id             String          @id @default(uuid(7)) @db.Uuid
+  tenantId       String          @db.Uuid
+  roleId         String          @db.Uuid
+  permissionKey  String
+  scope          PermissionScope @default(ASSIGNED_PROJECTS)
+  /// Approval limit (approve permissions only); null = no limit.
+  maxAmountPaisa BigInt?
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role           Role            @relation(fields: [tenantId, roleId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([roleId, permissionKey])
+  @@index([tenantId, roleId])
+}
+
+/// Per-user extra (ALLOW) or removed (DENY) permission on top of the role.
+model UserPermissionOverride {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  tenantId       String           @db.Uuid
+  userId         String           @db.Uuid
+  permissionKey  String
+  effect         PermissionEffect
+  /// ALLOW only; null = the role's scope (or ASSIGNED_PROJECTS).
+  scope          PermissionScope?
+  maxAmountPaisa BigInt?
+  note           String?
+  createdById    String?          @db.Uuid
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(3)
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user           User             @relation("UserPermissionOverrides", fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([userId, permissionKey])
+  @@index([tenantId, userId])
+}
+
 model UserProjectAccess {
   tenantId  String   @db.Uuid
   userId    String   @db.Uuid
@@ -600,6 +756,8 @@ model Invitation {
   phone            String
   email            String?
   canSeeFinancials Boolean          @default(false)
+  /// Permission role given on accept (default: the system template of the invited role).
+  roleId           String?          @db.Uuid
   projectIds       String[]         @db.Uuid
   status           InvitationStatus @default(PENDING)
   expiresAt        DateTime         @db.Timestamptz(3)
@@ -613,6 +771,7 @@ model Invitation {
   tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   invitedBy        User?            @relation("InvitationInvitedBy", fields: [tenantId, invitedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
   acceptedUser     User?            @relation("InvitationAcceptedUser", fields: [tenantId, acceptedUserId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  permissionRole   Role?            @relation("InvitationPermissionRole", fields: [tenantId, roleId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([tenantId, status])
   @@index([tenantId, phone, status])
@@ -2563,6 +2722,7 @@ enum NotificationType {
   SUBSCRIPTION_PAYMENT_REJECTED
   INVITE_ACCEPTED
   MISSING_DAILY_LOG
+  PLATFORM_SUPPORT_ACCESS
 }
 
 /// One in-app message for one user. Same (type, refId, user) is sent at most once per 24 h.

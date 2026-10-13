@@ -5,6 +5,9 @@ import { validate } from '../../core/middleware/validate.js';
 import { assertAdminSessionActive } from '../auth/admin.service.js';
 import * as c from './platformAdmin.controller.js';
 import {
+  actAsModeBody,
+  actAsSessionsQuery,
+  startActAsBody,
   approvePaymentBody,
   catalogMaterialsQuery,
   createCatalogMaterialBody,
@@ -65,6 +68,13 @@ platformAdminRouter.get('/holidays', validate({ query: holidaysQuery }), h(c.lis
 platformAdminRouter.post('/holidays', validate({ body: createHolidayBody }), h(c.createHoliday));
 platformAdminRouter.patch('/holidays/:id', validate({ params: idParams, body: updateHolidayBody }), h(c.updateHoliday));
 platformAdminRouter.delete('/holidays/:id', validate({ params: idParams }), h(c.deleteHoliday));
+
+// Act-as sessions (Company data): start with a reason, READ_ONLY until switched to WRITE with a second reason.
+platformAdminRouter.post('/act-as-sessions', validate({ body: startActAsBody }), h(c.startActAs));
+platformAdminRouter.get('/act-as-sessions', validate({ query: actAsSessionsQuery }), h(c.listActAsSessions));
+platformAdminRouter.get('/act-as-sessions/:id', validate({ params: idParams }), h(c.getActAsSession));
+platformAdminRouter.post('/act-as-sessions/:id/mode', validate({ params: idParams, body: actAsModeBody }), h(c.changeActAsMode));
+platformAdminRouter.post('/act-as-sessions/:id/end', validate({ params: idParams }), h(c.endActAs));
 
 platformAdminRouter.get('/audit-logs', validate({ query: auditQuery }), h(c.listAuditLogs));
 

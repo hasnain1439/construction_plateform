@@ -1,12 +1,13 @@
 import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import { prismaAdmin } from '../../core/db/prisma.js';
-import { BadRequest, Gone, TooManyRequests } from '../../core/errors/AppError.js';
+import { AppError, BadRequest, Gone, TooManyRequests } from '../../core/errors/AppError.js';
 import { generateOtp, hashSecret, safeEqual } from '../../core/utils/crypto.js';
 import { maskPhone } from '../../core/utils/phone.js';
 import type { OtpPurpose } from '../../generated/prisma/enums.js';
 import * as repo from './auth.repository.js';
 import { smsProvider } from './sms.provider.js';
+import { trySendWhatsApp } from './whatsapp.provider.js';
 
 export const OTP_RESEND_SECONDS = 60;
 export const OTP_MAX_SENDS_PER_HOUR = 5;
@@ -31,7 +32,7 @@ export async function issueOtp(phone: string, purpose: OtpPurpose): Promise<{ co
   const now = new Date();
   const code = generateOtp();
 
-  await prismaAdmin.$transaction(async (tx) => {
+  const otp = await prismaAdmin.$transaction(async (tx) => {
     await repo.advisoryLock(tx, `otp:${phone}`);
 
     const latest = await repo.latestOtp(tx, phone, purpose);
@@ -53,7 +54,7 @@ export async function issueOtp(phone: string, purpose: OtpPurpose): Promise<{ co
     }
 
     await repo.consumeOpenOtps(tx, phone, purpose, now);
-    await repo.createOtp(tx, {
+    return repo.createOtp(tx, {
       phone,
       purpose,
       codeHash: hashOtp(phone, purpose, code),
@@ -63,7 +64,25 @@ export async function issueOtp(phone: string, purpose: OtpPurpose): Promise<{ co
   });
 
   const minutes = Math.max(1, Math.round(env.OTP_TTL_SECONDS / 60));
-  await smsProvider().send({ to: phone, body: MESSAGES[purpose](code, minutes) });
+  let smsError: unknown;
+  try {
+    await smsProvider().send({
+      to: phone,
+      body: MESSAGES[purpose](code, minutes),
+      type: purpose === 'LOGIN' ? 'OTP' : 'PASSWORD_RESET',
+      params: { code, minutes },
+    });
+  } catch (err) {
+    smsError = err;
+  }
+  // Optional extra channel (WHATSAPP_ENABLED): the same code as a WhatsApp authentication template.
+  const byWhatsApp = await trySendWhatsApp({ to: phone, type: 'OTP', params: [code] });
+  if (smsError && !byWhatsApp) {
+    // Nothing reached the user: drop the code so they can ask again right away.
+    logger.error({ err: smsError, phone: maskPhone(phone), purpose }, 'otp delivery failed');
+    await prismaAdmin.otpCode.delete({ where: { id: otp.id } }).catch(() => undefined);
+    throw new AppError(503, 'SMS_UNAVAILABLE', 'The code could not be sent right now. Please try again in a minute.');
+  }
   logger.info({ phone: maskPhone(phone), purpose }, 'otp issued');
   return { code, expiresIn: env.OTP_TTL_SECONDS };
 }

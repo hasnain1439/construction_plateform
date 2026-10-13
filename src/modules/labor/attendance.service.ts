@@ -7,6 +7,7 @@ import { assignedWorkers } from './assignments.service.js';
 import { isLateSync } from '../sync/lateSync.js';
 import type { AttendanceInput, AttendanceQuery } from './labor.schema.js';
 import { actor, addDays, audit, laborSettings, num, projectFor, today, weekdayOf, weekOf, type Actor } from './labor.shared.js';
+import { track } from '../../core/observability/analytics.js';
 
 /** Munshis may fill in at most this many days back; the office any open week. */
 export const MUNSHI_BACKDATE_DAYS = 7;
@@ -80,7 +81,9 @@ export async function markAttendanceTx(tx: Tx, a: Actor, projectId: string, inpu
 
 export async function markAttendance(projectId: string, input: AttendanceInput) {
   const a = actor();
-  return withTenant(a.tenantId, (tx) => markAttendanceTx(tx, a, projectId, input));
+  const result = await withTenant(a.tenantId, (tx) => markAttendanceTx(tx, a, projectId, input));
+  track('hazri_marked', { count: input.entries.length });
+  return result;
 }
 
 /** Everyone on the project that day with their mark (null = not marked yet). */

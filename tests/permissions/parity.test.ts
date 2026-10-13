@@ -1,0 +1,151 @@
+/**
+ * PARITY: the default role templates must give every company route exactly the access the old
+ * role checks gave. The expectations in parity.snapshot.json were RECORDED from the code before
+ * permissions existed (requireRole / requirePermission + the service-level role checks):
+ *
+ *   PARITY_RECORD=1 npx vitest run tests/permissions/parity.test.ts   (only ever on the old code)
+ *
+ * Every company route (enumerated from the Express app, not from the docs) is called by each
+ * persona with a non-existent id and an empty body; the outcome is "denied" (403 FORBIDDEN /
+ * PERMISSION_DENIED / APPROVAL_LIMIT_EXCEEDED) or the status code the request got past the guard
+ * with (400 validation, 404 unknown id, 200 list, …). Denied/allowed must match exactly, and so
+ * must the status of allowed requests.
+ */
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { ipKeyGenerator } from 'express-rate-limit';
+import { describe, expect, it } from 'vitest';
+import { prismaAdmin } from '../../src/core/db/prisma.js';
+import { listRoutes, type RouteInfo } from '../../src/core/http/routeList.js';
+import { generalRateLimit } from '../../src/core/middleware/rateLimit.js';
+import { api, app, bearer, loginMobile, loginMunshi, refreshMobile, SEED, useFreshDatabase } from '../helpers.js';
+
+const SNAPSHOT = join(import.meta.dirname, 'parity.snapshot.json');
+const RECORD = process.env['PARITY_RECORD'] === '1';
+const NO_ID = '0192a000-0000-7000-8000-000000000000';
+const PERSONAS = ['MUNSHI', 'PM', 'PM_FIN', 'THEKEDAR'] as const;
+type Persona = (typeof PERSONAS)[number];
+type Outcome = 'DENIED' | number;
+type Snapshot = Record<string, Record<Persona, Outcome>>;
+
+/** Routes that are not company routes (public auth, platform admin, signed file links). */
+const NOT_COMPANY = [/^\/api\/v1\/auth\//, /^\/api\/v1\/admin\//, /^\/api\/v1\/invitations\/:token\/accept$/, /^\/api\/v1\/attachments\/:id\/file$/];
+export const companyRoutes = (): RouteInfo[] => listRoutes(app).filter((r) => !NOT_COMPANY.some((re) => re.test(r.path)));
+const keyOf = (r: RouteInfo) => `${r.method.toUpperCase()} ${r.path}`;
+const DENIED_CODES = new Set(['FORBIDDEN', 'PERMISSION_DENIED', 'APPROVAL_LIMIT_EXCEEDED']);
+
+/** The general limiter would stop a sweep of ~1 000 requests; reset it between calls. */
+function resetLimiter() {
+  for (const ip of ['127.0.0.1', '::ffff:127.0.0.1', '::1']) {
+    void generalRateLimit.resetKey(ip);
+    void generalRateLimit.resetKey(ipKeyGenerator(ip));
+  }
+}
+
+async function call(r: RouteInfo, token: string): Promise<Outcome> {
+  resetLimiter();
+  const path = r.path.replace(/:[A-Za-z]+/g, NO_ID);
+  const req = api()[r.method](path).set(bearer(token));
+  const res = r.method === 'get' || r.method === 'delete' ? await req : await req.send({});
+  if (res.status === 403 && DENIED_CODES.has(res.body?.error?.code)) return 'DENIED';
+  return res.status;
+}
+
+async function sweep(routes: RouteInfo[], token: string, persona: Persona, out: Snapshot) {
+  for (const r of routes) {
+    const k = keyOf(r);
+    out[k] ??= {} as Record<Persona, Outcome>;
+    out[k][persona] = await call(r, token);
+  }
+}
+
+/** Old-code-compatible way to give the PM financial access (PATCH canSeeFinancials). */
+async function grantFinancials(ownerToken: string, pmId: string) {
+  const res = await api().patch(`/api/v1/users/${pmId}`).set(bearer(ownerToken)).send({ canSeeFinancials: true });
+  expect(res.status, JSON.stringify(res.body)).toBe(200);
+}
+
+describe('permission parity (default templates = old role checks)', () => {
+  useFreshDatabase();
+
+  it('every company route gives THEKEDAR / PM / PM with financials / MUNSHI the old access', { timeout: 600_000 }, async () => {
+    const routes = companyRoutes();
+    expect(routes.length).toBeGreaterThan(200);
+    const malik = await prismaAdmin.tenant.findUniqueOrThrow({ where: { slug: SEED.malik.slug } });
+    const pm = await prismaAdmin.user.findFirstOrThrow({ where: { tenantId: malik.id, phone: SEED.malik.pm.phone } });
+
+    const outcomes: Snapshot = {};
+    const munshi = await loginMunshi(malik.id);
+    await sweep(routes, munshi.accessToken, 'MUNSHI', outcomes);
+    const pmSession = await loginMobile(SEED.malik.pm.phone, SEED.malik.pm.password);
+    await sweep(routes, pmSession.accessToken, 'PM', outcomes);
+    const owner = await loginMobile(SEED.malik.owner.phone, SEED.malik.owner.password);
+    resetLimiter();
+    await grantFinancials(owner.accessToken, pm.id);
+    const refreshed = await refreshMobile(pmSession.refreshToken); // the old code put permissions in the token
+    expect(refreshed.status).toBe(200);
+    await sweep(routes, refreshed.body.data.accessToken, 'PM_FIN', outcomes);
+    await sweep(routes, owner.accessToken, 'THEKEDAR', outcomes);
+
+    if (RECORD) {
+      writeFileSync(SNAPSHOT, `${JSON.stringify(outcomes, null, 1)}\n`);
+      return;
+    }
+    expect(existsSync(SNAPSHOT), 'parity.snapshot.json is missing').toBe(true);
+    const expected = JSON.parse(readFileSync(SNAPSHOT, 'utf8')) as Snapshot;
+    const problems: string[] = [];
+    for (const [route, want] of Object.entries(expected)) {
+      const got = outcomes[route];
+      if (!got) {
+        problems.push(`${route}: route disappeared`);
+        continue;
+      }
+      for (const p of PERSONAS) if (got[p] !== want[p]) problems.push(`${route} ${p}: expected ${want[p]}, got ${got[p]}`);
+    }
+    const added = Object.keys(outcomes).filter((k) => !expected[k]);
+    for (const k of added) if (!NEW_ROUTES[k]) problems.push(`${k}: new route without a parity expectation`);
+    for (const [k, want] of Object.entries(NEW_ROUTES)) {
+      for (const p of PERSONAS) if (outcomes[k]?.[p] !== want[p]) problems.push(`${k} ${p}: expected ${want[p]}, got ${outcomes[k]?.[p]}`);
+    }
+    expect(problems).toEqual([]);
+  });
+});
+
+/** Routes added with permissions (not in the old snapshot): their expected default outcome. */
+const owner = (status: Outcome): Record<Persona, Outcome> => ({ MUNSHI: 'DENIED', PM: 'DENIED', PM_FIN: 'DENIED', THEKEDAR: status });
+const NEW_ROUTES: Snapshot = {
+  'GET /api/v1/permissions/catalog': { MUNSHI: 200, PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'GET /api/v1/roles': owner(200),
+  'POST /api/v1/roles': owner(400),
+  'GET /api/v1/roles/:id': owner(404),
+  'PATCH /api/v1/roles/:id': owner(400),
+  'POST /api/v1/roles/:id/duplicate': owner(404),
+  'PUT /api/v1/roles/:id/permissions': owner(400),
+  'GET /api/v1/users/:id/permissions': owner(404),
+  'PUT /api/v1/users/:id/permission-overrides': owner(400),
+  'PATCH /api/v1/users/:id/role': owner(400),
+  'GET /api/v1/company/audit-logs': owner(200),
+};
+
+describe('every company route is guarded by a permission', () => {
+  /** Things every signed-in company user may do (own data, uploads, static lists, sync with its own per-table rules). */
+  const OPEN = new Set([
+    'POST /api/v1/attachments',
+    'GET /api/v1/attachments/:id',
+    'GET /api/v1/company/holidays',
+    'GET /api/v1/permissions/catalog',
+    'GET /api/v1/material-groups',
+    'GET /api/v1/notifications',
+    'GET /api/v1/notifications/unread-count',
+    'PATCH /api/v1/notifications/read-all',
+    'PATCH /api/v1/notifications/:id/read',
+    'GET /api/v1/sync/pull',
+    'POST /api/v1/sync/push',
+    'GET /api/v1/sync/status',
+    'GET /api/v1/supply-presets',
+  ]);
+  it('has a requirePerm unless it is on the open list', () => {
+    const unguarded = companyRoutes().filter((r) => !r.permissions.length).map(keyOf);
+    expect(unguarded.sort()).toEqual([...OPEN].sort());
+  });
+});

@@ -2,6 +2,7 @@
  * Billing access and settings. Everything needs billing.view (THEKEDAR always; a PM with
  * financials on their projects; never a MUNSHI). A project outside the caller's reach is 404.
  */
+import { fieldAccess } from '../../core/auth/access.js';
 import { getCtx } from '../../core/context/requestContext.js';
 import { Prisma } from '../../core/db/prisma.js';
 import type { Tx } from '../../core/db/withTenant.js';
@@ -27,8 +28,8 @@ export function actor(): BillingActor {
     tenantId: ctx.tenantId!,
     userId: ctx.userId!,
     role: ctx.role as BillingActor['role'],
-    seesFinancials: ctx.permissions.includes('billing.view'),
-    seesRates: ctx.permissions.includes('rates.view'),
+    seesFinancials: fieldAccess().amounts,
+    seesRates: fieldAccess().rates,
   };
 }
 
@@ -49,9 +50,6 @@ export async function billingProject(tx: Tx, a: BillingActor, projectId: string)
   return findProjectFor(tx, a, projectId);
 }
 
-export function assertOwner(a: BillingActor, message = 'Only the owner can do this') {
-  if (a.role !== 'THEKEDAR') throw new Forbidden('FORBIDDEN', message);
-}
 
 export interface BillingSettings {
   paymentTermsDays: number;

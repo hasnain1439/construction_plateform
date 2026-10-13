@@ -2,19 +2,19 @@ import { Router } from 'express';
 import { asyncHandler as h } from '../../core/http/asyncHandler.js';
 import { authenticate } from '../../core/middleware/authenticate.js';
 import { readOnlyGuard } from '../../core/middleware/readOnlyGuard.js';
-import { requireRole } from '../../core/middleware/requireRole.js';
+import { requirePerm } from '../../core/middleware/requirePerm.js';
 import { tenantContext } from '../../core/middleware/tenantContext.js';
 import { validate } from '../../core/middleware/validate.js';
 import * as c from './subscription.controller.js';
 import { changePlanBody, listPaymentsQuery, submitPaymentBody } from './subscription.schema.js';
 
 /**
- * Mounted at /api/v1/subscription. THEKEDAR only. readOnlyGuard lets every route here
+ * Mounted at /api/v1/subscription. subscription.manage (owner-only permission). readOnlyGuard lets every route here
  * through on a READ_ONLY company — paying is how a lapsed company gets back.
  */
 export const subscriptionRouter = Router();
 
-subscriptionRouter.use(authenticate, tenantContext, readOnlyGuard, requireRole('THEKEDAR'));
+subscriptionRouter.use(authenticate, tenantContext, readOnlyGuard, requirePerm('subscription.manage'));
 
 subscriptionRouter.get('/', h(c.getSubscription));
 subscriptionRouter.get('/plans', h(c.listPlans));

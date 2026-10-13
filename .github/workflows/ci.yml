@@ -1,0 +1,85 @@
+# Pull requests (and every push to main, through release.yml): install, typecheck, migrations on an
+# empty database, tests, Docker build. The API has no linter yet — `typecheck` (strict tsc over src,
+# tests, prisma, scripts) is the static check.
+name: CI
+
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Typecheck, migrate, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      # scripts/db-setup.ts and prisma.config.ts load dotenv/config, which honours this path.
+      DOTENV_CONFIG_PATH: .env.test
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Prisma client
+        run: npx prisma generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test environment (.env.test from the example, CI postgres password)
+        run: sed 's/CHANGE_ME/postgres/g' .env.test.example > .env.test
+
+      - name: Create roles app_user / app_admin and the test database
+        run: npx tsx scripts/db-setup.ts
+
+      - name: Apply every migration to the empty database
+        run: npx prisma migrate deploy
+
+      - name: Schema matches the migrations (no drift)
+        run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+
+      - name: Tests
+        run: npm test
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Build (not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          build-args: GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api

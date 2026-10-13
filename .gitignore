@@ -11,3 +11,10 @@ coverage
 .windsurf/
 skills-lock.json
 storage
+
+# Deployment: filled-in env files and local backup dumps never go to git
+deploy/.env
+deploy/api.env
+deploy/env/*.env
+backups/
+*.dump

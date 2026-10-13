@@ -1,4 +1,6 @@
 /** Review (tab 6), activation and status transitions. */
+import { fieldAccess } from '../../core/auth/access.js';
+import { visible } from '../../core/auth/fieldStrip.js';
 import { withTenant } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict } from '../../core/errors/AppError.js';
 import { assertWithinLimit, lockPlanUsage } from '../../core/plan/planLimits.js';
@@ -9,6 +11,7 @@ import { contractTotalPaisa, floorTotals, num, projectCalculations } from './pro
 import * as repo from './projects.repository.js';
 import type { ChangeStatusInput } from './projects.schema.js';
 import { audit, detail } from './projects.service.js';
+import { track } from '../../core/observability/analytics.js';
 
 export interface Issue {
   tab: 1 | 2 | 3 | 4 | 5;
@@ -81,7 +84,7 @@ export function reviewProject(p: repo.ProjectFull, c: Caller) {
     contract: {
       contractType: p.contractType,
       billingModel: p.billingModel,
-      ...(c.seesFinancials ? { contractTotalPaisa: total === null ? null : total.toString() } : {}),
+      ...visible(c.fields ?? fieldAccess(c), 'contract', { contractTotalPaisa: total === null ? null : total.toString() }),
       retentionPercent: Number(p.retentionPercent),
       defectPeriodMonths: p.defectPeriodMonths,
       billingStages: p.billingStages.length,
@@ -108,7 +111,7 @@ export async function getReview(id: string) {
 
 export async function activate(id: string) {
   const c = caller();
-  return withTenant(c.tenantId, async (tx) => {
+  const result = await withTenant(c.tenantId, async (tx) => {
     const project = await findProjectFor(tx, c, id);
     if (project.status !== 'DRAFT') throw new Conflict('PROJECT_NOT_DRAFT', 'Only a draft project can be activated', { status: project.status });
     const review = reviewProject(await repo.loadFull(tx, id), c);
@@ -121,6 +124,8 @@ export async function activate(id: string) {
     await audit(tx, c, 'project.activate', id, { code: project.code, warnings: review.warnings.map((w) => w.code) });
     return { ...(await detail(tx, c, id)), nextStep: 'ESTIMATE' as const };
   });
+  track('project_activated');
+  return result;
 }
 
 /** Allowed manual transitions. READ_ONLY is set only by the subscription job; DRAFT → ACTIVE is /activate. */

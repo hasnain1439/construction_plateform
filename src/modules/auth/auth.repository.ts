@@ -93,6 +93,7 @@ export function createUser(
     email: string | null;
     passwordHash: string | null;
     role: UserRole;
+    roleId?: string | null;
     canSeeFinancials?: boolean;
   },
 ) {

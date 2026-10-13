@@ -1,10 +1,11 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { access, constants, mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
 import type { Readable } from 'node:stream';
 import { apiPublicUrl, env } from '../../config/env.js';
 import { CloudinaryStorageProvider, isCloudinaryKey } from './cloudinary.provider.js';
+import { isS3Key, S3StorageProvider, type S3Config } from './s3.provider.js';
 
 export interface SignedUrlOptions {
   /** Images only: resized preview of this width (providers that can't, return the original). */
@@ -25,6 +26,8 @@ export interface StorageProvider {
   delete(key: string): Promise<void>;
   /** Streams bytes through this API (local provider only). */
   open(key: string): Promise<{ stream: Readable; size: number }>;
+  /** Readiness probe (GET /health/ready): resolves when the store is reachable, throws otherwise. */
+  healthCheck?(): Promise<void>;
 }
 
 const KEY_PATTERN = /^([0-9a-f-]{36})\/(\d{4})\/(\d{2})\/([0-9a-f-]{36})\.([a-z0-9]{1,5})$/;
@@ -89,10 +92,17 @@ export class LocalStorageProvider implements StorageProvider {
     const info = await stat(path);
     return { stream: createReadStream(path), size: info.size };
   }
+
+  /** The storage folder exists (or can be created) and is writable. */
+  async healthCheck(): Promise<void> {
+    await mkdir(this.root, { recursive: true });
+    await access(this.root, constants.W_OK);
+  }
 }
 
 let local: LocalStorageProvider | undefined;
 let cloudinary: StorageProvider | undefined;
+let s3: StorageProvider | undefined;
 let override: StorageProvider | undefined;
 
 function localProvider(): LocalStorageProvider {
@@ -112,10 +122,29 @@ function cloudinaryProvider(): StorageProvider {
   return cloudinary;
 }
 
+export function s3ConfigFromEnv(): S3Config {
+  return {
+    bucket: env.S3_BUCKET!,
+    region: env.S3_REGION!,
+    endpoint: env.S3_ENDPOINT,
+    accessKeyId: env.S3_ACCESS_KEY_ID,
+    secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+    forcePathStyle: env.S3_FORCE_PATH_STYLE,
+    serverSideEncryption: env.S3_SERVER_SIDE_ENCRYPTION,
+  };
+}
+
+function s3Provider(): StorageProvider {
+  if (override) return override;
+  return (s3 ??= new S3StorageProvider(s3ConfigFromEnv()));
+}
+
 /** Provider for NEW uploads (STORAGE_PROVIDER). */
 export function storage(): StorageProvider {
   if (override) return override;
-  return env.STORAGE_PROVIDER === 'cloudinary' ? cloudinaryProvider() : localProvider();
+  if (env.STORAGE_PROVIDER === 'cloudinary') return cloudinaryProvider();
+  if (env.STORAGE_PROVIDER === 's3') return s3Provider();
+  return localProvider();
 }
 
 /**
@@ -123,10 +152,12 @@ export function storage(): StorageProvider {
  * STORAGE_PROVIDER keeps older files readable.
  */
 export function storageForKey(key: string): StorageProvider {
-  return isCloudinaryKey(key) ? cloudinaryProvider() : localProvider();
+  if (isCloudinaryKey(key)) return cloudinaryProvider();
+  if (isS3Key(key)) return s3Provider();
+  return localProvider();
 }
 
-/** Tests only: route uploads (and cloudinary keys) to a given provider; undefined resets. */
+/** Tests only: route uploads (and cloudinary / s3 keys) to a given provider; undefined resets. */
 export function useStorageProviderForTests(provider: StorageProvider | undefined): void {
   override = provider;
 }

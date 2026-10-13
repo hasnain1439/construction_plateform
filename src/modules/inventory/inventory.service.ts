@@ -1,4 +1,5 @@
 /** Stock locations, store stock, low-stock levels, the movement log and per-project site stock. */
+import { can, scopeAll } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { Forbidden, NotFound } from '../../core/errors/AppError.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
@@ -48,9 +49,10 @@ async function ensureSites(tx: Tx, a: Actor) {
 export async function visibleLocations(tx: Tx, a: Actor): Promise<StockLocation[]> {
   await systemLocations(tx, a.tenantId);
   await ensureSites(tx, a);
-  const sites: Prisma.StockLocationWhereInput = a.role === 'THEKEDAR' ? { type: 'SITE' } : { type: 'SITE', project: projectScope(a) };
+  const sites: Prisma.StockLocationWhereInput = scopeAll('inventory.stock.view', a) ? { type: 'SITE' } : { type: 'SITE', project: projectScope(a) };
+  // The central store and transit: whoever may see the store (THEKEDAR / PM by default).
   const where: Prisma.StockLocationWhereInput =
-    a.role === 'MUNSHI'
+    !can('inventory.store.view', a)
       ? { tenantId: a.tenantId, ...sites }
       : {
           tenantId: a.tenantId,
@@ -66,11 +68,11 @@ export async function visibleLocations(tx: Tx, a: Actor): Promise<StockLocation[
 export async function visibleLocation(tx: Tx, a: Actor, id: string): Promise<StockLocation> {
   const location = await findLocation(tx, a.tenantId, id);
   if (location.type === 'SITE') {
-    if (a.role !== 'THEKEDAR')
+    if (!scopeAll('inventory.stock.view', a))
       await findProjectFor(tx, a, location.projectId!).catch(() => {
         throw new NotFound('LOCATION_NOT_FOUND', 'Stock location not found');
       });
-  } else if (a.role === 'MUNSHI') {
+  } else if (!can('inventory.store.view', a)) {
     throw new NotFound('LOCATION_NOT_FOUND', 'Stock location not found');
   }
   return location;
@@ -267,7 +269,7 @@ export async function listMovements(query: MovementsQuery) {
     else if (query.projectId) {
       const project = await findProjectFor(tx, a, query.projectId);
       where.locationId = project.status === 'DRAFT' ? '00000000-0000-0000-0000-000000000000' : (await siteLocation(tx, a.tenantId, project)).id;
-    } else if (a.role !== 'THEKEDAR')
+    } else if (!scopeAll('inventory.stock.view', a))
       where.locationId = {
         in: (await visibleLocations(tx, a)).map((l) => l.id),
       };
@@ -403,7 +405,3 @@ export async function projectStock(projectId: string) {
   });
 }
 
-/** Store-level actions (count the store, set its levels) are the owner's. */
-export function assertOwner(a: Actor, message = 'Only the owner can do this') {
-  if (a.role !== 'THEKEDAR') throw new Forbidden('FORBIDDEN', message);
-}

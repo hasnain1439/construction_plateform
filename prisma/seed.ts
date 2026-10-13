@@ -12,6 +12,7 @@ import { hashSecret } from '../src/core/utils/crypto.js';
 import type { Prisma, PrismaClient, UserRole } from '../src/generated/prisma/client.js';
 import { MATERIAL_GROUPS, PLATFORM_MATERIALS } from '../src/modules/master-data/catalog.js';
 import { provisionMasterData } from '../src/modules/master-data/provision.js';
+import { provisionPermissions } from '../src/modules/permissions/provision.js';
 import { seedMalikMasterData } from './seedMasterData.js';
 import { seedMalikInventory } from './seedInventory.js';
 import { seedMalikBilling } from './seedBilling.js';
@@ -326,6 +327,8 @@ export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: b
 
   // Every company gets the starting master data (catalog copy, categories, labour rates, template).
   for (const t of [malik, ahmed, valley, oldTown]) await provisionMasterData(db, t.id);
+  // Permission role templates; every PM / Munshi gets the template of their account type.
+  for (const t of [malik, ahmed, valley, oldTown]) await provisionPermissions(db, t.id);
   await seedMalikMasterData(db, malik.id, khalid.id);
   const clients = await seedMalikClients(db, malik.id, khalid.id);
   const malikProjects = await seedMalikProjects(db, {

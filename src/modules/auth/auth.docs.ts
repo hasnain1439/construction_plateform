@@ -135,7 +135,12 @@ const authResultExample = {
       marlaStandard: 225,
     },
     subscription: { plan: { code: 'PROFESSIONAL', name: 'Professional' }, status: 'ACTIVE', renewsOn: '2026-11-01T00:00:00.000Z', trialEndsAt: null },
-    permissions: ['company.update', 'users.manage', 'billing.view', 'profit.view', 'rates.view', 'store.manage', 'projects.manage', 'site.entry'],
+    permissions: ['approvals.inbox.view', 'billing.invoice.approve', 'cashbook.expense.approve', 'company.settings.manage', 'fields.amounts', 'fields.rates', 'projects.project.view', 'subscription.manage', '… every key for THEKEDAR'],
+    legacyPermissions: ['company.update', 'users.manage', 'billing.view', 'profit.view', 'rates.view', 'store.manage', 'projects.manage', 'site.entry'],
+    fieldAccess: { rates: true, amounts: true, profit: true, contract: true },
+    scopes: { 'projects.project.view': 'ALL_PROJECTS', 'cashbook.expense.approve': 'ALL_PROJECTS' },
+    approvalLimits: { 'cashbook.expense.approve': null, 'labor.settlement.approve': null },
+    permissionRole: null,
     accessTokenExpiresIn: 900,
     accessToken: '<jwt — mobile only>',
     refreshToken: '<opaque — mobile only>',
@@ -220,7 +225,7 @@ export function registerAuthDocs(): void {
     path: '/api/v1/auth/otp/request',
     tags: Auth,
     summary: 'Send a 6-digit login code by SMS',
-    description: 'Valid 5 min. Resend after 60 s, max 5 per hour. **In development the code is printed in the server console.**',
+    description: 'Valid 5 min. Resend after 60 s, max 5 per hour. Also sent by WhatsApp when the server has WhatsApp enabled, and emailed to the account email. `503 SMS_UNAVAILABLE` when the SMS gateway (and WhatsApp) could not deliver it — safe to retry at once. **In development the code is printed in the server console.**',
     request: { body: jsonBody(otpRequestBody, otpRequestExamples) },
     responses: {
       200: {
@@ -232,7 +237,7 @@ export function registerAuthDocs(): void {
           },
         },
       },
-      ...errors({ ...VALIDATION, 404: ['PHONE_NOT_REGISTERED'], 429: ['OTP_RESEND_WAIT', 'OTP_LIMIT_REACHED', 'RATE_LIMITED'] }),
+      ...errors({ ...VALIDATION, 404: ['PHONE_NOT_REGISTERED'], 429: ['OTP_RESEND_WAIT', 'OTP_LIMIT_REACHED', 'RATE_LIMITED'], 503: ['SMS_UNAVAILABLE'] }),
     },
   });
 
@@ -340,7 +345,9 @@ export function registerAuthDocs(): void {
     path: '/api/v1/auth/me',
     tags: Auth,
     summary: 'Current user, company, subscription and permissions',
-    description: 'Log in first (web example sets the cookie, or Authorize with a mobile token).',
+    description:
+      'Log in first (web example sets the cookie, or Authorize with a mobile token). ' +
+      'permissions = effective permission keys (GET /permissions/catalog); fieldAccess = which values the API sends (rates / amounts / profit / contract); scopes = ASSIGNED_PROJECTS or ALL_PROJECTS per held project key; approvalLimits = max paisa per held approve key (null = no limit); permissionRole = the role template (null for THEKEDAR). Resolved from the database on every request, so changes apply immediately. legacyPermissions is deprecated.',
     security: companySecurity,
     responses: {
       200: { description: 'Profile', content: { 'application/json': { schema: success(meDto) } } },

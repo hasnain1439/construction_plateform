@@ -3,7 +3,7 @@
  * attachment and returned as a signed link ({ url, expiresAt }) — never the raw file.
  * Money is paisa in JSON and rupees in the files.
  */
-import ExcelJS from 'exceljs';
+import type ExcelJSModule from 'exceljs';
 import type { Tx } from '../../core/db/withTenant.js';
 import { renderPdf } from '../../core/pdf/renderer.js';
 import { reportHtml, type Letterhead, type ReportColumnType } from '../../core/pdf/templates.js';
@@ -57,6 +57,8 @@ export function toCsv(r: Report): Buffer {
 }
 
 export async function toXlsx(r: Report): Promise<Buffer> {
+  // Loaded on first export only: exceljs is heavy (~0.2 s), and most API processes / test files never need it.
+  const { default: ExcelJS } = (await import('exceljs')) as { default: typeof ExcelJSModule };
   const wb = new ExcelJS.Workbook();
   wb.creator = 'Construction Platform';
   wb.created = new Date(r.generatedAt);

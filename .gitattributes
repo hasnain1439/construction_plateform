@@ -1,0 +1,4 @@
+# Shell scripts run inside Linux containers / servers: always LF.
+*.sh text eol=lf
+Dockerfile text eol=lf
+Caddyfile text eol=lf

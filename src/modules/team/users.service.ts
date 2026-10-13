@@ -1,3 +1,6 @@
+import { defaultRoleId } from '../permissions/provision.js';
+import { permissionsChanged, setFinancialAccess } from '../permissions/permissions.service.js';
+import { accessOf, can } from '../../core/auth/access.js';
 import { writeAudit } from '../../core/audit/audit.js';
 import { getCtx } from '../../core/context/requestContext.js';
 import { Prisma } from '../../core/db/prisma.js';
@@ -13,7 +16,12 @@ import { issueOtp } from '../auth/otp.service.js';
 
 function current() {
   const ctx = getCtx();
-  return { tenantId: ctx.tenantId!, userId: ctx.userId!, role: ctx.role, sessionId: ctx.sessionId };
+  return { tenantId: ctx.tenantId!, userId: ctx.userId!, role: ctx.role, sessionId: ctx.sessionId, access: accessOf() };
+}
+
+/** A manager who isn't an owner (team.member.manage) never changes an owner. */
+function assertNotOwnerTarget(me: ReturnType<typeof current>, target: { role: string }) {
+  if (target.role === 'THEKEDAR' && !me.access.owner) throw new Forbidden('CANNOT_EDIT_OWNER', 'Only an owner can change another owner');
 }
 
 const userNotFound = () => new NotFound('USER_NOT_FOUND', 'User not found');
@@ -37,6 +45,7 @@ function toListDto(u: repo.UserListRow, includeFinancials: boolean): TeamUserDto
     status: u.status,
     ...(includeFinancials ? { canSeeFinancials: u.canSeeFinancials } : {}),
     allProjects: u.role === 'THEKEDAR',
+    permissionRole: u.permissionRole ? { id: u.permissionRole.id, name: u.permissionRole.name, key: u.permissionRole.key } : null,
     projects: u.projectAccess.map((a) => a.project).sort((a, b) => a.name.localeCompare(b.name)),
     lastActiveAt: (u.devices[0]?.lastActiveAt ?? u.lastLoginAt)?.toISOString() ?? null,
   };
@@ -59,14 +68,14 @@ async function loadDetail(tx: Tx, id: string): Promise<UserDetailDto> {
 // ─── Queries ────────────────────────────────────────────────────────────────
 
 export async function listUsers(query: ListUsersQuery) {
-  const { tenantId, role } = current();
+  const { tenantId } = current();
   return withTenant(tenantId, async (tx) => {
     const where = repo.userWhere(query);
     const { skip, take } = skipTake(query);
     const rows = await repo.listUsers(tx, where, skip, take);
     const total = await repo.countUsers(tx, where);
     const usage = { officeUsers: await repo.countActiveOfficeUsers(tx), maxOfficeUsers: await repo.maxOfficeUsers(tx, tenantId) };
-    const includeFinancials = role === 'THEKEDAR';
+    const includeFinancials = can('team.member.manage');
     return { data: rows.map((u) => toListDto(u, includeFinancials)), meta: { ...pageMeta(query, total), usage } };
   });
 }
@@ -83,6 +92,10 @@ export async function updateUser(id: string, input: UpdateUserInput): Promise<Us
     await lockPlanUsage(tx, me.tenantId);
     const target = await repo.findUser(tx, id);
     if (!target) throw userNotFound();
+    assertNotOwnerTarget(me, target);
+    if (input.canSeeFinancials !== undefined && target.id === me.userId && !me.access.owner) {
+      throw new Forbidden('CANNOT_EDIT_OWN_PERMISSIONS', 'You cannot change your own permissions');
+    }
 
     if (input.role !== undefined && input.role !== target.role) {
       if (target.id === me.userId) throw new Forbidden('CANNOT_CHANGE_OWN_ROLE', 'You cannot change your own role');
@@ -101,7 +114,7 @@ export async function updateUser(id: string, input: UpdateUserInput): Promise<Us
 
     const changes: Record<string, { from: unknown; to: unknown }> = {};
     const data: Record<string, unknown> = {};
-    const set = (field: 'name' | 'phone' | 'role' | 'canSeeFinancials', value: unknown) => {
+    const set = (field: 'name' | 'phone' | 'role', value: unknown) => {
       if (value === undefined || value === target[field]) return;
       changes[field] = { from: target[field], to: value };
       data[field] = value;
@@ -109,8 +122,8 @@ export async function updateUser(id: string, input: UpdateUserInput): Promise<Us
     set('name', input.name);
     set('phone', input.phone);
     set('role', input.role);
-    // A Munshi never sees financials; a role change to MUNSHI clears the flag.
-    set('canSeeFinancials', newRole === 'MUNSHI' ? false : input.canSeeFinancials);
+    // A new account type gets the default role template of that type.
+    if (data['role']) data['roleId'] = await defaultRoleId(tx, me.tenantId, newRole as 'PM' | 'MUNSHI');
 
     if (Object.keys(data).length) {
       await repo.updateUser(tx, id, data).catch((err: unknown) => {
@@ -120,6 +133,14 @@ export async function updateUser(id: string, input: UpdateUserInput): Promise<Us
         }
         throw err;
       });
+      if (data['role']) await permissionsChanged(tx, me.tenantId, { userId: id });
+    }
+    // canSeeFinancials (deprecated) = the financial bundle as permission overrides; a Munshi never has it.
+    const financials = newRole === 'MUNSHI' ? (target.canSeeFinancials || data['role'] ? false : undefined) : input.canSeeFinancials;
+    if (financials !== undefined && (await setFinancialAccess(tx, { tenantId: me.tenantId, userId: me.userId, access: me.access }, id, financials))) {
+      if (financials !== target.canSeeFinancials) changes['canSeeFinancials'] = { from: target.canSeeFinancials, to: financials };
+    }
+    if (Object.keys(changes).length) {
       await writeAudit(tx, {
         tenantId: me.tenantId,
         actorType: 'USER',
@@ -142,6 +163,7 @@ export async function deactivateUser(id: string): Promise<UserDetailDto> {
     await lockPlanUsage(tx, me.tenantId);
     const target = await repo.findUser(tx, id);
     if (!target) throw userNotFound();
+    assertNotOwnerTarget(me, target);
     if (target.status === 'INACTIVE') return loadDetail(tx, id);
     if (target.role === 'THEKEDAR' && (await repo.countActiveThekedars(tx)) <= 1) {
       throw new Forbidden('LAST_THEKEDAR', 'The company must keep at least one active THEKEDAR');
@@ -171,6 +193,7 @@ export async function reactivateUser(id: string): Promise<UserDetailDto> {
     await lockPlanUsage(tx, me.tenantId);
     const target = await repo.findUser(tx, id);
     if (!target) throw userNotFound();
+    assertNotOwnerTarget(me, target);
     if (target.status === 'ACTIVE') throw new Conflict('USER_ALREADY_ACTIVE', 'This user is already active');
     if (target.role !== 'MUNSHI') await assertWithinLimit(tx, me.tenantId, 'officeUsers');
 

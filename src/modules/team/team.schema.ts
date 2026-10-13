@@ -46,6 +46,10 @@ export const teamUserDto = z
     status: userStatusSchema,
     canSeeFinancials: z.boolean().optional().meta({ description: 'Hidden when a PM is asking' }),
     allProjects: z.boolean().meta({ description: 'THEKEDAR works on every project' }),
+    permissionRole: z
+      .object({ id: z.uuid(), key: z.string(), name: z.string() })
+      .nullable()
+      .meta({ description: 'Permission role template (null for THEKEDAR = every permission)' }),
     projects: z.array(projectRef),
     lastActiveAt: z.iso.datetime().nullable(),
   })
@@ -84,7 +88,8 @@ export const createInvitationBody = z
     email: emailSchema.optional(),
     role: staffRoleSchema,
     projectIds: projectIdsSchema.optional(),
-    canSeeFinancials: z.boolean().optional().meta({ description: 'PM only. Defaults to the company setting pmCanSeeFinancials.' }),
+    canSeeFinancials: z.boolean().optional().meta({ description: 'PM only. Defaults to the company setting pmCanSeeFinancials. Deprecated: = the financial permission bundle as overrides on accept.' }),
+    roleId: uuid('roleId').optional().meta({ description: 'Permission role given on accept (GET /roles). Default: the system template of  (Project Manager / Munshi).' }),
   })
   .superRefine((v, ctx) => {
     if (v.role !== 'PM' && v.canSeeFinancials) {
@@ -100,6 +105,7 @@ export const invitationDto = z
     email: z.string().nullable(),
     role: staffRoleSchema,
     canSeeFinancials: z.boolean(),
+    roleId: z.uuid().nullable().meta({ description: 'Permission role given on accept' }),
     projects: z.array(projectRef),
     status: invitationStatusSchema,
     expiresAt: z.iso.datetime(),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { prismaAdmin } from '../../src/core/db/prisma.js';
-import { mailProvider, ConsoleMailProvider } from '../../src/modules/auth/mail.provider.js';
+import { mailProvider, ConsoleMailProvider, LoggedMailProvider } from '../../src/modules/auth/mail.provider.js';
 import { api, lastOtp, loginMobile, refreshMobile, SEED, useFreshDatabase } from '../helpers.js';
 
 const seeded = useFreshDatabase();
@@ -23,7 +23,7 @@ describe('forgot / reset password', () => {
     const code = lastOtp(owner.phone);
 
     // Email copy carries the same code
-    const mail = mailProvider() as ConsoleMailProvider;
+    const mail = (mailProvider() as LoggedMailProvider).inner as ConsoleMailProvider;
     expect(mail.outbox.at(-1)).toMatchObject({ to: owner.email });
     expect(mail.outbox.at(-1)!.text).toContain(code);
 

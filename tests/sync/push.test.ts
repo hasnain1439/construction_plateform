@@ -1,17 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { seedMalikInventory } from '../../prisma/seedInventory.js';
-import { seedMalikLabor } from '../../prisma/seedLabor.js';
 import { prismaAdmin } from '../../src/core/db/prisma.js';
 import { uuidv7 } from '../../src/core/utils/uuid.js';
 import { bearer, loginMobile, loginMunshi, SEED, useFreshDatabase } from '../helpers.js';
+import { seedMalikStockAndLabor } from '../dashboard/fixtures.js';
 import { api, owner, today } from '../labor/fixtures.js';
 
 const seeded = useFreshDatabase();
 beforeEach(async () => {
-  const s = seeded();
-  const base = { tenantId: s.malik.id, ownerId: s.users.khalid.id, bilalId: s.users.bilal.id, rafaqatId: s.users.rafaqatMalik.id, projects: s.projects };
-  await seedMalikInventory(prismaAdmin, base);
-  await seedMalikLabor(prismaAdmin, { ...base, asifId: s.users.asif.id });
+  await seedMalikStockAndLabor(seeded());
 });
 
 type Result = { clientId: string; type: string; status: string; serverId: string | null; error: { code: string } | null };
@@ -96,7 +92,7 @@ describe('POST /sync/push', () => {
       m('SITE_PURCHASE_CREATE', { supplierId: supplier.id, deliverTo: 'STORE', challanNo: 'CH-1', purchaseDate: today(), paymentMode: 'UDHAAR', challanAttachmentId: photo.id, items: [{ materialId: material.id, challanQty: 10 }] }),
       m('STOCK_COUNT_CREATE', { locationId: store.id, items: [{ materialId: material.id, countedQty: 10 }] }),
     ]);
-    expect(r.results.map((x) => x.error?.code)).toEqual(['FORBIDDEN', 'FORBIDDEN']);
+    expect(r.results.map((x) => x.error?.code)).toEqual(['FORBIDDEN', 'PERMISSION_DENIED']);
   });
 
   it('late sync (> 48 h after the phone made it) is flagged; pending count and rejections show in /sync/status', async () => {

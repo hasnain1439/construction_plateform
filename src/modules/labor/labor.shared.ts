@@ -69,9 +69,6 @@ export async function projectFor(tx: Tx, a: Actor, projectId: string, open = fal
   return project;
 }
 
-export function assertOffice(a: Actor, message = 'Only the owner or a project manager can do this') {
-  if (a.role === 'MUNSHI') throw new Forbidden('FORBIDDEN', message);
-}
 
 /**
  * Offline-safe creates: a repeated `clientId` (UUID v7 from the phone) returns the record

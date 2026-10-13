@@ -4,6 +4,7 @@
  * Cheques start PENDING (counted as pending, not paid); CLEARED moves them to paid,
  * BOUNCED makes their allocations stop counting. Payments are never edited or deleted.
  */
+import { assertPerm, permissionDenied } from '../../core/auth/access.js';
 import { logger } from '../../config/logger.js';
 import { nextNumber } from '../../core/db/counters.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
@@ -14,7 +15,7 @@ import { dateOnly } from '../../core/utils/dates.js';
 import type { Prisma as P } from '../../generated/prisma/client.js';
 import * as alerts from '../notifications/alerts.js';
 import type { ChequeStatusInput, PaymentInput, PaymentsQuery } from './billing.schema.js';
-import { actor, assertOwner, audit, billingProject, billingSettings, NUMBER, today, ymd, type BillingActor } from './billing.shared.js';
+import { actor, audit, billingProject, billingSettings, NUMBER, today, ymd, type BillingActor } from './billing.shared.js';
 import { letterhead, salutation, shareOf, storePdf, withinOrBackground } from './documents.js';
 import { openAmount, openInvoices, recomputeInvoice, recordEvent } from './ledger.js';
 
@@ -77,7 +78,9 @@ async function find(tx: Tx, a: BillingActor, id: string) {
 
 export async function recordPaymentTx(tx: Tx, a: BillingActor, projectId: string, input: PaymentInput, opts: { at?: Date } = {}) {
   const s = await billingSettings(tx, a.tenantId);
-  if (a.role === 'MUNSHI' || (a.role === 'PM' && !s.pmCanRecordPayments)) throw new Forbidden('FORBIDDEN', 'Only the owner records owner payments (a company setting can allow project managers)');
+  // billing.payment.create, and for anyone but the owner also the company setting pmCanRecordPayments.
+  assertPerm('billing.payment.create', a, 'Only the owner records owner payments (a company setting can allow project managers)');
+  if (a.role !== 'THEKEDAR' && !s.pmCanRecordPayments) throw permissionDenied('billing.payment.create', 'Only the owner records owner payments (a company setting can allow project managers)');
   const project = await billingProject(tx, a, projectId);
   if (input.receivedOn > today()) throw new BadRequest('FUTURE_DATE', "A payment can't be dated in the future");
   const wht = input.whtDeductedPaisa ?? 0n;
@@ -161,7 +164,7 @@ export async function recordPayment(projectId: string, input: PaymentInput) {
 }
 
 export async function chequeStatusTx(tx: Tx, a: BillingActor, id: string, input: ChequeStatusInput, opts: { at?: Date; sms?: boolean } = {}) {
-  assertOwner(a, 'Only the owner marks cheques');
+  assertPerm('billing.payment.manage', a);
   const p = await find(tx, a, id);
   if (p.method !== 'CHEQUE') throw new BadRequest('NOT_A_CHEQUE', 'Only a cheque has a clearing status');
   if (p.status !== 'PENDING') throw new Conflict('CHEQUE_ALREADY_SETTLED', `This cheque is already ${p.status.toLowerCase()}`, { status: p.status });

@@ -1,4 +1,5 @@
 import { getCtx } from '../../core/context/requestContext.js';
+import { fieldAccess } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { balanceDto, supplierBalances } from '../procurement/supplierLedger.service.js';
 import { BadRequest, NotFound } from '../../core/errors/AppError.js';
@@ -10,7 +11,7 @@ import { audit, conflictOn, current } from './master-data.shared.js';
 
 const notFound = () => new NotFound('SUPPLIER_NOT_FOUND', 'Supplier not found');
 /** Udhaar balance + ageing are money: only with rates.view. */
-const seesRates = () => getCtx().permissions.includes('rates.view');
+const seesRates = () => fieldAccess().rates;
 const exists = conflictOn('SUPPLIER_EXISTS', 'A supplier with this name already exists');
 
 function toSupplierDto(s: Supplier) {

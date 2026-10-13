@@ -1,3 +1,4 @@
+import { can } from '../../core/auth/access.js';
 import { withTenant } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
 import type { Material, MaterialGroup, Prisma } from '../../generated/prisma/client.js';
@@ -33,8 +34,8 @@ export async function listGroups() {
 }
 
 export async function listMaterials(query: ListMaterialsQuery) {
-  const { tenantId, role } = current();
-  const includeHidden = Boolean(query.includeHidden) && (role === 'THEKEDAR' || role === 'PM');
+  const { tenantId } = current();
+  const includeHidden = Boolean(query.includeHidden) && can('masterdata.material.edit');
   return withTenant(tenantId, async (tx) => {
     const rows = await tx.material.findMany({
       where: {

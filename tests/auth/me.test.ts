@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { prismaAdmin } from '../../src/core/db/prisma.js';
-import { api, bearer, device, lastOtp, loginMobile, refreshMobile, SEED, useFreshDatabase } from '../helpers.js';
+import { api, bearer, device, grantFinancials, lastOtp, loginMobile, refreshMobile, SEED, useFreshDatabase } from '../helpers.js';
+import { PERMISSION_KEYS } from '../../src/core/auth/permissionCatalog.js';
 
 const seeded = useFreshDatabase();
 const { owner, pm, munshi } = SEED.malik;
@@ -10,7 +11,8 @@ describe('GET /auth/me', () => {
     const s = await loginMobile(owner.phone, owner.password);
     const res = await api().get('/api/v1/auth/me').set(bearer(s.accessToken));
     expect(res.status).toBe(200);
-    expect(res.body.data.permissions).toEqual(
+    expect(res.body.data.permissions).toEqual([...PERMISSION_KEYS].sort());
+    expect(res.body.data.legacyPermissions).toEqual(
       expect.arrayContaining(['company.update', 'users.manage', 'billing.view', 'profit.view', 'rates.view', 'store.manage']),
     );
     expect(res.body.data.assignedProjectIds).toEqual([]);
@@ -22,19 +24,23 @@ describe('GET /auth/me', () => {
     const s = await loginMobile(pm.phone, pm.password);
     const res = await api().get('/api/v1/auth/me').set(bearer(s.accessToken));
     expect(res.status).toBe(200);
-    expect(res.body.data.permissions).toContain('rates.view');
-    expect(res.body.data.permissions).toContain('projects.manage');
-    expect(res.body.data.permissions).not.toContain('profit.view');
-    expect(res.body.data.permissions).not.toContain('billing.view');
+    expect(res.body.data.permissions).toContain('fields.rates');
+    expect(res.body.data.permissions).toContain('projects.project.edit');
+    expect(res.body.data.permissions).not.toContain('fields.profit');
+    expect(res.body.data.permissions).not.toContain('billing.invoice.view');
+    expect(res.body.data.legacyPermissions).toEqual(['rates.view', 'projects.manage', 'site.entry']);
     const { dha, johar, valencia } = seeded().projects;
     expect(res.body.data.assignedProjectIds.sort()).toEqual([dha.id, johar.id, valencia.id].sort());
   });
 
   it('PM with canSeeFinancials gets billing.view and profit.view', async () => {
-    await prismaAdmin.user.update({ where: { id: seeded().users.bilal.id }, data: { canSeeFinancials: true } });
+    await grantFinancials(seeded().malik.id, seeded().users.bilal.id);
     const s = await loginMobile(pm.phone, pm.password);
     const res = await api().get('/api/v1/auth/me').set(bearer(s.accessToken));
-    expect(res.body.data.permissions).toEqual(expect.arrayContaining(['billing.view', 'profit.view']));
+    expect(res.body.data.permissions).toEqual(expect.arrayContaining(['billing.invoice.view', 'finance.pnl.view', 'fields.amounts', 'fields.profit']));
+    expect(res.body.data.legacyPermissions).toEqual(expect.arrayContaining(['billing.view', 'profit.view']));
+    expect(res.body.data.user.canSeeFinancials).toBe(true);
+    expect((await prismaAdmin.user.findUniqueOrThrow({ where: { id: seeded().users.bilal.id } })).canSeeFinancials).toBe(true);
   });
 
   it('MUNSHI has only site.entry — never rates.view', async () => {
@@ -45,8 +51,9 @@ describe('GET /auth/me', () => {
     expect(login.status).toBe(200);
 
     const res = await api().get('/api/v1/auth/me').set(bearer(login.body.data.accessToken));
-    expect(res.body.data.permissions).toEqual(['site.entry']);
-    expect(res.body.data.permissions).not.toContain('rates.view');
+    expect(res.body.data.legacyPermissions).toEqual(['site.entry']);
+    expect(res.body.data.permissions).not.toContain('fields.rates');
+    expect(res.body.data.fieldAccess).toEqual({ rates: false, amounts: false, profit: false, contract: false });
     expect(res.body.data.assignedProjectIds).toEqual([seeded().projects.dha.id]);
   });
 

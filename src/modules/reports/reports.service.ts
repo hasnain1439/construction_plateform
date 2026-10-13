@@ -10,6 +10,7 @@
  *   cash-book          THEKEDAR, PM (own projects)
  *   supplier-ageing, receivables-ageing, stock-valuation   THEKEDAR
  */
+import { assertPerm, scopeAll } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { Forbidden } from '../../core/errors/AppError.js';
 import { day } from '../../core/pdf/templates.js';
@@ -55,9 +56,8 @@ interface Ctx {
   projectName: string;
 }
 
-const ownerOnly = (a: ReadActor) => {
-  if (a.role !== 'THEKEDAR') throw new Forbidden('FORBIDDEN', 'Only the owner can run this report');
-};
+/** Company-wide money reports (supplier ageing, receivables ageing, stock valuation). */
+const ownerOnly = (a: ReadActor) => assertPerm('finance.companyreports.view', a, 'Only the owner can run this report');
 const periodText = (q: ReportQuery) => (q.from || q.to ? `${q.from ? day(q.from) : 'Start'} – ${day(q.to ?? today())}` : `Up to ${day(today())}`);
 
 async function projectsFor(c: Ctx) {
@@ -317,12 +317,12 @@ async function cashBook(c: Ctx): Promise<Omit<Report, 'generatedAt' | 'filters'>
   const ids = projects.map((p) => p.id);
   const code = new Map(projects.map((p) => [p.id, p.code]));
   const accounts = await c.tx.cashAccount.findMany({
-    where: c.a.role === 'THEKEDAR' ? { tenantId: c.a.tenantId } : { tenantId: c.a.tenantId, OR: [{ holderUserId: c.a.userId }, { holder: { projectAccess: { some: { projectId: { in: ids } } } } }] },
+    where: scopeAll('finance.reports.view', c.a) ? { tenantId: c.a.tenantId } : { tenantId: c.a.tenantId, OR: [{ holderUserId: c.a.userId }, { holder: { projectAccess: { some: { projectId: { in: ids } } } } }] },
     include: { holder: { select: { name: true } } },
     orderBy: { name: 'asc' },
   });
   const period = c.q.from || c.q.to ? periodOf(c.q) : null;
-  const projectFilter = c.q.projectId || c.a.role !== 'THEKEDAR' ? { projectId: { in: ids } } : {};
+  const projectFilter = c.q.projectId || !scopeAll('finance.reports.view', c.a) ? { projectId: { in: ids } } : {};
   const groups = await c.tx.cashEntry.groupBy({
     by: ['accountId', 'projectId', 'type', 'category', 'status', 'recoverableFromHolder'],
     where: { tenantId: c.a.tenantId, accountId: { in: accounts.map((x) => x.id) }, ...projectFilter, ...(period ? { occurredAt: { gte: period.fromAt, lt: period.toAt } } : {}) },
@@ -541,7 +541,7 @@ export async function buildReport(tx: Tx, a: ReadActor, name: ReportName, q: Rep
 
 export async function runReport(name: ReportName, q: ReportQuery) {
   const a = readActor();
-  if (a.role === 'MUNSHI') throw new Forbidden('FORBIDDEN', 'Reports are for the office');
+  assertPerm('finance.reports.view', a, 'Reports are for the office');
   const { report, company } = await withTenant(a.tenantId, async (tx) => ({
     report: await buildReport(tx, a, name, q),
     company: q.format === 'pdf' ? await letterhead(tx, a.tenantId) : null,

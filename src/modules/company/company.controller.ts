@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { created, ok } from '../../core/http/response.js';
-import type { CreateHolidayInput, HolidaysQuery, UpdateCompanyInput, UpdateSettingsInput } from './company.schema.js';
+import * as auditLog from './auditLog.service.js';
+import type { CompanyAuditQuery, CreateHolidayInput, HolidaysQuery, UpdateCompanyInput, UpdateSettingsInput } from './company.schema.js';
 import * as service from './company.service.js';
 
 export async function getCompany(_req: Request, res: Response) {
@@ -29,4 +30,9 @@ export async function createHoliday(req: Request, res: Response) {
 
 export async function deleteHoliday(req: Request, res: Response) {
   return ok(res, await service.deleteHoliday(String(req.params['id'])));
+}
+
+export async function listAuditLogs(req: Request, res: Response) {
+  const { data, meta } = await auditLog.listCompanyAuditLogs(req.query as unknown as CompanyAuditQuery);
+  return ok(res, data, meta);
 }

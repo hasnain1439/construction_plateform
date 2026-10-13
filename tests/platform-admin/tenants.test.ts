@@ -96,7 +96,7 @@ describe('POST /admin/tenants', () => {
     const accepted = await api().post(`/api/v1/invitations/${token}/accept`).send({ password: 'Imran#2026', client: 'mobile', device: device() });
     expect(accepted.status).toBe(201);
     expect(accepted.body.data.user).toMatchObject({ role: 'THEKEDAR', phone: '+923452223334' });
-    expect(accepted.body.data.permissions).toContain('users.manage');
+    expect(accepted.body.data.permissions).toContain('subscription.manage');
 
     const login = await api().post('/api/v1/auth/login').send({ login: '03452223334', password: 'Imran#2026' });
     expect(login.status).toBe(200);

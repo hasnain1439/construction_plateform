@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { prismaAdmin } from '../../src/core/db/prisma.js';
 import { runSubscriptionLifecycle } from '../../src/jobs/subscriptionLifecycle.js';
-import { ConsoleSmsProvider, smsProvider } from '../../src/modules/auth/sms.provider.js';
+import { ConsoleSmsProvider, LoggedSmsProvider, smsProvider } from '../../src/modules/auth/sms.provider.js';
 import { api, bearer, device, loginMobile, SEED, useFreshDatabase, projectRow } from '../helpers.js';
 
 const seeded = useFreshDatabase();
@@ -11,7 +11,7 @@ const MINUTE = 60_000;
 const subOf = (tenantId: string) => prismaAdmin.subscription.findUniqueOrThrow({ where: { tenantId }, include: { plan: true } });
 const tenantStatus = async (id: string) => (await prismaAdmin.tenant.findUniqueOrThrow({ where: { id } })).status;
 const remindersTo = (phone: string) =>
-  (smsProvider() as ConsoleSmsProvider).outbox.filter((m) => m.to === phone && m.body.includes('Payment slip upload karein'));
+  ((smsProvider() as LoggedSmsProvider).inner as ConsoleSmsProvider).outbox.filter((m) => m.to === phone && m.body.includes('Payment slip upload karein'));
 
 describe('subscription lifecycle job', () => {
   it('TRIAL past trialEndsAt → LAPSED, company READ_ONLY; writes then get 403', async () => {

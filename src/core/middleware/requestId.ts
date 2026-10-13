@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RequestHandler } from 'express';
 import { runWithCtx, type RequestContext } from '../context/requestContext.js';
+import { tagSentryScope } from '../observability/sentryScope.js';
 
 const VALID_ID = /^[A-Za-z0-9._-]{1,64}$/;
 
@@ -29,5 +30,19 @@ export const requestContext: RequestHandler = (req, res, next) => {
     actorType: 'ANONYMOUS',
     permissions: [],
   };
+  // Kept on res.locals too: the request log line is written after the context has ended.
+  res.locals['ctx'] = ctx;
+  tagSentryScope(ctx);
   runWithCtx(ctx, () => next());
 };
+
+/** tenantId / userId for pino-http's request line (ids only). */
+export function requestLogFields(res: ServerResponse): Record<string, string> {
+  const ctx = (res as ServerResponse & { locals?: { ctx?: RequestContext } }).locals?.ctx;
+  if (!ctx) return {};
+  const fields: Record<string, string> = {};
+  if (ctx.tenantId) fields['tenantId'] = ctx.tenantId;
+  if (ctx.userId) fields['userId'] = ctx.userId;
+  if (ctx.platformAdminId) fields['platformAdminId'] = ctx.platformAdminId;
+  return fields;
+}

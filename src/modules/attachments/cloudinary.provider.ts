@@ -117,6 +117,11 @@ export class CloudinaryStorageProvider implements StorageProvider {
     await this.sdk.uploader.destroy(publicId, { resource_type: resourceType, type: 'authenticated', invalidate: true });
   }
 
+  /** Admin API ping (counts against the hourly Admin API limit — /health/ready caches the result). */
+  async healthCheck(): Promise<void> {
+    await this.sdk.api.ping();
+  }
+
   /** Files are served by Cloudinary directly (signed URLs), never streamed through the API. */
   async open(): Promise<{ stream: Readable; size: number }> {
     throw new Error('CloudinaryStorageProvider does not stream files; use getSignedUrl');

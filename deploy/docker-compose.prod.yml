@@ -1,0 +1,119 @@
+# Single-VPS stack: Caddy (HTTPS) → web (Next.js) + api (Express) → Postgres.
+# See docs/DEPLOYMENT.md. On the server this folder lives at /opt/construction with a `.env`
+# copied from env/production.env.example (or env/staging.env.example):
+#
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml run --rm migrate      # only when a release has migrations (deploy.sh always runs it)
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# Every ${VAR} below comes from that .env (docker compose reads ./.env automatically).
+name: construction
+
+# Connection URLs are built from the .env values so each password is written once.
+# The running API gets only app_user / app_admin; the superuser URL goes to `migrate` only.
+x-api-db: &api-db
+  DATABASE_URL: postgresql://app_user:${APP_USER_PASSWORD:?set APP_USER_PASSWORD}@postgres:5432/${POSTGRES_DB:-construction}
+  DATABASE_ADMIN_URL: postgresql://app_admin:${APP_ADMIN_PASSWORD:?set APP_ADMIN_PASSWORD}@postgres:5432/${POSTGRES_DB:-construction}
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-construction}
+      # Read by postgres/init/01-app-roles.sh on the FIRST start (empty volume) only.
+      APP_USER_PASSWORD: ${APP_USER_PASSWORD:?set APP_USER_PASSWORD}
+      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:?set APP_ADMIN_PASSWORD}
+    volumes:
+      # Postgres 18 images keep data under /var/lib/postgresql/18/docker — mount the parent.
+      - pgdata:/var/lib/postgresql
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    shm_size: 256mb
+    # No published port: reach it with `docker compose exec postgres psql …` or an SSH tunnel.
+
+  # One-shot: `docker compose run --rm migrate` (prisma migrate deploy). Not started by `up`.
+  migrate:
+    image: ${API_IMAGE:-ghcr.io/OWNER/construction-api}:${API_TAG:-latest}
+    profiles: ["tools"]
+    command: ["migrate"]
+    environment:
+      DATABASE_MIGRATION_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-construction}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: ${API_IMAGE:-ghcr.io/OWNER/construction-api}:${API_TAG:-latest}
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ./api.env
+    environment:
+      <<: *api-db
+      NODE_ENV: production
+      PORT: "4000"
+      # Exactly one proxy (Caddy) in front: req.ip = the real client for rate limits.
+      TRUST_PROXY: "1"
+      APP_URL: https://${APP_DOMAIN:?set APP_DOMAIN}
+      API_PUBLIC_URL: https://${API_DOMAIN:?set API_DOMAIN}
+      CORS_ORIGINS: https://${APP_DOMAIN}
+      STORAGE_DIR: /app/storage
+    volumes:
+      # Only used with STORAGE_PROVIDER=local (staging); production uses S3 / R2.
+      - api_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "4000"
+    logging: &logging
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }
+
+  web:
+    image: ${WEB_IMAGE:-ghcr.io/OWNER/construction-web}:${WEB_TAG:-latest}
+    restart: unless-stopped
+    init: true
+    environment:
+      # Server-side Sentry DSN override (the browser DSN is baked in at build time).
+      SENTRY_DSN: ${WEB_SENTRY_DSN:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    expose:
+      - "3000"
+    logging: *logging
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+    logging: *logging
+
+volumes:
+  pgdata:
+  api_storage:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,48 @@
+# Caddy: automatic HTTPS (Let's Encrypt / ZeroSSL) for both domains, HTTP → HTTPS redirect,
+# HTTP/3. Domains and the ACME e-mail come from the compose .env (APP_DOMAIN, API_DOMAIN, ACME_EMAIL).
+# DNS A/AAAA records for both names must point at this server BEFORE the first start.
+{
+	email {$ACME_EMAIL}
+	# Uncomment while testing DNS / firewall to avoid Let's Encrypt rate limits:
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+(common) {
+	encode zstd gzip
+	# "?" = only when the app did not set the header itself (web / API set their own CSP, HSTS …).
+	header {
+		?Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		?X-Content-Type-Options "nosniff"
+		?Referrer-Policy "strict-origin-when-cross-origin"
+		?Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+		-X-Powered-By
+	}
+	log {
+		output stdout
+		format json
+	}
+}
+
+# Web app (Next.js). It sets its own CSP / frame headers (src/lib/securityHeaders.ts) and proxies
+# /api/v1/* to the API internally, so browser cookies stay first-party.
+{$APP_DOMAIN} {
+	import common
+	reverse_proxy web:3000 {
+		health_uri /api/health
+		health_interval 30s
+	}
+}
+
+# API (mobile app, signed file links, /health). Helmet sets the API's own security headers.
+{$API_DOMAIN} {
+	import common
+	request_body {
+		# Attachments are ≤ 10 MB (multer); leave room for multipart overhead.
+		max_size 15MB
+	}
+	reverse_proxy api:4000 {
+		health_uri /health
+		health_interval 30s
+	}
+}

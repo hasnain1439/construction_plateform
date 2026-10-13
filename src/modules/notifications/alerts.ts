@@ -272,3 +272,20 @@ export const inviteAccepted = (tx: Tx, e: Base & { userId: string; name: string;
     actorId: e.userId,
     ...(e.at ? { at: e.at } : {}),
   });
+
+// ─── Platform support ───────────────────────────────────────────────────────
+
+/** A platform super admin opened the company (act-as session) — every owner is told why. */
+export const platformSupportAccess = (tx: Tx, e: Base & { sessionId: string; adminName: string; reason: string }) =>
+  notify(tx, {
+    tenantId: e.tenantId,
+    recipients: ['THEKEDAR'],
+    type: 'PLATFORM_SUPPORT_ACCESS',
+    severity: 'WARNING',
+    title: 'Platform support accessed your account',
+    body: `Platform support accessed your account: ${e.reason} (${e.adminName})`,
+    ref: { type: 'ACT_AS_SESSION', id: e.sessionId },
+    actionUrl: '/settings/audit-log',
+    actorId: null,
+    ...(e.at ? { at: e.at } : {}),
+  });

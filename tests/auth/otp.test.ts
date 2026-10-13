@@ -47,7 +47,8 @@ describe('OTP login', () => {
     const picked = await verify(RAFAQAT, code, { tenantId: seeded().malik.id });
     expect(picked.status).toBe(200);
     expect(picked.body.data.tenant.id).toBe(seeded().malik.id);
-    expect(picked.body.data.permissions).toEqual(['site.entry']);
+    expect(picked.body.data.legacyPermissions).toEqual(['site.entry']);
+    expect(picked.body.data.permissionRole).toMatchObject({ key: 'MUNSHI' });
   });
 
   it('unknown phone → 404 PHONE_NOT_REGISTERED', async () => {

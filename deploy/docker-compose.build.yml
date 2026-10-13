@@ -1,0 +1,29 @@
+# Local smoke test of the production stack from source (no registry), on a machine with Docker:
+#
+#   cd deploy
+#   cp env/staging.env.example .env           # APP_DOMAIN=localhost, API_DOMAIN=api.localhost, real passwords
+#   cp env/staging.api.env.example api.env    # JWT secrets
+#   docker compose -f docker-compose.prod.yml -f docker-compose.build.yml build
+#   docker compose -f docker-compose.prod.yml -f docker-compose.build.yml --profile tools run --rm migrate
+#   docker compose -f docker-compose.prod.yml -f docker-compose.build.yml up -d --wait
+#   curl -k https://api.localhost/health/ready   # Caddy uses its internal CA for *.localhost
+#
+# Expects construction-web next to construction-platform (../../construction-web from here).
+services:
+  api:
+    image: construction-api:local
+    build:
+      context: ..
+      args:
+        GIT_SHA: local
+  migrate:
+    image: construction-api:local
+  web:
+    image: construction-web:local
+    build:
+      context: ../../construction-web
+      args:
+        GIT_SHA: local
+        API_ORIGIN: http://api:4000
+        API_PUBLIC_URL: https://${API_DOMAIN}
+        NEXT_PUBLIC_SENTRY_ENVIRONMENT: local

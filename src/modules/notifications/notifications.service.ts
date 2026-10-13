@@ -13,6 +13,7 @@
  */
 import { logger } from '../../config/logger.js';
 import { getCtx } from '../../core/context/requestContext.js';
+import { inSequence } from '../../core/db/inSequence.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { NotFound } from '../../core/errors/AppError.js';
@@ -117,7 +118,7 @@ export async function notify(tx: Tx, input: NotifyInput): Promise<string[]> {
   });
   if (sendSms) {
     const text = typeof input.sms === 'string' ? input.sms : input.body;
-    for (const u of fresh) await smsProvider().send({ to: u.phone, body: text }).catch((err: unknown) => logger.warn({ err, type: input.type }, 'notification sms failed'));
+    for (const u of fresh) await smsProvider().send({ to: u.phone, body: text, type: 'NOTIFICATION', tenantId: input.tenantId }).catch((err: unknown) => logger.warn({ err, type: input.type }, 'notification sms failed'));
   }
   return fresh.map((u) => u.id);
 }
@@ -167,7 +168,7 @@ export async function listNotifications(query: NotificationsQuery) {
   };
   return withTenant(a.tenantId, async (tx) => {
     const { skip, take } = skipTake(query);
-    const [rows, total] = await Promise.all([repo.listNotifications(tx, where, skip, take), repo.countNotifications(tx, where)]);
+    const [rows, total] = await inSequence([() => repo.listNotifications(tx, where, skip, take), () => repo.countNotifications(tx, where)]);
     return { data: rows.map(notificationDto), meta: pageMeta(query, total) };
   });
 }

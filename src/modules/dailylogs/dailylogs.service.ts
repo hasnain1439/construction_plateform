@@ -3,6 +3,7 @@
  * same (Karachi) day, after that it is locked (409 LOG_LOCKED). Hazri, material usage and
  * kharcha of the day are read live for the detail view — never stored on the log.
  */
+import { scopeAll } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
@@ -169,7 +170,7 @@ async function daySummary(tx: Tx, a: Actor, projectId: string, day: string) {
     m.quantity = Math.round((m.quantity + qn(u.qty)) * 1000) / 1000;
     byMaterial.set(u.material.id, m);
   }
-  const mine = a.role === 'MUNSHI';
+  const mine = a.role === 'MUNSHI' && !scopeAll('cashbook.account.view', a);
   const kharcha = await tx.cashEntry.aggregate({
     where: {
       tenantId: a.tenantId,

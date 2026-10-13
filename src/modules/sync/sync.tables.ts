@@ -8,6 +8,7 @@
  * re-sent whole when any of their sources changed (they are small: own cash account, settings,
  * holidays); the others are loaded by the changed ids.
  */
+import { accessOf, scopeAll } from '../../core/auth/access.js';
 import type { Tx } from '../../core/db/withTenant.js';
 import { dateOnly } from '../../core/utils/dates.js';
 import type { Prisma } from '../../generated/prisma/client.js';
@@ -23,6 +24,8 @@ export interface SyncActor {
 
 export interface SyncScope {
   a: SyncActor;
+  /** Effective permission keys of the caller: tables they don't hold are not pulled (TABLE_PERMISSIONS). */
+  perms: ReadonlySet<string>;
   viewer: S.SyncViewer;
   projectIds: string[];
   siteIds: string[];
@@ -45,16 +48,18 @@ const OPEN_STATUSES = ['ACTIVE', 'CLOSEOUT'] as const;
 
 export async function syncScope(tx: Tx, a: SyncActor): Promise<SyncScope> {
   const projects = await tx.project.findMany({
-    where: { tenantId: a.tenantId, status: { in: [...OPEN_STATUSES] }, ...(a.role === 'THEKEDAR' ? {} : { userAccess: { some: { userId: a.userId } } }) },
+    where: { tenantId: a.tenantId, status: { in: [...OPEN_STATUSES] }, ...(scopeAll('projects.project.view', a) ? {} : { userAccess: { some: { userId: a.userId } } }) },
     select: { id: true },
   });
   const projectIds = projects.map((p) => p.id);
   const sites = await tx.stockLocation.findMany({ where: { tenantId: a.tenantId, type: 'SITE', projectId: { in: projectIds } }, select: { id: true } });
   const accounts = await tx.cashAccount.findMany({ where: { tenantId: a.tenantId, holderUserId: a.userId }, select: { id: true } });
   const settings = await tx.tenantSettings.findUnique({ where: { tenantId: a.tenantId }, select: { blindCountEnabled: true } });
+  const access = accessOf(a);
   return {
     a,
-    viewer: { userId: a.userId, role: a.role, blindCount: settings?.blindCountEnabled ?? true },
+    perms: access.has,
+    viewer: { userId: a.userId, role: a.role, blindCount: settings?.blindCountEnabled ?? true, fields: access.fieldAccess },
     projectIds,
     siteIds: sites.map((s) => s.id),
     accountIds: accounts.map((x) => x.id),
@@ -63,6 +68,41 @@ export async function syncScope(tx: Tx, a: SyncActor): Promise<SyncScope> {
 }
 
 const byIds = (ids?: string[]) => (ids ? { id: { in: ids } } : {});
+
+/**
+ * The permission a phone needs to pull each table (any of a list). Tables not listed (settings,
+ * holidays, notifications, own cash account) are always pulled. Same keys as the REST routes.
+ */
+export const TABLE_PERMISSIONS: Record<string, string[]> = {
+  projects: ['projects.project.view'],
+  stock_locations: ['inventory.stock.view'],
+  materials: ['masterdata.material.view'],
+  material_groups: ['masterdata.material.view'],
+  suppliers: ['masterdata.supplier.view', 'procurement.purchase.create'],
+  workers: ['masterdata.worker.view'],
+  worker_types: ['masterdata.laborrate.view'],
+  project_workers: ['labor.team.view'],
+  subcontract_assignments: ['labor.team.view'],
+  attendance: ['labor.attendance.view'],
+  settlements: ['labor.settlement.view'],
+  advances: ['labor.advance.view'],
+  work_measurements: ['labor.measurement.view'],
+  dispatches: ['procurement.dispatch.view'],
+  purchases: ['procurement.purchase.view'],
+  owner_deliveries: ['inventory.ownerdelivery.view'],
+  material_usage: ['inventory.stock.view'],
+  site_stock: ['inventory.stock.view'],
+  stock_counts: ['inventory.count.view'],
+  daily_logs: ['dailylog.log.view'],
+  cash_entries: ['cashbook.account.view', 'cashbook.expense.view'],
+  topup_requests: ['cashbook.topup.view'],
+};
+
+/** May the caller pull this table? */
+export function mayPull(table: string, sc: Pick<SyncScope, 'perms'>): boolean {
+  const keys = TABLE_PERMISSIONS[table];
+  return !keys || keys.some((k) => sc.perms.has(k));
+}
 const since = (sc: SyncScope, days: number) => dateOnly(addDays(sc.day, -days));
 
 export const TABLES: TableDef[] = [

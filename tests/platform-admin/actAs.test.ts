@@ -6,10 +6,24 @@ import { api, bearer, loginAdmin, loginMobile, SEED, useFreshDatabase } from '..
 const seeded = useFreshDatabase();
 beforeEach(() => clearSystemUserCache());
 
-/** The super admin's token + the company to work in. */
-const actingIn = async (tenantId: string) => ({ ...bearer((await loginAdmin()).accessToken), 'X-Act-As-Tenant': tenantId });
+/**
+ * The super admin's token + the company to work in + a support session (started with a reason,
+ * switched to WRITE with a second reason unless `mode` is READ_ONLY). A company that can't be
+ * opened (bad id, unknown) gets no session: the company API then answers 400 / 404 first.
+ */
+async function actingIn(tenantId: string, mode: 'READ_ONLY' | 'WRITE' = 'WRITE') {
+  const admin = bearer((await loginAdmin()).accessToken);
+  const start = await api().post('/api/v1/admin/act-as-sessions').set(admin).send({ tenantId, reason: 'Support test: owner asked for help' });
+  if (start.status !== 201) return { ...admin, 'X-Act-As-Tenant': tenantId };
+  const sessionId = start.body.data.id as string;
+  if (mode === 'WRITE') {
+    const write = await api().post(`/api/v1/admin/act-as-sessions/${sessionId}/mode`).set(admin).send({ mode: 'WRITE', reason: 'Fix data the owner reported' });
+    expect(write.status).toBe(200);
+  }
+  return { ...admin, 'X-Act-As-Tenant': tenantId, 'X-Act-As-Session': sessionId };
+}
 
-describe('super admin acting inside a company (X-Act-As-Tenant)', () => {
+describe('super admin acting inside a company (X-Act-As-Tenant + X-Act-As-Session)', () => {
   it("reads the company's data through the normal company API, as the owner would", async () => {
     const s = seeded();
     const res = await api().get('/api/v1/projects?limit=100').set(await actingIn(s.malik.id));
@@ -19,7 +33,8 @@ describe('super admin acting inside a company (X-Act-As-Tenant)', () => {
     expect(ids).not.toContain(s.projects.ahmedProject.id); // only the chosen company
     const me = await api().get('/api/v1/auth/me').set(await actingIn(s.malik.id));
     expect(me.body.data).toMatchObject({ user: { name: SYSTEM_USER_NAME, role: 'THEKEDAR' }, tenant: { id: s.malik.id } });
-    expect(me.body.data.permissions).toEqual(expect.arrayContaining(['users.manage', 'billing.view', 'rates.view', 'projects.manage']));
+    expect(me.body.data.permissions).toEqual(expect.arrayContaining(['team.member.manage', 'billing.invoice.view', 'fields.rates', 'subscription.manage']));
+    expect(me.body.data.legacyPermissions).toEqual(expect.arrayContaining(['users.manage', 'billing.view', 'rates.view', 'projects.manage']));
   });
 
   it('changes go through the company rules; the row is by "Super Admin (Platform)", the audit names the real admin', async () => {
@@ -31,7 +46,7 @@ describe('super admin acting inside a company (X-Act-As-Tenant)', () => {
     const admin = await prismaAdmin.platformAdmin.findUniqueOrThrow({ where: { email: SEED.admin.email } });
     const audit = await prismaAdmin.auditLog.findFirstOrThrow({ where: { tenantId: s.malik.id, entityId: res.body.data.id } });
     expect(audit).toMatchObject({ actorType: 'PLATFORM_ADMIN', actorId: admin.id });
-    expect(audit.details).toMatchObject({ actingAsCompany: true });
+    expect(audit.details).toMatchObject({ actingAsCompany: true, adminName: SEED.admin.name, actAsReason: 'Fix data the owner reported' });
     // Company validation still applies (duplicate name is refused like for the owner).
     const dup = await api().post('/api/v1/suppliers').set(await actingIn(s.malik.id)).send({ name: 'Admin Fixed Traders', category: 'Cement' });
     expect(dup.status).toBe(409);
@@ -58,8 +73,10 @@ describe('super admin acting inside a company (X-Act-As-Tenant)', () => {
     expect(sneaky.status).toBe(401);
     // A logged-out admin token stops working at once.
     const session = await loginAdmin();
+    const started = await api().post('/api/v1/admin/act-as-sessions').set(bearer(session.accessToken)).send({ tenantId: s.malik.id, reason: 'Check before logout' });
+    expect(started.status).toBe(201);
     await api().post('/api/v1/admin/auth/logout').set(bearer(session.accessToken));
-    const after = await api().get('/api/v1/projects').set({ ...bearer(session.accessToken), 'X-Act-As-Tenant': s.malik.id });
+    const after = await api().get('/api/v1/projects').set({ ...bearer(session.accessToken), 'X-Act-As-Tenant': s.malik.id, 'X-Act-As-Session': started.body.data.id });
     expect(after.status).toBe(401);
     // Garbage / unknown company.
     expect((await api().get('/api/v1/projects').set(await actingIn('not-a-uuid'))).status).toBe(400);

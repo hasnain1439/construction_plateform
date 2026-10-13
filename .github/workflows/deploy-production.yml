@@ -1,0 +1,89 @@
+# Manual production release: promotes an image that was built (and deployed to staging) by release.yml.
+# Actions → "Deploy production" → Run workflow → tag (e.g. sha-1a2b3c4, see the release run or GHCR).
+# Rollback = run it again with the previous tag and migrate off (docs/DEPLOYMENT.md → Rollback).
+#
+# Repository → Settings → Environments → "production": add required reviewers (protection rule),
+# limit deployment branches to main, and the secrets SSH_HOST, SSH_USER, SSH_PRIVATE_KEY, SSH_KNOWN_HOSTS.
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "API image tag to release (sha-xxxxxxx)"
+        required: true
+        type: string
+      migrate:
+        description: "Run prisma migrate deploy before restarting (turn off for a rollback)"
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ${{ inputs.tag }} to production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL }}
+    env:
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/construction' }}
+      TAG: ${{ inputs.tag }}
+    steps:
+      - name: Validate tag
+        run: '[[ "$TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || { echo "invalid tag"; exit 1; }'
+
+      - uses: actions/checkout@v5
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote image (adds the moving "production" tag; the sha tag stays the deployed one)
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/construction-api"
+          docker buildx imagetools inspect "$IMAGE:$TAG" > /dev/null
+          docker buildx imagetools create --tag "$IMAGE:production" "$IMAGE:$TAG"
+
+      - name: SSH key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Upload compose files and scripts
+        env:
+          TARGET: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
+        run: |
+          SSH="ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes"
+          $SSH "$TARGET" "mkdir -p '$DEPLOY_PATH/backup' '$DEPLOY_PATH/env'"
+          scp -i ~/.ssh/deploy_key -r deploy/docker-compose.prod.yml deploy/Caddyfile deploy/deploy.sh deploy/postgres "$TARGET:$DEPLOY_PATH/"
+          scp -i ~/.ssh/deploy_key deploy/env/*.example "$TARGET:$DEPLOY_PATH/env/"
+          scp -i ~/.ssh/deploy_key scripts/backup/*.sh "$TARGET:$DEPLOY_PATH/backup/"
+          $SSH "$TARGET" "chmod +x '$DEPLOY_PATH/deploy.sh' '$DEPLOY_PATH'/backup/*.sh '$DEPLOY_PATH'/postgres/init/*.sh"
+
+      - name: Backup before deploying
+        env:
+          TARGET: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
+        run: ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "$TARGET" "'$DEPLOY_PATH/backup/pg-backup.sh' --env-file '$DEPLOY_PATH/.env'"
+
+      - name: Deploy (pull, migrate, restart, readiness)
+        env:
+          TARGET: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
+          MIGRATE_FLAG: ${{ inputs.migrate && '' || '--no-migrate' }}
+        run: ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes "$TARGET" "'$DEPLOY_PATH/deploy.sh' --api '$TAG' $MIGRATE_FLAG"

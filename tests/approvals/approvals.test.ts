@@ -91,6 +91,6 @@ describe('/approvals', () => {
       .post('/api/v1/approvals/bulk')
       .set(await pm())
       .send({ items: [{ type: 'TOPUP_PENDING', id: topup, action: 'reject', note: 'Not now' }, { type: 'SETTLEMENT_SUBMITTED', id: settlement, action: 'approve' }] });
-    expect(res.body.data.results.map((r: { ok: boolean; error: { code: string } | null }) => (r.ok ? 'ok' : r.error!.code))).toEqual(['FORBIDDEN', 'ok']);
+    expect(res.body.data.results.map((r: { ok: boolean; error: { code: string } | null }) => (r.ok ? 'ok' : r.error!.code))).toEqual(['PERMISSION_DENIED', 'ok']);
   });
 });

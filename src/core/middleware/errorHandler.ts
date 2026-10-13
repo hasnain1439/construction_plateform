@@ -8,6 +8,7 @@ import { tryGetCtx } from '../context/requestContext.js';
 import { Prisma } from '../db/prisma.js';
 import { AppError, NotFound } from '../errors/AppError.js';
 import { safeUrl } from '../utils/safeUrl.js';
+import { captureError } from '../observability/sentryScope.js';
 
 interface ErrorBody {
   success: false;
@@ -72,11 +73,16 @@ export const errorHandler: ErrorRequestHandler = (err: unknown, req, res, _next)
   const known = toAppError(err);
 
   if (known) {
-    if (known.status >= 500) logger.error({ err, requestId }, known.message);
+    if (known.status >= 500) {
+      logger.error({ err, requestId }, known.message);
+      // 503 SERVICE_BUSY is load, not a bug — keep it out of Sentry.
+      if (known.status !== 503) captureError(err, ctx, { method: req.method, path: safeUrl(req.path) });
+    }
     // `errorCode`, not `code`: the logger redacts `code` (OTP codes).
     else logger.info({ requestId, errorCode: known.code, status: known.status }, 'request rejected');
   } else {
     logger.error({ err, requestId, method: req.method, path: safeUrl(req.path) }, 'unhandled error');
+    captureError(err, ctx, { method: req.method, path: safeUrl(req.path) });
   }
 
   const appError = known ?? new AppError(500, 'INTERNAL_ERROR', 'Something went wrong');

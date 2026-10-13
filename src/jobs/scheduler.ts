@@ -126,3 +126,8 @@ export function startScheduledJobs(): void {
 export function stopScheduledJobs(): void {
   for (const t of timers.splice(0)) clearTimeout(t);
 }
+
+/** For GET /health/ready: whether this process runs the in-process job scheduler. */
+export function schedulerStatus(): { enabled: boolean; running: boolean } {
+  return { enabled: !isTest, running: timers.length > 0 };
+}

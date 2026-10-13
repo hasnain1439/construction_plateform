@@ -23,6 +23,7 @@ import { registerProcurementDocs } from '../../modules/procurement/procurement.d
 import { registerProjectsDocs } from '../../modules/projects/projects.docs.js';
 import { registerSubscriptionDocs } from '../../modules/subscription/subscription.docs.js';
 import { registerTeamDocs } from '../../modules/team/team.docs.js';
+import { registerPermissionsDocs } from '../../modules/permissions/permissions.docs.js';
 import { buildOpenApiDocument } from './registry.js';
 import { swaggerCss, swaggerFavicon } from './theme.js';
 
@@ -35,6 +36,7 @@ export function openApiDocument() {
     registerAuthDocs();
     registerCompanyDocs();
     registerTeamDocs();
+    registerPermissionsDocs();
     registerSubscriptionDocs();
     registerAttachmentsDocs();
     registerMasterDataDocs();

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { companySecurity, errors, jsonBody, registry, success } from '../../core/openapi/registry.js';
 import {
+  companyAuditEntryDto,
+  companyAuditQuery,
   companyDto,
   createHolidayBody,
   holidayDto,
@@ -198,6 +200,47 @@ export function registerCompanyDocs(): void {
     responses: {
       200: { description: 'Deleted', content: { 'application/json': { schema: success(z.object({ deleted: z.literal(true) })) } } },
       ...errors({ ...OWNER_ONLY, 404: ['HOLIDAY_NOT_FOUND'] }),
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/company/audit-logs',
+    tags,
+    summary: 'Company audit log',
+    description:
+      'Owner only (`company.audit.view`). Newest first. Everything platform support did in the company has `actor.type` PLATFORM_ADMIN and ' +
+      '`platformSupport` = the support session, the support person and their reason: `admin.act_as_started` (with the reason), ' +
+      '`admin.act_as_mode_changed` (write mode with its reason), `admin.act_as_ended` and every change made during the session. ' +
+      'Filter with `actorType=PLATFORM_ADMIN` or `action=admin.act_as`. Secret-looking fields are redacted.',
+    security: companySecurity,
+    request: { query: companyAuditQuery },
+    responses: {
+      200: {
+        description: 'Audit entries (paginated)',
+        content: {
+          'application/json': {
+            schema: z.object({ success: z.literal(true), data: z.array(companyAuditEntryDto), meta: z.unknown() }),
+            example: {
+              success: true,
+              data: [
+                {
+                  id: '0199a8c0-0000-7000-8000-0000000000f1',
+                  action: 'admin.act_as_started',
+                  entityType: 'ActAsSession',
+                  entityId: '0199a8c0-0000-7000-8000-0000000000f0',
+                  actor: { type: 'PLATFORM_ADMIN', id: null, name: 'Platform support · Platform Admin' },
+                  platformSupport: { sessionId: '0199a8c0-0000-7000-8000-0000000000f0', adminName: 'Platform Admin', reason: 'Owner asked us to check a wrong supplier balance' },
+                  details: { adminName: 'Platform Admin', reason: 'Owner asked us to check a wrong supplier balance', mode: 'READ_ONLY', expiresAt: '2026-10-12T10:00:00.000Z' },
+                  createdAt: '2026-10-12T09:00:00.000Z',
+                },
+              ],
+              meta: { page: 1, limit: 25, total: 1, totalPages: 1 },
+            },
+          },
+        },
+      },
+      ...errors({ ...AUTH, 400: ['VALIDATION_ERROR'], 403: ['PERMISSION_DENIED', 'COMPANY_SUSPENDED'] }),
     },
   });
 }

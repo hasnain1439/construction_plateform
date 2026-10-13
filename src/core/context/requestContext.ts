@@ -1,7 +1,16 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { UserRole } from '../../generated/prisma/enums.js';
+import type { Access } from '../auth/access.js';
 
 export type ActorType = 'ANONYMOUS' | 'USER' | 'PLATFORM_ADMIN';
+
+export interface ActAsContext {
+  sessionId: string;
+  adminName: string;
+  reason: string;
+  mode: 'READ_ONLY' | 'WRITE';
+  writeReason: string | null;
+}
 
 export interface RequestContext {
   requestId: string;
@@ -11,11 +20,16 @@ export interface RequestContext {
   userId?: string;
   tenantId?: string;
   role?: UserRole | 'PLATFORM_ADMIN';
+  /** Effective permission keys of a company user (set by tenantContext; every key when acting as a platform admin). */
   permissions: string[];
+  /** Effective access (keys, scopes, approval limits, field access) — set by tenantContext. */
+  access?: Access;
   /** Current session id (`sid` claim). */
   sessionId?: string;
   /** Platform super admin acting inside a company (X-Act-As-Tenant); userId is then the company's system user. */
   platformAdminId?: string;
+  /** The act-as session behind such a request (X-Act-As-Session): who, why and in which mode. */
+  actAs?: ActAsContext;
   /** Set by tenantContext when the company is READ_ONLY. */
   readOnly?: boolean;
 }
