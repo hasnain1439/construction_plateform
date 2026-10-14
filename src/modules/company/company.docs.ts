@@ -210,9 +210,9 @@ export function registerCompanyDocs(): void {
     summary: 'Company audit log',
     description:
       'Owner only (`company.audit.view`). Newest first. Everything platform support did in the company has `actor.type` PLATFORM_ADMIN and ' +
-      '`platformSupport` = the support session, the support person and their reason: `admin.act_as_started` (with the reason), ' +
-      '`admin.act_as_mode_changed` (write mode with its reason), `admin.act_as_ended` and every change made during the session. ' +
-      'Filter with `actorType=PLATFORM_ADMIN` or `action=admin.act_as`. Secret-looking fields are redacted.',
+      '`actor.name` "Platform support · <admin>": every change a platform super admin made while working inside the company ' +
+      '(`details.actingAsCompany: true`, `details.adminName`). `platformSupport.adminName` names the admin; `sessionId` / `reason` are only ' +
+      'filled on older entries from the former support-session flow (`admin.act_as_*`). Filter with `actorType=PLATFORM_ADMIN`. Secret-looking fields are redacted.',
     security: companySecurity,
     request: { query: companyAuditQuery },
     responses: {
@@ -226,12 +226,12 @@ export function registerCompanyDocs(): void {
               data: [
                 {
                   id: '0199a8c0-0000-7000-8000-0000000000f1',
-                  action: 'admin.act_as_started',
-                  entityType: 'ActAsSession',
+                  action: 'supplier.update',
+                  entityType: 'Supplier',
                   entityId: '0199a8c0-0000-7000-8000-0000000000f0',
                   actor: { type: 'PLATFORM_ADMIN', id: null, name: 'Platform support · Platform Admin' },
-                  platformSupport: { sessionId: '0199a8c0-0000-7000-8000-0000000000f0', adminName: 'Platform Admin', reason: 'Owner asked us to check a wrong supplier balance' },
-                  details: { adminName: 'Platform Admin', reason: 'Owner asked us to check a wrong supplier balance', mode: 'READ_ONLY', expiresAt: '2026-10-12T10:00:00.000Z' },
+                  platformSupport: { sessionId: null, adminName: 'Platform Admin', reason: null },
+                  details: { name: 'Lahore Steel Traders', actingAsCompany: true, adminName: 'Platform Admin' },
                   createdAt: '2026-10-12T09:00:00.000Z',
                 },
               ],

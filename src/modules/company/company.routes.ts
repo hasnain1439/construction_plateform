@@ -23,5 +23,5 @@ companyRouter.get('/holidays', validate({ query: holidaysQuery }), h(c.listHolid
 companyRouter.post('/holidays', requirePerm('company.holiday.manage'), validate({ body: createHolidayBody }), h(c.createHoliday));
 companyRouter.delete('/holidays/:id', requirePerm('company.holiday.manage'), validate({ params: holidayIdParams }), h(c.deleteHoliday));
 
-// Who changed what, including platform support sessions (owner only).
+// Who changed what, including changes made by platform support (owner only).
 companyRouter.get('/audit-logs', requirePerm('company.audit.view'), validate({ query: companyAuditQuery }), h(c.listAuditLogs));

@@ -61,11 +61,19 @@ export const overrideSchema = z.object({
 
 export const setOverridesBody = z.object({ overrides: z.array(overrideSchema).max(200) });
 
-export const setUserRoleBody = z.object({ roleId: uuid('roleId') });
+export const setUserRoleBody = z.object({ roleId: uuid('roleId') }).meta({ description: 'One role (replaces all the member’s roles)' });
+
+export const roleIdsSchema = z
+  .array(uuid('roleId'))
+  .min(1, 'Choose at least one role')
+  .max(20)
+  .meta({ description: 'Permission roles in order (the first = the primary role, /auth/me permissionRole). Effective = union of the roles + overrides.' });
+export const setUserRolesBody = z.object({ roleIds: roleIdsSchema }).meta({ example: { roleIds: ['0199a8c0-0000-7000-8000-000000000301', '0199a8c0-0000-7000-8000-000000000303'] } });
 
 // ─── Response shapes ────────────────────────────────────────────────────────
 
 const label = z.object({ en: z.string(), roman: z.string(), urdu: z.string() });
+const roleRef = z.object({ id: z.uuid().nullable(), key: z.string().nullable(), name: z.string().nullable() });
 
 export const catalogDto = z
   .object({
@@ -114,11 +122,13 @@ export const userPermissionsDto = z
   .object({
     user: z.object({ id: z.uuid(), name: z.string(), role: z.enum(['THEKEDAR', 'PM', 'MUNSHI']) }),
     owner: z.boolean(),
-    role: z.object({ id: z.uuid().nullable(), key: z.string().nullable(), name: z.string().nullable() }).nullable(),
+    role: roleRef.nullable().meta({ description: 'The primary (first) role' }),
+    roles: z.array(roleRef).meta({ description: 'Every permission role of the member, primary first' }),
     effective: z.array(
       z.object({
         key: z.string(),
         source: z.enum(['owner', 'role', 'override']),
+        roles: z.array(roleRef).meta({ description: 'The roles that give this permission (empty for owner / extra-only)' }),
         scope: scopeSchema.nullable(),
         maxAmountPaisa: z.string().nullable(),
       }),
@@ -141,5 +151,6 @@ export type UpdateRoleInput = z.infer<typeof updateRoleBody>;
 export type SetRolePermissionsInput = z.infer<typeof setRolePermissionsBody>;
 export type OverrideInput = z.infer<typeof overrideSchema>;
 export type SetOverridesInput = z.infer<typeof setOverridesBody>;
+export type SetUserRolesInput = z.infer<typeof setUserRolesBody>;
 export type RoleDto = z.infer<typeof roleDto>;
 export type UserPermissionsDto = z.infer<typeof userPermissionsDto>;

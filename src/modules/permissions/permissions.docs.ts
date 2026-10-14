@@ -8,6 +8,7 @@ import {
   setOverridesBody,
   setRolePermissionsBody,
   setUserRoleBody,
+  setUserRolesBody,
   updateRoleBody,
   userPermissionsDto,
 } from './permissions.schema.js';
@@ -226,15 +227,43 @@ export function registerPermissionsDocs(): void {
     method: 'patch',
     path: '/api/v1/users/{id}/role',
     tags,
-    summary: 'Change a user’s role',
+    summary: 'Give a user one role (replaces their roles)',
     description:
-      `${MANAGE} The role must fit the account: \`baseRole\` PM → office (PM) accounts, MUNSHI → site accounts, OTHER → either. ` +
+      `${MANAGE} Same as PUT /users/{id}/roles with one role. The role must fit the account: \`baseRole\` PM → office (PM) accounts, MUNSHI → site accounts, OTHER → either. ` +
       'Overrides are kept. Audited `user.role_change` (before / after).',
     security: companySecurity,
     request: { params: idParam('User'), body: jsonBody(setUserRoleBody, { role: ex('Give a role', { roleId: '0199a8c0-0000-7000-8000-000000000301' }) }) },
     responses: {
       200: { description: 'Effective permissions after the change', content: { 'application/json': { schema: success(userPermissionsDto) } } },
       ...errors({ 400: ['VALIDATION_ERROR', 'ROLE_NOT_FOR_ACCOUNT'], ...AUTH, 403: [...DENIED, 'CANNOT_EDIT_OWNER', 'CANNOT_EDIT_OWN_PERMISSIONS', 'GRANT_EXCEEDS_OWN'], 404: ['USER_NOT_FOUND', 'ROLE_NOT_FOUND'] }),
+    },
+  });
+
+  registry.registerPath({
+    method: 'put',
+    path: '/api/v1/users/{id}/roles',
+    tags,
+    summary: 'Set a user’s roles (several allowed)',
+    description:
+      `${MANAGE} Replaces the member’s permission roles. Effective permissions = the UNION of the roles (a key in several roles gets the widest scope and the highest approval limit — "no limit" wins) + ALLOW − DENY overrides (kept). ` +
+      'Every role must fit the account type (office-only and site-only roles can’t be mixed); a non-owner can only give roles within their own permissions. ' +
+      'The first role is the primary one (`permissionRole` in /auth/me; `permissionRoles` lists all). Applies on the next request (permission cache stamp). Audited `user.role_change` (before / after).',
+    security: companySecurity,
+    request: {
+      params: idParam('User'),
+      body: jsonBody(setUserRolesBody, {
+        two: ex('Project Manager + Accountant', { roleIds: ['0199a8c0-0000-7000-8000-000000000301', '0199a8c0-0000-7000-8000-000000000303'] }),
+        mixed: ex('❌ Munshi role on an office account → 400 ROLE_NOT_FOR_ACCOUNT', { roleIds: ['0199a8c0-0000-7000-8000-000000000302'] }),
+      }),
+    },
+    responses: {
+      200: { description: 'Effective permissions after the change (each key lists the roles that give it)', content: { 'application/json': { schema: success(userPermissionsDto) } } },
+      ...errors({
+        400: ['VALIDATION_ERROR', 'ROLE_NOT_FOR_ACCOUNT', 'DUPLICATE_ROLE'],
+        ...AUTH,
+        403: [...DENIED, 'CANNOT_EDIT_OWNER', 'CANNOT_EDIT_OWN_PERMISSIONS', 'GRANT_EXCEEDS_OWN'],
+        404: ['USER_NOT_FOUND', 'ROLE_NOT_FOUND'],
+      }),
     },
   });
 }

@@ -46,8 +46,6 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/subscription/payments': submitPaymentBody,
   'post /api/v1/subscription/change-plan': changePlanBody,
   'post /api/v1/admin/tenants': admin.createTenantBody,
-  'post /api/v1/admin/act-as-sessions': admin.startActAsBody,
-  'post /api/v1/admin/act-as-sessions/{id}/mode': admin.actAsModeBody,
   'patch /api/v1/admin/tenants/{id}/status': admin.tenantStatusBody,
   'patch /api/v1/admin/tenants/{id}/plan': admin.tenantPlanBody,
   'post /api/v1/admin/payments/{id}/approve': admin.approvePaymentBody,
@@ -163,6 +161,7 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'put /api/v1/roles/{id}/permissions': pe.setRolePermissionsBody,
   'put /api/v1/users/{id}/permission-overrides': pe.setOverridesBody,
   'patch /api/v1/users/{id}/role': pe.setUserRoleBody,
+  'put /api/v1/users/{id}/roles': pe.setUserRolesBody,
 };
 
 type Spec = {
@@ -232,7 +231,7 @@ describe('API docs', () => {
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(257); // +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences
+    expect(Object.keys(res.body.paths)).toHaveLength(254); // +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

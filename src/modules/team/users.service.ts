@@ -1,5 +1,5 @@
 import { defaultRoleId } from '../permissions/provision.js';
-import { permissionsChanged, setFinancialAccess } from '../permissions/permissions.service.js';
+import { assignRoles, permissionsChanged, setFinancialAccess } from '../permissions/permissions.service.js';
 import { accessOf, can } from '../../core/auth/access.js';
 import { writeAudit } from '../../core/audit/audit.js';
 import { getCtx } from '../../core/context/requestContext.js';
@@ -47,6 +47,7 @@ function toListDto(u: repo.UserListRow, includeFinancials: boolean): TeamUserDto
     ...(includeFinancials ? { canSeeFinancials: u.canSeeFinancials } : {}),
     allProjects: u.role === 'THEKEDAR',
     permissionRole: u.permissionRole ? { id: u.permissionRole.id, name: u.permissionRole.name, key: u.permissionRole.key } : null,
+    permissionRoles: u.role === 'THEKEDAR' ? [] : u.roleAssignments.length ? u.roleAssignments.map((a) => a.role) : u.permissionRole ? [u.permissionRole] : [],
     projects: u.projectAccess.map((a) => a.project).sort((a, b) => a.name.localeCompare(b.name)),
     lastActiveAt: (u.devices[0]?.lastActiveAt ?? u.lastLoginAt)?.toISOString() ?? null,
   };
@@ -123,8 +124,16 @@ export async function updateUser(id: string, input: UpdateUserInput): Promise<Us
     set('name', input.name);
     set('phone', input.phone);
     set('role', input.role);
-    // A new account type gets the default role template of that type.
-    if (data['role']) data['roleId'] = await defaultRoleId(tx, me.tenantId, newRole as 'PM' | 'MUNSHI');
+    // A new account type keeps the roles that fit it, else gets the default template of that type.
+    let keptRoles: string[] | null = null;
+    if (data['role']) {
+      const fitting = await tx.userRoleAssignment.findMany({
+        where: { tenantId: me.tenantId, userId: id, role: { baseRole: { in: ['OTHER', newRole as 'PM' | 'MUNSHI'] } } },
+        orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+        select: { roleId: true },
+      });
+      keptRoles = fitting.length ? fitting.map((a) => a.roleId) : [await defaultRoleId(tx, me.tenantId, newRole as 'PM' | 'MUNSHI')];
+    }
 
     if (Object.keys(data).length) {
       await repo.updateUser(tx, id, data).catch((err: unknown) => {
@@ -134,6 +143,7 @@ export async function updateUser(id: string, input: UpdateUserInput): Promise<Us
         }
         throw err;
       });
+      if (keptRoles) await assignRoles(tx, me.tenantId, id, keptRoles);
       if (data['role']) await permissionsChanged(tx, me.tenantId, { userId: id });
     }
     // canSeeFinancials (deprecated) = the financial bundle as permission overrides; a Munshi never has it.

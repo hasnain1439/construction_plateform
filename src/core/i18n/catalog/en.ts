@@ -183,12 +183,6 @@ export const en = {
   'mail.invite.orOpen': 'Or open this link: {url}',
   'mail.invite.expiry': 'This link works once and expires in {days} days. If you weren’t expecting it, ignore this email.',
   'mail.invite.munshiNote': 'After joining, sign in on the mobile app with your phone number — by password or by a login code.',
-  'mail.support.subject': 'Platform support accessed {company}',
-  'mail.support.greeting': 'Assalam-o-Alaikum {name},',
-  'mail.support.person': 'Support person: {admin}',
-  'mail.support.access': 'Access: read-only unless they switch to write mode with another reason',
-  'mail.support.until': 'Until: {until} (Pakistan time) or when they end it',
-  'mail.support.audit': 'Every change they make is in your audit log (Settings → Audit log). If you did not expect this, reply to this email.',
 
   // ─── Share texts for the project owner (WhatsApp) ────────────────────────
   'share.salutation': 'Dear {name}',

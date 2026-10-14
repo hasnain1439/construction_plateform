@@ -10,7 +10,7 @@ Keep it current when auth, tenancy, permissions or limits change.
 |---|---|---|
 | A company's data (projects, money, rates, workers, phones) | Other companies; users of the same company without the permission; the public | Tenant from the verified token only, Postgres RLS, permission checks on every route + sync, field stripping |
 | Accounts and sessions | Password guessing, OTP guessing, SMS pumping, stolen / replayed tokens | bcrypt, lock-out, rate limits, short-lived access tokens, rotating refresh tokens with reuse detection, httpOnly cookies |
-| Platform admin power (sees every company) | A careless or curious admin; a stolen admin session | Separate admin table + audience, act-as only with a live, reasoned, time-boxed, audited support session, read-only by default |
+| Platform admin power (sees every company) | A careless or curious admin; a stolen admin session | Separate admin table + audience, few named admin accounts; act-as is **direct, full access** (owner decision) — the only control after sign-in is a silent audit trail of every change |
 | Files (bills, photos, voice notes, PDFs) | Anyone with a guessed URL; other companies | Signed, expiring URLs (HMAC / Cloudinary authenticated assets), type + magic-byte checks, size limit |
 | Secrets (DB, JWT, SMTP, Cloudinary) | Leaks in git, logs, error responses | Env-only, Zod-validated at start-up, redacting logger, generic 500 bodies |
 
@@ -59,17 +59,23 @@ until the app wipes it), insider abuse by a company owner inside their own compa
 - `tests/permissions/parity.test.ts` enumerates every company route and fails when a new route has
   no permission decision.
 
-## 4. Platform admin "act as" (support sessions)
+## 4. Platform admin "act as" (direct access)
 
-- An admin works inside a company only with `X-Act-As-Tenant` **and** `X-Act-As-Session` naming a
-  live session of that admin for that company. Sessions need a reason (5–300 chars), default to
-  60 minutes, start **read-only** (`403 ACT_AS_READ_ONLY` on writes) and need a second reason to
-  switch to write mode; they can be ended at any time.
-- Start / mode change / end are audited with the admin's name and reason; changes made while acting
-  carry `actAsSessionId`, `adminName` and `actAsReason` in the company's audit log.
-- The company owner gets an in-app notification and an email naming the reason, and can read the
-  company audit log (`GET /company/audit-logs`).
-- Inside the company the admin acts as a hidden system user, never as a real employee.
+- **Owner decision: a platform super admin has direct, full (read and write) access to every
+  company.** A signed-in, active platform admin sends `X-Act-As-Tenant: <companyId>` and is in —
+  no request, no reason, no read-only mode, no write-mode switch, no expiry. (`X-Act-As-Session`
+  from the former support-session flow is accepted and ignored.)
+- **The company is not told.** No in-app notification, no email. The only control is a **silent
+  audit trail**: every change is written to the company's audit log with `actorType PLATFORM_ADMIN`,
+  the admin's id and `details.adminName`; the owner can read it at `GET /company/audit-logs`
+  ("Platform support · <admin>"). Reads and simply opening a company are **not** audited.
+- What still protects companies: admin accounts live in a separate table with their own token
+  audience; a company token with `X-Act-As-Tenant` is refused (401); admin logout or deactivation
+  ends access at once (checked on every request); inside the company the admin acts as a hidden,
+  INACTIVE system user, never as a real employee, and every company rule still applies.
+- Risk accepted by this decision: a stolen admin session (or a careless admin) can read and change
+  any company's data without the company noticing until someone reviews the audit log. Keep admin
+  accounts few, named and strongly protected, and review `PLATFORM_ADMIN` audit rows regularly.
 
 ## 5. Authentication, tokens and cookies
 
@@ -175,7 +181,7 @@ leaves the server). When on:
 - **Sentry** (`src/core/observability/sentry.ts` + `scrub.ts`): SDK collection of user info / IP,
   cookies, request bodies, query strings, SQL values and local variables is off, and every error,
   transaction and breadcrumb passes `scrubEvent` / `scrubBreadcrumb`: request bodies (all routes —
-  auth bodies hold passwords and codes), cookies, `Authorization` / `Cookie` / `X-Act-As-Session` /
+  auth bodies hold passwords and codes), cookies, `Authorization` / `Cookie` / `X-Act-As-Session` (legacy) /
   `X-Forwarded-For` headers and query strings are dropped; emails, Pakistani / E.164 phones, CNICs,
   JWTs, `Bearer` values, long opaque tokens, `token= / code= / sig= / password=` params and
   invitation tokens in URLs are masked; any key named like password / token / otp / code / phone /
@@ -185,7 +191,7 @@ leaves the server). When on:
 - **PostHog** (`analytics.ts`, same in web / mobile): fixed event list, prop allow-list, numbers only
   for `count` / `duration_ms`, strings that look like emails / phones / tokens / amounts dropped —
   never money values, names, phones or free text. Person = hashed user id, company = tenant id as a
-  group. Support sessions are not tracked. GeoIP off on the API.
+  group. A platform admin working inside a company is not tracked. GeoIP off on the API.
 - **Logs** add `tenantId` / `userId` (ids only) to request log lines.
 - `/health/ready` reports error codes only, never hosts or connection strings.
 
@@ -209,7 +215,7 @@ leaves the server). When on:
       phone has an account) — accepted for munshi UX; revisit if enumeration becomes a concern.
 - [ ] Web CSP still uses `'unsafe-inline'` for scripts (Next.js inline chunks + theme script);
       a nonce-based CSP via `proxy.ts` is the next hardening step.
-- [ ] Platform admin accounts: few, named, strong passwords; review `admin.act_as_*` audit rows.
+- [ ] Platform admin accounts: few, named, strong passwords (they have direct, unannounced access to every company); review `actorType PLATFORM_ADMIN` audit rows.
 - [ ] Backups encrypted, restore tested; storage (Cloudinary) assets set to authenticated / S3 bucket private with Block Public Access.
 - [ ] `npm audit` re-run on the release branch; no `.env` in git history.
 - [ ] Log retention / access: logs contain masked phones and user ids, no tokens or codes.

@@ -1,6 +1,9 @@
 /**
  * Roles & permissions management (Team → Roles & Permissions).
  *
+ * A member may hold SEVERAL roles (UserRoleAssignment; User.roleId = the first / primary):
+ * effective = union of the roles (widest scope, highest limit) + ALLOW − DENY overrides.
+ *
  * Who: THEKEDAR, or a user holding `team.member.manage` (route guard). Rules:
  * - THEKEDAR users are never edited here (403 CANNOT_EDIT_OWNER) — they always have everything.
  * - ownerOnly keys can't be granted (403 OWNER_ONLY_PERMISSION).
@@ -12,7 +15,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { accessOf, resolveAccess, type Access, type OverrideGrant } from '../../core/auth/access.js';
-import { loadAccess } from '../../core/auth/accessLoader.js';
+import { grantsOfRoles, loadAccess, rolesOf } from '../../core/auth/accessLoader.js';
 import {
   CATALOG_BY_KEY,
   FINANCIAL_BUNDLE,
@@ -35,6 +38,7 @@ import type {
   RoleDto,
   SetOverridesInput,
   SetRolePermissionsInput,
+  SetUserRolesInput,
   UpdateRoleInput,
   UserPermissionsDto,
 } from './permissions.schema.js';
@@ -126,7 +130,7 @@ function cleanGrants(m: Manager, list: GrantInput[]): CleanGrant[] {
 
 // ─── Roles ──────────────────────────────────────────────────────────────────
 
-const roleInclude = { permissions: { orderBy: { permissionKey: 'asc' } }, _count: { select: { users: true } } } satisfies Prisma.RoleInclude;
+const roleInclude = { permissions: { orderBy: { permissionKey: 'asc' } }, _count: { select: { assignments: true } } } satisfies Prisma.RoleInclude;
 type RoleRow = Prisma.RoleGetPayload<{ include: typeof roleInclude }>;
 
 function toRoleDto(r: RoleRow): RoleDto {
@@ -139,7 +143,7 @@ function toRoleDto(r: RoleRow): RoleDto {
     description: r.description,
     isSystem: r.isSystem,
     baseRole: r.baseRole,
-    userCount: r._count.users,
+    userCount: r._count.assignments,
     permissions: r.permissions.map((p) => ({ key: p.permissionKey, scope: CATALOG_BY_KEY.get(p.permissionKey)?.scoped ? p.scope : null, maxAmountPaisa: p.maxAmountPaisa?.toString() ?? null })),
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
@@ -158,7 +162,10 @@ export async function listRoles(): Promise<RoleDto[]> {
   const m = manager();
   return withTenant(m.tenantId, async (tx) => {
     const rows = await tx.role.findMany({ where: { tenantId: m.tenantId }, include: roleInclude, orderBy: [{ isSystem: 'desc' }, { name: 'asc' }] });
-    return rows.map(toRoleDto);
+    // System templates in catalogue order (Administrator first), then custom roles by name.
+    const order = new Map(ROLE_TEMPLATES.map((t, i) => [t.key, i]));
+    const rank = (r: RoleRow) => (r.isSystem ? (order.get(r.key) ?? 50) : 100);
+    return [...rows].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name)).map(toRoleDto);
   });
 }
 
@@ -241,23 +248,26 @@ export async function duplicateRole(id: string, input: DuplicateRoleInput): Prom
   });
 }
 
-function assertEditableRole(m: Manager, role: RoleRow, userRoleId: string | null) {
+function assertEditableRole(m: Manager, role: RoleRow, ownRoleIds: string[]) {
   if (role.isSystem) throw new Forbidden('ROLE_IS_SYSTEM', 'System templates are read-only — duplicate it to make changes', { roleId: role.id });
-  if (!m.access.owner && userRoleId === role.id) throw new Forbidden('CANNOT_EDIT_OWN_PERMISSIONS', 'You cannot change your own permissions');
+  if (!m.access.owner && ownRoleIds.includes(role.id)) throw new Forbidden('CANNOT_EDIT_OWN_PERMISSIONS', 'You cannot change your own permissions');
 }
 
-async function managerRoleId(tx: Tx, m: Manager): Promise<string | null> {
-  return (await tx.user.findUnique({ where: { id: m.userId }, select: { roleId: true } }))?.roleId ?? null;
+/** Roles the manager holds (a non-owner can't edit those). */
+async function managerRoleIds(tx: Tx, m: Manager): Promise<string[]> {
+  const ids = (await tx.userRoleAssignment.findMany({ where: { tenantId: m.tenantId, userId: m.userId }, select: { roleId: true } })).map((a) => a.roleId);
+  const primary = (await tx.user.findUnique({ where: { id: m.userId }, select: { roleId: true } }))?.roleId;
+  return primary && !ids.includes(primary) ? [...ids, primary] : ids;
 }
 
 export async function updateRole(id: string, input: UpdateRoleInput): Promise<RoleDto> {
   const m = manager();
   return withTenant(m.tenantId, async (tx) => {
     const role = await findRole(tx, m.tenantId, id);
-    assertEditableRole(m, role, await managerRoleId(tx, m));
+    assertEditableRole(m, role, await managerRoleIds(tx, m));
     if (input.name && input.name.toLowerCase() !== role.name.toLowerCase()) await uniqueName(tx, m.tenantId, input.name);
     if (input.baseRole && input.baseRole !== role.baseRole && input.baseRole !== 'OTHER') {
-      const mismatched = await tx.user.count({ where: { tenantId: m.tenantId, roleId: id, role: { not: input.baseRole } } });
+      const mismatched = await tx.user.count({ where: { tenantId: m.tenantId, roleAssignments: { some: { roleId: id } }, role: { not: input.baseRole } } });
       if (mismatched) throw new Conflict('ROLE_IN_USE', `${mismatched} user(s) with another account type have this role`, { users: mismatched });
     }
     const before = { name: role.name, nameRoman: role.nameRoman, nameUrdu: role.nameUrdu, description: role.description, baseRole: role.baseRole };
@@ -281,7 +291,7 @@ export async function setRolePermissions(id: string, input: SetRolePermissionsIn
   const m = manager();
   return withTenant(m.tenantId, async (tx) => {
     const role = await findRole(tx, m.tenantId, id);
-    assertEditableRole(m, role, await managerRoleId(tx, m));
+    assertEditableRole(m, role, await managerRoleIds(tx, m));
     const grants = cleanGrants(m, input.permissions);
     const before = grantsOf(role);
     await tx.rolePermission.deleteMany({ where: { tenantId: m.tenantId, roleId: id } });
@@ -300,7 +310,7 @@ export async function setRolePermissions(id: string, input: SetRolePermissionsIn
       action: 'role.permissions_update',
       entityType: 'Role',
       entityId: id,
-      details: { role: role.name, before, after: grantsOf(after), usersAffected: after._count.users } as Prisma.InputJsonObject,
+      details: { role: role.name, before, after: grantsOf(after), usersAffected: after._count.assignments } as Prisma.InputJsonObject,
     });
     return toRoleDto(after);
   });
@@ -331,7 +341,7 @@ const accessUser = (u: TargetUser) => ({ id: u.id, tenantId: u.tenantId, role: u
  */
 export async function permissionsChanged(tx: Tx, tenantId: string, where: { userId?: string; roleId?: string }): Promise<void> {
   const users = await tx.user.findMany({
-    where: { tenantId, isSystem: false, role: { not: 'THEKEDAR' }, ...(where.userId ? { id: where.userId } : {}), ...(where.roleId ? { roleId: where.roleId } : {}) },
+    where: { tenantId, isSystem: false, role: { not: 'THEKEDAR' }, ...(where.userId ? { id: where.userId } : {}), ...(where.roleId ? { roleAssignments: { some: { roleId: where.roleId } } } : {}) },
     select: userSelect,
   });
   for (const u of users) {
@@ -353,13 +363,16 @@ async function userPermissionsTx(tx: Tx, tenantId: string, id: string): Promise<
   const u = await findTarget(tx, tenantId, id);
   const access = await loadAccess(tx, accessUser(u));
   const overrides = await tx.userPermissionOverride.findMany({ where: { tenantId, userId: id }, orderBy: { permissionKey: 'asc' } });
+  const roleById = new Map(access.roles.map((r) => [r.id, r]));
   return {
     user: { id: u.id, name: u.name, role: u.role },
     owner: access.owner,
     role: access.role,
+    roles: access.roles,
     effective: access.permissions.map((key) => ({
       key,
       source: access.sources[key]!,
+      roles: (access.grantedBy[key] ?? []).map((rid) => roleById.get(rid)).filter((r): r is NonNullable<typeof r> => Boolean(r)),
       scope: access.scopes[key] ?? null,
       maxAmountPaisa: CATALOG_BY_KEY.get(key)?.limit ? (access.approvalLimits[key] ?? null) : null,
     })),
@@ -394,6 +407,85 @@ function cleanOverrides(m: Manager, list: OverrideInput[]) {
   });
 }
 
+/** An override as stored on an invitation (Invitation.permissionOverrides JSONB) until accept. */
+export interface StoredOverride {
+  key: string;
+  effect: 'ALLOW' | 'DENY';
+  scope: PermissionScope | null;
+  maxAmountPaisa: string | null;
+  note: string | null;
+}
+
+/**
+ * Invitations: validates the overrides exactly like PUT /users/:id/permission-overrides (known
+ * keys, no ownerOnly, scope / limit only where supported, a non-owner only grants what they hold)
+ * and returns them in the stored (JSON-safe) shape.
+ */
+export function validateInviteOverrides(m: { tenantId: string; userId: string; access: Access }, list: OverrideInput[]): StoredOverride[] {
+  return cleanOverrides(m as Manager, list).map((o) => ({ key: o.key, effect: o.effect, scope: o.scope, maxAmountPaisa: o.maxAmountPaisa?.toString() ?? null, note: o.note }));
+}
+
+/** Reads Invitation.permissionOverrides defensively (keys removed from the catalogue since are dropped). */
+export function storedOverrides(value: unknown): StoredOverride[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((v): StoredOverride[] => {
+    const o = v as Partial<StoredOverride> | null;
+    if (!o || typeof o.key !== 'string' || (o.effect !== 'ALLOW' && o.effect !== 'DENY')) return [];
+    const def = CATALOG_BY_KEY.get(o.key);
+    if (!def || def.ownerOnly) return [];
+    const allow = o.effect === 'ALLOW';
+    return [
+      {
+        key: o.key,
+        effect: o.effect,
+        scope: allow && def.scoped && (o.scope === 'ALL_PROJECTS' || o.scope === 'ASSIGNED_PROJECTS') ? o.scope : null,
+        maxAmountPaisa: allow && def.limit && typeof o.maxAmountPaisa === 'string' ? o.maxAmountPaisa : null,
+        note: typeof o.note === 'string' ? o.note : null,
+      },
+    ];
+  });
+}
+
+/**
+ * Accepting an invitation: the invite's overrides become UserPermissionOverride rows of the new
+ * user (same tx as the user creation; they replace any canSeeFinancials rows of the same key).
+ * Audited `user.permissions_update` with the inviter as actor. Returns what was applied.
+ */
+export async function applyInviteOverrides(
+  tx: Tx,
+  input: { tenantId: string; userId: string; invitationId: string; invitedById: string | null; overrides: unknown },
+): Promise<StoredOverride[]> {
+  const list = storedOverrides(input.overrides);
+  if (!list.length) return list;
+  const { tenantId, userId } = input;
+  const before = (await tx.userPermissionOverride.findMany({ where: { tenantId, userId }, orderBy: { permissionKey: 'asc' } })).map(overrideDto);
+  await tx.userPermissionOverride.deleteMany({ where: { tenantId, userId, permissionKey: { in: list.map((o) => o.key) } } });
+  await tx.userPermissionOverride.createMany({
+    data: list.map((o) => ({
+      tenantId,
+      userId,
+      permissionKey: o.key,
+      effect: o.effect,
+      scope: o.scope,
+      maxAmountPaisa: o.maxAmountPaisa === null ? null : BigInt(o.maxAmountPaisa),
+      note: o.note,
+      createdById: input.invitedById,
+    })),
+  });
+  await permissionsChanged(tx, tenantId, { userId });
+  const after = (await tx.userPermissionOverride.findMany({ where: { tenantId, userId }, orderBy: { permissionKey: 'asc' } })).map(overrideDto);
+  await writeAudit(tx, {
+    tenantId,
+    actorType: 'USER',
+    actorId: input.invitedById ?? userId,
+    action: 'user.permissions_update',
+    entityType: 'User',
+    entityId: userId,
+    details: { via: 'invitation', invitationId: input.invitationId, before, after } as Prisma.InputJsonObject,
+  });
+  return list;
+}
+
 export async function setOverrides(id: string, input: SetOverridesInput): Promise<UserPermissionsDto> {
   const m = manager();
   return withTenant(m.tenantId, async (tx) => {
@@ -423,30 +515,51 @@ export async function setOverrides(id: string, input: SetOverridesInput): Promis
   });
 }
 
-/** Overrides only make sense on top of a stored role: pin the default template (unchanged access). */
+/** Replaces a member's roles (in order; the first = User.roleId, the primary role). */
+export async function assignRoles(tx: Tx, tenantId: string, userId: string, roleIds: string[]): Promise<void> {
+  await tx.userRoleAssignment.deleteMany({ where: { tenantId, userId } });
+  if (roleIds.length) await tx.userRoleAssignment.createMany({ data: roleIds.map((roleId, position) => ({ tenantId, userId, roleId, position })) });
+  await tx.user.update({ where: { id: userId }, data: { roleId: roleIds[0] ?? null } });
+}
+
+/** Overrides only make sense on top of stored roles: pin the current / default one (unchanged access). */
 async function assignDefaultRoleIfMissing(tx: Tx, target: TargetUser) {
-  if (target.roleId || target.role === 'THEKEDAR') return;
-  const roleId = await defaultRoleId(tx, target.tenantId, target.role);
-  await tx.user.update({ where: { id: target.id }, data: { roleId } });
+  if (target.role === 'THEKEDAR') return;
+  if (await tx.userRoleAssignment.count({ where: { tenantId: target.tenantId, userId: target.id } })) return;
+  const roleId = target.roleId ?? (await defaultRoleId(tx, target.tenantId, target.role));
+  await assignRoles(tx, target.tenantId, target.id, [roleId]);
   target.roleId = roleId;
 }
 
-export async function setUserRole(id: string, roleId: string): Promise<UserPermissionsDto> {
-  const m = manager();
-  return withTenant(m.tenantId, async (tx) => {
-    const target = await findTarget(tx, m.tenantId, id);
-    assertManageable(m, target);
+/** Checks roles for an account type (and the manager's own grants); returns them in the given order. */
+async function assignableRoles(tx: Tx, m: Manager, roleIds: string[], accountRole: 'PM' | 'MUNSHI'): Promise<RoleRow[]> {
+  if (new Set(roleIds).size !== roleIds.length) throw new BadRequest('DUPLICATE_ROLE', 'A role is listed twice');
+  const roles: RoleRow[] = [];
+  for (const roleId of roleIds) {
     const role = await findRole(tx, m.tenantId, roleId);
-    if (role.baseRole !== 'OTHER' && role.baseRole !== target.role) {
-      throw new BadRequest('ROLE_NOT_FOR_ACCOUNT', `This role is for ${role.baseRole === 'PM' ? 'office (PM)' : 'site (Munshi)'} accounts`, { baseRole: role.baseRole, userRole: target.role });
+    if (role.baseRole !== 'OTHER' && role.baseRole !== accountRole) {
+      throw new BadRequest('ROLE_NOT_FOR_ACCOUNT', `This role is for ${role.baseRole === 'PM' ? 'office (PM)' : 'site (Munshi)'} accounts`, { roleId: role.id, baseRole: role.baseRole, userRole: accountRole });
     }
     if (!m.access.owner) {
       for (const p of role.permissions) {
         cleanGrant(m, { key: p.permissionKey, ...(CATALOG_BY_KEY.get(p.permissionKey)?.scoped ? { scope: p.scope } : {}), maxAmountPaisa: p.maxAmountPaisa }, true);
       }
     }
-    const beforeRole = target.roleId ? await tx.role.findFirst({ where: { tenantId: m.tenantId, id: target.roleId }, select: { id: true, name: true } }) : null;
-    await tx.user.update({ where: { id }, data: { roleId } });
+    roles.push(role);
+  }
+  return roles;
+}
+
+/** PATCH /users/:id/role (one role) and PUT /users/:id/roles (several). Audited `user.role_change`. */
+export async function setUserRoles(id: string, input: SetUserRolesInput): Promise<UserPermissionsDto> {
+  const m = manager();
+  return withTenant(m.tenantId, async (tx) => {
+    const target = await findTarget(tx, m.tenantId, id);
+    assertManageable(m, target);
+    if (target.role === 'THEKEDAR') throw new Forbidden('CANNOT_EDIT_OWNER', 'An owner always has every permission and cannot be changed here');
+    const roles = await assignableRoles(tx, m, input.roleIds, target.role);
+    const before = (await rolesOf(tx, accessUser(target))).map((r) => ({ roleId: r.id, name: r.name }));
+    await assignRoles(tx, m.tenantId, id, roles.map((r) => r.id));
     await permissionsChanged(tx, m.tenantId, { userId: id });
     await writeAudit(tx, {
       tenantId: m.tenantId,
@@ -455,11 +568,13 @@ export async function setUserRole(id: string, roleId: string): Promise<UserPermi
       action: 'user.role_change',
       entityType: 'User',
       entityId: id,
-      details: { before: beforeRole ? { roleId: beforeRole.id, name: beforeRole.name } : null, after: { roleId: role.id, name: role.name } } as Prisma.InputJsonObject,
+      details: { before, after: roles.map((r) => ({ roleId: r.id, name: r.name })) } as Prisma.InputJsonObject,
     });
     return userPermissionsTx(tx, m.tenantId, id);
   });
 }
+
+export const setUserRole = (id: string, roleId: string) => setUserRoles(id, { roleIds: [roleId] });
 
 // ─── canSeeFinancials compatibility ─────────────────────────────────────────
 
@@ -475,7 +590,7 @@ export async function setFinancialAccess(tx: Tx, m: { tenantId: string; userId: 
   const existing = await tx.userPermissionOverride.findMany({ where: { tenantId: m.tenantId, userId, permissionKey: { in: FINANCIAL_BUNDLE } } });
   const roleAccess = resolveAccess({
     role: target.role,
-    roleGrants: (await tx.rolePermission.findMany({ where: { tenantId: m.tenantId, roleId: target.roleId! } })).map((p) => ({ permissionKey: p.permissionKey, scope: p.scope, maxAmountPaisa: p.maxAmountPaisa })),
+    roleGrants: grantsOfRoles(await rolesOf(tx, accessUser(target))),
   });
   const want: OverrideGrant[] = on
     ? FINANCIAL_BUNDLE.filter((k) => !roleAccess.has.has(k)).map((k) => ({ permissionKey: k, effect: 'ALLOW' as const }))
@@ -492,15 +607,9 @@ export async function setFinancialAccess(tx: Tx, m: { tenantId: string; userId: 
   return true;
 }
 
-/** Validates an invitation's role for the invited account type (and the inviter's own grants). */
-export async function assertAssignableRole(tx: Tx, m: { tenantId: string; userId: string; access: Access }, roleId: string, accountRole: 'PM' | 'MUNSHI'): Promise<void> {
-  const role = await findRole(tx, m.tenantId, roleId);
-  if (role.baseRole !== 'OTHER' && role.baseRole !== accountRole) {
-    throw new BadRequest('ROLE_NOT_FOR_ACCOUNT', `This role is for ${role.baseRole === 'PM' ? 'office (PM)' : 'site (Munshi)'} accounts`, { baseRole: role.baseRole, userRole: accountRole });
-  }
-  if (!m.access.owner) {
-    for (const p of role.permissions) cleanGrant(m as Manager, { key: p.permissionKey, ...(CATALOG_BY_KEY.get(p.permissionKey)?.scoped ? { scope: p.scope } : {}), maxAmountPaisa: p.maxAmountPaisa }, true);
-  }
+/** Validates an invitation's roles for the invited account type (and the inviter's own grants). */
+export async function assertAssignableRoles(tx: Tx, m: { tenantId: string; userId: string; access: Access }, roleIds: string[], accountRole: 'PM' | 'MUNSHI'): Promise<void> {
+  await assignableRoles(tx, m as Manager, roleIds, accountRole);
 }
 
 export const isOwnerOnly = (key: string) => OWNER_ONLY_KEYS.has(key);

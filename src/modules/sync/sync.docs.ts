@@ -10,7 +10,7 @@ export function registerSyncDocs(): void {
     description:
       'Company bearer token of a device that is not revoked (else `401 DEVICE_REVOKED`). No `cursor` → full snapshot of the caller’s scope; with a cursor → rows changed after it (paged by `limit`, `hasMore`), and tombstones (`deletes`) for deleted rows. ' +
       '`resetRequired: true` when the cursor is older than the 30-day retention, the caller’s project access changed or their permissions changed — wipe the local DB and pull without a cursor. ' +
-      'Every pull returns `access` (permissions, fieldAccess, scopes, approvalLimits, permissionRole — same as /auth/me). Tables the caller has no view permission for come back empty (e.g. attendance needs labor.attendance.view); sub-contract rates need fields.rates. ' +
+      'Every pull returns `access` (permissions, fieldAccess, scopes, approvalLimits, permissionRole, permissionRoles — same as /auth/me). Tables the caller has no view permission for come back empty (e.g. attendance needs labor.attendance.view); sub-contract rates need fields.rates. ' +
       'Scope: assigned ACTIVE / CLOSEOUT projects (every running project for THEKEDAR), their site stock locations, materials, workers, the company’s worker types (`worker_types`: id, key, label, labelRoman, labelUrdu, ratePaisa, overtimeMultiplier, isActive, updatedAt — active and inactive), attendance (3 weeks), settlements (8 weeks), advances, measurements, incoming dispatches / purchases, owner deliveries, usage, site stock (quantities), counts, daily logs (30 days), the caller’s OWN cash account / entries / top-ups, settings subset, holidays and own notifications. ' +
       'Never material rates, purchase amounts, supplier balances, contract values or other people’s cash; a MUNSHI gets no sub-contract rates or measured values, and with blind count on no sent / challan quantities until counted. ' +
       'A change is handed out once it is 30 s old (transactions commit out of order), so the cursor never skips one.',
@@ -28,6 +28,7 @@ export function registerSyncDocs(): void {
           scopes: { 'labor.attendance.view': 'ASSIGNED_PROJECTS', 'projects.project.view': 'ASSIGNED_PROJECTS' },
           approvalLimits: {},
           permissionRole: { id: '0199a8c0-0000-7000-8000-000000000302', key: 'MUNSHI', name: 'Munshi' },
+          permissionRoles: [{ id: '0199a8c0-0000-7000-8000-000000000302', key: 'MUNSHI', name: 'Munshi' }],
         },
         changes: {
           attendance: {

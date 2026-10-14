@@ -1,7 +1,8 @@
 /**
  * The company's own audit log (owner only, `company.audit.view`): who changed what — including
- * everything platform support did inside the company (act-as sessions: start, write mode, end,
- * and every change made in them), with the support person's name and reason.
+ * every change a platform super admin made while working inside the company (actor
+ * "Platform support · <admin>"). Older entries from the former support-session flow also carry
+ * the session id and reason.
  */
 import { getCtx } from '../../core/context/requestContext.js';
 import { inSequence } from '../../core/db/inSequence.js';

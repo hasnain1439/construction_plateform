@@ -326,6 +326,7 @@ model Tenant {
   roles                  Role[]
   rolePermissions        RolePermission[]
   permissionOverrides    UserPermissionOverride[]
+  userRoleAssignments    UserRoleAssignment[]
   projects               Project[]
   userProjectAccess      UserProjectAccess[]
   invitations            Invitation[]
@@ -570,6 +571,8 @@ model User {
   dailyLogs            DailyLog[]               @relation("DailyLogAuthor")
   permissionRole       Role?                    @relation("UserPermissionRole", fields: [tenantId, roleId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
   permissionOverrides  UserPermissionOverride[] @relation("UserPermissionOverrides")
+  /// Permission roles of the member (several allowed; effective = union + overrides). roleId = the first.
+  roleAssignments      UserRoleAssignment[]     @relation("UserRoleAssignments")
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -680,25 +683,26 @@ enum PermissionEffect {
 
 /// Permission role template of a company. System templates (isSystem) are seeded per company and read-only.
 model Role {
-  id          String           @id @default(uuid(7)) @db.Uuid
-  tenantId    String           @db.Uuid
+  id          String               @id @default(uuid(7)) @db.Uuid
+  tenantId    String               @db.Uuid
   /// PROJECT_MANAGER / MUNSHI / ACCOUNTANT / STORE_KEEPER for system templates; generated for custom roles.
   key         String
   name        String
   nameRoman   String?
   nameUrdu    String?
   description String?
-  isSystem    Boolean          @default(false)
+  isSystem    Boolean              @default(false)
   /// Which accounts may hold it: PM (office users), MUNSHI (site users) or OTHER (both).
   baseRole    RoleBase
   /// Bumped on every permission change — part of the permission cache key.
-  version     Int              @default(0)
-  createdAt   DateTime         @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime         @updatedAt @db.Timestamptz(3)
-  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  version     Int                  @default(0)
+  createdAt   DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime             @updatedAt @db.Timestamptz(3)
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   permissions RolePermission[]
-  users       User[]           @relation("UserPermissionRole")
-  invitations Invitation[]     @relation("InvitationPermissionRole")
+  users       User[]               @relation("UserPermissionRole")
+  assignments UserRoleAssignment[]
+  invitations Invitation[]         @relation("InvitationPermissionRole")
 
   @@unique([tenantId, id])
   @@unique([tenantId, key])
@@ -741,6 +745,21 @@ model UserPermissionOverride {
   @@index([tenantId, userId])
 }
 
+/// A member's permission roles (many-to-many). position 0 = the primary role (= User.roleId).
+model UserRoleAssignment {
+  tenantId  String   @db.Uuid
+  userId    String   @db.Uuid
+  roleId    String   @db.Uuid
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User     @relation("UserRoleAssignments", fields: [tenantId, userId], references: [tenantId, id], onDelete: Cascade)
+  role      Role     @relation(fields: [tenantId, roleId], references: [tenantId, id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([tenantId, roleId])
+}
+
 model UserProjectAccess {
   tenantId  String   @db.Uuid
   userId    String   @db.Uuid
@@ -755,33 +774,38 @@ model UserProjectAccess {
 }
 
 model Invitation {
-  id               String           @id @default(uuid(7)) @db.Uuid
-  tenantId         String           @db.Uuid
+  id                  String           @id @default(uuid(7)) @db.Uuid
+  tenantId            String           @db.Uuid
   /// sha256(token + pepper); the raw token only exists in the invite link.
-  tokenHash        String           @unique
-  role             UserRole
-  name             String
-  phone            String
-  email            String?
-  canSeeFinancials Boolean          @default(false)
+  tokenHash           String           @unique
+  role                UserRole
+  name                String
+  phone               String
+  email               String?
+  canSeeFinancials    Boolean          @default(false)
   /// Permission role given on accept (default: the system template of the invited role).
-  roleId           String?          @db.Uuid
-  projectIds       String[]         @db.Uuid
+  roleId              String?          @db.Uuid
+  /// All permission roles given on accept (roleId = the first). Empty on old invitations = [roleId].
+  roleIds             String[]         @db.Uuid
+  /// Extra (ALLOW) / removed (DENY) permissions on top of the roles, applied as UserPermissionOverride
+  /// rows on accept: [{ key, effect, scope, maxAmountPaisa (string), note }]. Validated at create.
+  permissionOverrides Json             @default("[]")
+  projectIds          String[]         @db.Uuid
   /// Language of the invite SMS / email; becomes the user's language on accept.
-  language         Language         @default(ROMAN_URDU)
-  status           InvitationStatus @default(PENDING)
-  expiresAt        DateTime         @db.Timestamptz(3)
-  invitedById      String?          @db.Uuid
-  acceptedUserId   String?          @db.Uuid
-  acceptedAt       DateTime?        @db.Timestamptz(3)
+  language            Language         @default(ROMAN_URDU)
+  status              InvitationStatus @default(PENDING)
+  expiresAt           DateTime         @db.Timestamptz(3)
+  invitedById         String?          @db.Uuid
+  acceptedUserId      String?          @db.Uuid
+  acceptedAt          DateTime?        @db.Timestamptz(3)
   /// Last time a new link was sent (resend is limited to once per 60 s).
-  lastResentAt     DateTime?        @db.Timestamptz(3)
-  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
-  updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
-  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  invitedBy        User?            @relation("InvitationInvitedBy", fields: [tenantId, invitedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
-  acceptedUser     User?            @relation("InvitationAcceptedUser", fields: [tenantId, acceptedUserId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
-  permissionRole   Role?            @relation("InvitationPermissionRole", fields: [tenantId, roleId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  lastResentAt        DateTime?        @db.Timestamptz(3)
+  createdAt           DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime         @updatedAt @db.Timestamptz(3)
+  tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  invitedBy           User?            @relation("InvitationInvitedBy", fields: [tenantId, invitedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  acceptedUser        User?            @relation("InvitationAcceptedUser", fields: [tenantId, acceptedUserId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  permissionRole      Role?            @relation("InvitationPermissionRole", fields: [tenantId, roleId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([tenantId, status])
   @@index([tenantId, phone, status])

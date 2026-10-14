@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { created, ok } from '../../core/http/response.js';
-import type { CreateRoleInput, DuplicateRoleInput, SetOverridesInput, SetRolePermissionsInput, UpdateRoleInput } from './permissions.schema.js';
+import type { CreateRoleInput, DuplicateRoleInput, SetOverridesInput, SetRolePermissionsInput, SetUserRolesInput, UpdateRoleInput } from './permissions.schema.js';
 import * as svc from './permissions.service.js';
 
 const id = (req: Request) => String(req.params['id']);
@@ -39,6 +39,10 @@ export async function getUserPermissions(req: Request, res: Response) {
 
 export async function setOverrides(req: Request, res: Response) {
   return ok(res, await svc.setOverrides(id(req), req.body as SetOverridesInput));
+}
+
+export async function setUserRoles(req: Request, res: Response) {
+  return ok(res, await svc.setUserRoles(id(req), req.body as SetUserRolesInput));
 }
 
 export async function setUserRole(req: Request, res: Response) {

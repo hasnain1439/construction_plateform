@@ -184,8 +184,8 @@ export type HolidayDto = z.infer<typeof holidayDto>;
 // ─── Audit log ──────────────────────────────────────────────────────────────
 
 export const companyAuditQuery = paginationQuery.extend({
-  actorType: z.enum(['USER', 'PLATFORM_ADMIN', 'SYSTEM']).optional().meta({ description: 'PLATFORM_ADMIN = platform support (act-as sessions and admin actions)' }),
-  action: z.string().trim().min(1).max(60).optional().meta({ description: 'Prefix, e.g. "admin.act_as" or "supplier."' }),
+  actorType: z.enum(['USER', 'PLATFORM_ADMIN', 'SYSTEM']).optional().meta({ description: 'PLATFORM_ADMIN = platform support (changes a super admin made inside the company, and admin actions)' }),
+  action: z.string().trim().min(1).max(60).optional().meta({ description: 'Prefix, e.g. "supplier." or "admin."' }),
   from: isoDateSchema.optional(),
   to: isoDateSchema.optional(),
 });
@@ -193,7 +193,7 @@ export const companyAuditQuery = paginationQuery.extend({
 export const companyAuditEntryDto = z
   .object({
     id: z.uuid(),
-    action: z.string().meta({ example: 'admin.act_as_started' }),
+    action: z.string().meta({ example: 'supplier.update' }),
     entityType: z.string().nullable(),
     entityId: z.string().nullable(),
     actor: z.object({
@@ -208,7 +208,7 @@ export const companyAuditEntryDto = z
         reason: z.string().nullable(),
       })
       .nullable()
-      .meta({ description: 'Set for everything platform support did: the support person and their reason' }),
+      .meta({ description: 'Set for everything platform support did: the support person (adminName). sessionId / reason are only filled on older entries from the former support-session flow' }),
     details: z.unknown(),
     createdAt: z.string(),
   })

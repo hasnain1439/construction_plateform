@@ -1,15 +1,11 @@
 import type { Request, Response } from 'express';
 import { created, ok } from '../../core/http/response.js';
-import * as actAs from './actAsSessions.service.js';
 import * as catalog from './catalog.service.js';
 import * as companyData from './companyData.service.js';
 import * as materials from './materials.service.js';
 import * as overview from './overview.service.js';
 import * as payments from './payments.service.js';
 import type {
-  ActAsModeInput,
-  ActAsSessionsQuery,
-  StartActAsInput,
   ApprovePaymentInput,
   AuditQuery,
   CreateHolidayInput,
@@ -77,11 +73,3 @@ export const createCatalogMaterial = async (req: Request, res: Response) =>
 export const updateCatalogMaterial = async (req: Request, res: Response) =>
   ok(res, await materials.updateMaterial(id(req), req.body as UpdateCatalogMaterialInput));
 
-export const startActAs = async (req: Request, res: Response) => created(res, await actAs.startSession(req.body as StartActAsInput));
-export async function listActAsSessions(req: Request, res: Response) {
-  const { data, meta } = await actAs.listSessions(query<ActAsSessionsQuery>(req));
-  return ok(res, data, meta);
-}
-export const getActAsSession = async (req: Request, res: Response) => ok(res, await actAs.getSession(id(req)));
-export const changeActAsMode = async (req: Request, res: Response) => ok(res, await actAs.changeMode(id(req), req.body as ActAsModeInput));
-export const endActAs = async (req: Request, res: Response) => ok(res, await actAs.endSession(id(req)));

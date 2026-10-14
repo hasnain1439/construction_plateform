@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { paginationQuery } from '../../core/http/pagination.js';
 import { langSchema } from '../../core/i18n/lang.js';
 import { emailSchema, languageSchema, passwordSchema, phoneSchema, roleSchema } from '../auth/auth.schema.js';
+import { effectSchema, overrideSchema, roleIdsSchema, scopeSchema } from '../permissions/permissions.schema.js';
 
 const uuid = (label: string) => z.uuid({ error: `Invalid ${label}` });
 /** Roles a THEKEDAR can give through the team screens (owners are created at signup). */
@@ -50,7 +51,8 @@ export const teamUserDto = z
     permissionRole: z
       .object({ id: z.uuid(), key: z.string(), name: z.string() })
       .nullable()
-      .meta({ description: 'Permission role template (null for THEKEDAR = every permission)' }),
+      .meta({ description: 'Primary permission role (null for THEKEDAR = every permission)' }),
+    permissionRoles: z.array(z.object({ id: z.uuid(), key: z.string(), name: z.string() })).meta({ description: 'Every permission role of the member (primary first; empty for THEKEDAR)' }),
     projects: z.array(projectRef),
     lastActiveAt: z.iso.datetime().nullable(),
   })
@@ -90,7 +92,16 @@ export const createInvitationBody = z
     role: staffRoleSchema,
     projectIds: projectIdsSchema.optional(),
     canSeeFinancials: z.boolean().optional().meta({ description: 'PM only. Defaults to the company setting pmCanSeeFinancials. Deprecated: = the financial permission bundle as overrides on accept.' }),
-    roleId: uuid('roleId').optional().meta({ description: 'Permission role given on accept (GET /roles). Default: the system template of  (Project Manager / Munshi).' }),
+    roleId: uuid('roleId').optional().meta({ description: 'One permission role given on accept (GET /roles). Use roleIds for several. Default: the system template of the account type (Project Manager / Munshi).' }),
+    roleIds: roleIdsSchema.optional().meta({ description: 'Permission roles given on accept (union of their permissions; the first = primary). Wins over roleId. Every role must fit the account type.' }),
+    permissionOverrides: z
+      .array(overrideSchema)
+      .max(200)
+      .optional()
+      .meta({
+        description:
+          'Extra (ALLOW) / removed (DENY) permissions on top of the role, validated like PUT /users/:id/permission-overrides (no owner-only keys; a non-owner inviter only grants what they hold). Applied as the new user’s overrides on accept.',
+      }),
     language: langSchema.optional().meta({ description: "Language of the invite SMS / email (en | roman | ur); becomes the person's language on accept. Default: the company's default language." }),
   })
   .superRefine((v, ctx) => {
@@ -107,7 +118,11 @@ export const invitationDto = z
     email: z.string().nullable(),
     role: staffRoleSchema,
     canSeeFinancials: z.boolean(),
-    roleId: z.uuid().nullable().meta({ description: 'Permission role given on accept' }),
+    roleId: z.uuid().nullable().meta({ description: 'Primary permission role given on accept (= roleIds[0])' }),
+    roleIds: z.array(z.uuid()).meta({ description: 'Every permission role given on accept' }),
+    permissionOverrides: z
+      .array(z.object({ key: z.string(), effect: effectSchema, scope: scopeSchema.nullable(), maxAmountPaisa: z.string().nullable(), note: z.string().nullable() }))
+      .meta({ description: 'Extra / removed permissions on top of the role, applied on accept' }),
     language: langSchema.meta({ description: "Language of the invite messages; the person's language on accept" }),
     projects: z.array(projectRef),
     status: invitationStatusSchema,

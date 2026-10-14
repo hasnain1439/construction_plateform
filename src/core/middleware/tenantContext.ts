@@ -29,7 +29,7 @@ interface SessionState {
   user_role: CompanyRole;
   role_id: string | null;
   perm_version: number;
-  role_version: number | null;
+  role_version: string | null;
   can_see_financials: boolean;
   device_revoked: boolean;
   family_active: boolean;
@@ -49,7 +49,12 @@ async function sessionState(tx: Tx, sessionId: string): Promise<SessionState | n
            u.role::text AS user_role,
            u."roleId" AS role_id,
            u."permVersion" AS perm_version,
-           r.version AS role_version,
+           COALESCE(
+             (SELECT string_agg(ar.id::text || ':' || ar.version::text, ',' ORDER BY ar.id)
+                FROM "UserRoleAssignment" a JOIN "Role" ar ON ar.id = a."roleId"
+               WHERE a."userId" = u.id),
+             r.version::text
+           ) AS role_version,
            u."canSeeFinancials" AS can_see_financials,
            (d."revokedAt" IS NOT NULL) AS device_revoked,
            EXISTS (

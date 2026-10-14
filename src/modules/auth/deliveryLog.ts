@@ -16,7 +16,6 @@ export type MessageType =
   | 'CASHBOOK'
   | 'DISPATCH'
   | 'PLATFORM'
-  | 'SUPPORT_ACCESS'
   | 'INVOICE'
   | 'STATEMENT'
   | 'GENERIC';
