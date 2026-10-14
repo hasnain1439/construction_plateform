@@ -7,13 +7,6 @@ const seeded = useFreshDatabase();
 const owner = async () => bearer((await loginMobile(SEED.malik.owner.phone, SEED.malik.owner.password)).accessToken);
 const pm = async () => bearer((await loginMobile(SEED.malik.pm.phone, SEED.malik.pm.password)).accessToken);
 
-/** Binary response body for supertest. */
-const binary = (res: NodeJS.ReadableStream, cb: (err: Error | null, body: Buffer) => void) => {
-  const chunks: Buffer[] = [];
-  res.on('data', (c: Buffer) => chunks.push(c));
-  res.on('end', () => cb(null, Buffer.concat(chunks)));
-};
-
 const csv = (lines: string[]) => Buffer.from(`﻿${lines.join('\r\n')}\r\n`, 'utf8');
 
 async function xlsx(headers: string[], rows: string[][]): Promise<Buffer> {
@@ -28,12 +21,13 @@ const post = (path: string, auth: Record<string, string>, file: Buffer, name = '
 
 describe('imports: template', () => {
   it('downloads an xlsx with headers, an example row and a three-language Instructions sheet', async () => {
-    const res = await api().get('/api/v1/imports/workers/template').set(await owner()).buffer(true).parse(binary);
+    const res = await api().get('/api/v1/imports/workers/template').set(await owner()).responseType('blob');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('spreadsheetml');
     expect(res.headers['content-disposition']).toContain('workers-import-template.xlsx');
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(res.body as Buffer);
+    const file = res.body as Buffer;
+    await wb.xlsx.load(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer);
     expect(wb.worksheets.map((w) => w.name)).toEqual(['Data', 'Instructions']);
     const data = wb.getWorksheet('Data')!;
     expect(data.getRow(1).getCell(1).value).toBe('Name (Naam) *');
