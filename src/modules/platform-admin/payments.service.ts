@@ -3,6 +3,7 @@ import { Conflict, NotFound } from '../../core/errors/AppError.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { invalidateTenantStatus } from '../../core/middleware/tenantContext.js';
 import { dateOnly, formatDateOnly, formatDisplayDate } from '../../core/utils/dates.js';
+import { tr } from '../../core/i18n/index.js';
 import { optionalSignedUrl } from '../attachments/attachments.service.js';
 import { assertPlanFits, parkProjectsOverLimit } from '../subscription/subscription.rules.js';
 import { syncTenantStatus } from '../subscription/subscription.status.js';
@@ -221,12 +222,12 @@ export async function approvePayment(id: string, input: ApprovePaymentInput) {
         ...(input.note ? { note: input.note } : {}),
       },
     });
-    await alerts.subscriptionPayment(tx, { tenantId: sub.tenantId, paymentId: id, approved: true, detail: `${payment.plan.name} is active until ${formatDisplayDate(end)} (receipt ${receiptNo}).` });
+    await alerts.subscriptionPayment(tx, { tenantId: sub.tenantId, paymentId: id, approved: true, plan: payment.plan.name, until: formatDisplayDate(end), receipt: receiptNo });
     return { tenantId: sub.tenantId, planName: payment.plan.name, receiptNo, start, end };
   });
 
   invalidateTenantStatus(result.tenantId);
-  await smsOwners(prismaAdmin, result.tenantId, `Payment approve ho gayi. ${result.planName} ${formatDisplayDate(result.end)} tak active.`);
+  await smsOwners(prismaAdmin, result.tenantId, (lang) => tr(lang, 'sms.subscription.approved', { plan: result.planName, date: formatDisplayDate(result.end) }));
   return {
     id,
     status: 'APPROVED' as const,
@@ -250,9 +251,9 @@ export async function rejectPayment(id: string, input: RejectPaymentInput) {
       entityId: id,
       details: { reason: input.reason, transactionId: payment.transactionId },
     });
-    await alerts.subscriptionPayment(tx, { tenantId: payment.tenantId, paymentId: id, approved: false, detail: `Payment ${payment.transactionId} was rejected: ${input.reason}` });
+    await alerts.subscriptionPayment(tx, { tenantId: payment.tenantId, paymentId: id, approved: false, transactionId: payment.transactionId, reason: input.reason });
     return payment;
   });
-  await smsOwners(prismaAdmin, result.tenantId, `Aap ki payment (${result.transactionId}) reject ho gayi: ${input.reason}`);
+  await smsOwners(prismaAdmin, result.tenantId, (lang) => tr(lang, 'sms.subscription.rejected', { transactionId: result.transactionId, reason: input.reason }));
   return { id, status: 'REJECTED' as const, rejectReason: input.reason };
 }

@@ -13,6 +13,7 @@ import type { ListUsersQuery, SetUserProjectsInput, TeamUserDto, UpdateUserInput
 import { assertNoOpenCashBalance as assertCashSettled } from '../cashbook/cash.js';
 import { hashPassword } from '../auth/auth.service.js';
 import { issueOtp } from '../auth/otp.service.js';
+import { langOf } from '../../core/i18n/index.js';
 
 function current() {
   const ctx = getCtx();
@@ -249,7 +250,7 @@ export async function issueLoginCode(id: string): Promise<{ phone: string; code:
   if (!target) throw userNotFound();
   if (target.role !== 'MUNSHI') throw new BadRequest('LOGIN_CODE_MUNSHI_ONLY', 'Login codes are for munshis; office users sign in with their password');
   if (target.status !== 'ACTIVE') throw new Conflict('USER_INACTIVE', 'This user is deactivated');
-  const { code, expiresIn } = await issueOtp(target.phone, 'LOGIN');
+  const { code, expiresIn } = await issueOtp(target.phone, 'LOGIN', langOf(target.language));
   await withTenant(me.tenantId, (tx) =>
     writeAudit(tx, { tenantId: me.tenantId, actorType: 'USER', actorId: me.userId, action: 'user.login_code_issued', entityType: 'User', entityId: id }),
   );

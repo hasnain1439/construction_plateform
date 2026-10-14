@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { langQuery } from '../../core/i18n/lang.js';
 import { asyncHandler as h } from '../../core/http/asyncHandler.js';
 import { requirePerm } from '../../core/middleware/requirePerm.js';
 import { validate } from '../../core/middleware/validate.js';
@@ -64,13 +65,13 @@ invoicesRouter.patch('/:id', ...prepare, validate({ params: idParams, body: upda
 invoicesRouter.delete('/:id', ...prepare, validate({ params: idParams }), h(c.deleteInvoice));
 invoicesRouter.post('/:id/issue', ...perm('billing.invoice.approve'), validate({ params: idParams, body: issueBody }), h(c.issueInvoice));
 invoicesRouter.post('/:id/cancel', ...perm('billing.invoice.approve'), validate({ params: idParams, body: cancelBody }), h(c.cancelInvoice));
-invoicesRouter.get('/:id/pdf', ...view, validate({ params: idParams }), h(c.invoicePdf));
+invoicesRouter.get('/:id/pdf', ...view, validate({ params: idParams, query: langQuery }), h(c.invoicePdf));
 
 /** Mounted at /api/v1/payments (owner payments; supplier payments are /supplier-payments) */
 export const clientPaymentsRouter = Router();
 clientPaymentsRouter.get('/:id', ...perm('billing.payment.view'), validate({ params: idParams }), h(c.getPayment));
 clientPaymentsRouter.patch('/:id/cheque-status', ...perm('billing.payment.manage'), validate({ params: idParams, body: chequeStatusBody }), h(c.chequeStatus));
-clientPaymentsRouter.get('/:id/receipt-pdf', ...perm('billing.payment.view'), validate({ params: idParams }), h(c.receiptPdf));
+clientPaymentsRouter.get('/:id/receipt-pdf', ...perm('billing.payment.view'), validate({ params: idParams, query: langQuery }), h(c.receiptPdf));
 
 /** Mounted at /api/v1/receivables (THEKEDAR) */
 export const receivablesRouter = Router();

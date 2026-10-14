@@ -9,7 +9,9 @@ import { dateOnly } from '../../core/utils/dates.js';
 import type { StatementQuery } from './billing.schema.js';
 import { actor, billingProject, today, ymd, type BillingActor } from './billing.shared.js';
 import { day } from '../../core/pdf/templates.js';
-import { letterhead, salutation, shareOf, storePdf } from './documents.js';
+import { documentLang, letterhead, pdfFileName, salutation, shareOf, storePdf } from './documents.js';
+import { tr } from '../../core/i18n/index.js';
+import type { StatementDetail } from '../../core/pdf/templates.js';
 import { LIVE, projectCredit } from './ledger.js';
 import { METHOD_LABEL } from './payments.service.js';
 
@@ -26,11 +28,11 @@ async function build(tx: Tx, a: BillingActor, projectId: string, query: Statemen
   const opening =
     invoices.filter((i) => ymd(i.issueDate)! < from).reduce((s, i) => s + i.totalPaisa, 0n) - payments.filter((p) => ymd(p.receivedOn)! < from).reduce((s, p) => s + credited(p), 0n);
 
-  type Row = { date: string; kind: 'INVOICE' | 'PAYMENT'; id: string; reference: string; description: string; debitPaisa: bigint; creditPaisa: bigint; status: string | null };
+  type Row = { date: string; kind: 'INVOICE' | 'PAYMENT'; id: string; reference: string; description: string; detail: StatementDetail; debitPaisa: bigint; creditPaisa: bigint; status: string | null };
   const rows: Row[] = [
     ...invoices
       .filter((i) => ymd(i.issueDate)! >= from && ymd(i.issueDate)! <= to)
-      .map((i) => ({ date: ymd(i.issueDate)!, kind: 'INVOICE' as const, id: i.id, reference: i.number ?? '', description: `Invoice due ${day(ymd(i.dueDate))}`, debitPaisa: i.totalPaisa, creditPaisa: 0n, status: null })),
+      .map((i) => ({ date: ymd(i.issueDate)!, kind: 'INVOICE' as const, id: i.id, reference: i.number ?? '', description: `Invoice due ${day(ymd(i.dueDate))}`, detail: { kind: 'INVOICE' as const, dueDate: ymd(i.dueDate) }, debitPaisa: i.totalPaisa, creditPaisa: 0n, status: null })),
     ...payments
       .filter((p) => ymd(p.receivedOn)! >= from && ymd(p.receivedOn)! <= to)
       .map((p) => ({
@@ -39,6 +41,7 @@ async function build(tx: Tx, a: BillingActor, projectId: string, query: Statemen
         id: p.id,
         reference: p.number,
         description: [METHOD_LABEL[p.method], p.bankName, p.chequeNo ? `cheque ${p.chequeNo}` : null, p.whtDeductedPaisa > 0n ? `incl. WHT ${rs(p.whtDeductedPaisa)}` : null].filter(Boolean).join(' · '),
+        detail: { kind: 'PAYMENT' as const, method: p.method, bankName: p.bankName, chequeNo: p.chequeNo, whtPaisa: p.whtDeductedPaisa },
         debitPaisa: 0n,
         creditPaisa: credited(p),
         status: p.method === 'CHEQUE' || p.status !== 'CLEARED' ? p.status : null,
@@ -77,7 +80,7 @@ export async function ownerStatement(projectId: string, query: StatementQuery) {
       from: s.from,
       to: s.to,
       openingPaisa: s.opening.toString(),
-      rows: s.rows.map((r) => ({ ...r, debitPaisa: r.debitPaisa.toString(), creditPaisa: r.creditPaisa.toString(), balancePaisa: r.balancePaisa.toString() })),
+      rows: s.rows.map(({ detail: _detail, ...r }) => ({ ...r, debitPaisa: r.debitPaisa.toString(), creditPaisa: r.creditPaisa.toString(), balancePaisa: r.balancePaisa.toString() })),
       totals: {
         invoicedPaisa: s.rows.reduce((x, r) => x + r.debitPaisa, 0n).toString(),
         receivedPaisa: s.rows.reduce((x, r) => x + r.creditPaisa, 0n).toString(),
@@ -94,6 +97,7 @@ export async function ownerStatementPdf(projectId: string, query: StatementQuery
   const a = actor();
   return withTenant(a.tenantId, async (tx) => {
     const s = await build(tx, a, projectId, query);
+    const lang = await documentLang(tx, a.userId, query.lang);
     const html = statementHtml({
       company: await letterhead(tx, a.tenantId),
       client: s.client,
@@ -104,13 +108,13 @@ export async function ownerStatementPdf(projectId: string, query: StatementQuery
       rows: s.rows,
       closingPaisa: s.closing,
       creditPaisa: s.credit,
-    });
-    const id = await storePdf(tx, a.tenantId, a.userId, 'STATEMENT_PDF', `Statement ${s.project.code} ${s.to}.pdf`, html, `Statement · ${s.project.name}`);
+    }, lang);
+    const id = await storePdf(tx, a.tenantId, a.userId, 'STATEMENT_PDF', pdfFileName(`Statement ${s.project.code} ${s.to}`, lang), html, `${tr(lang, 'pdf.statement')} · ${s.project.name}`, lang);
     const share = await shareOf(
       tx,
       a.tenantId,
       id,
-      (url) => `${salutation(s.client?.name)}, ${s.project.name} ka hisaab (${day(s.from)} – ${day(s.to)}): baqaya ${rs(s.closing > 0n ? s.closing : 0n)}. Link: ${url}`,
+      (url) => tr(lang, 'share.statement', { salutation: salutation(s.client?.name, lang), project: s.project.name, from: day(s.from), to: day(s.to), amount: rs(s.closing > 0n ? s.closing : 0n), url }),
     );
     return { ...share!, clientPhone: s.client?.phone ?? null };
   });

@@ -50,7 +50,7 @@ export async function assertPlanFits(
     });
   }
   const found = await tx.project.findMany({
-    where: { tenantId, id: { in: requested }, status: { in: [...PLAN_COUNTED_PROJECT_STATUSES] } },
+    where: { tenantId, id: { in: requested }, isDemo: false, status: { in: [...PLAN_COUNTED_PROJECT_STATUSES] } },
     select: { id: true },
   });
   const ok = new Set(found.map((p) => p.id));
@@ -72,7 +72,7 @@ export async function parkProjectsOverLimit(
 ): Promise<string[]> {
   if (target.maxActiveProjects === null) return [];
   const active = await tx.project.findMany({
-    where: { tenantId, status: { in: [...PLAN_COUNTED_PROJECT_STATUSES] } },
+    where: { tenantId, isDemo: false, status: { in: [...PLAN_COUNTED_PROJECT_STATUSES] } },
     select: { id: true },
     orderBy: { updatedAt: 'desc' },
   });

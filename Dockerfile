@@ -61,6 +61,8 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/package.json ./
 COPY --chown=node:node prisma.config.ts ./
 COPY --chown=node:node prisma ./prisma
+# Urdu font for PDFs (Noto Nastaliq Urdu, SIL OFL 1.1), embedded into Urdu PDFs by src/core/pdf/fonts.ts.
+COPY --chown=node:node assets ./assets
 COPY --chown=node:node deploy/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod 0755 /usr/local/bin/docker-entrypoint.sh \
   && mkdir -p /app/storage && chown node:node /app/storage

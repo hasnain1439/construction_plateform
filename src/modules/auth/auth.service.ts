@@ -20,10 +20,11 @@ import {
   Unauthorized,
 } from '../../core/errors/AppError.js';
 import { assertWithinLimit, lockPlanUsage } from '../../core/plan/planLimits.js';
+import { dbLanguage, langOf, tr, type Lang } from '../../core/i18n/index.js';
 import { hashSecret } from '../../core/utils/crypto.js';
 import { maskPhone } from '../../core/utils/phone.js';
 import { slugify } from '../../core/utils/slug.js';
-import type { TenantStatus } from '../../generated/prisma/enums.js';
+import type { Language, TenantStatus } from '../../generated/prisma/enums.js';
 import { optionalSignedUrl } from '../attachments/attachments.service.js';
 import { provisionMasterData } from '../master-data/provision.js';
 import { defaultRoleId, provisionPermissions } from '../permissions/provision.js';
@@ -38,12 +39,14 @@ import type {
   MeDto,
   OtpRequestInput,
   OtpVerifyInput,
+  PreferencesDto,
   ResetPasswordInput,
   SessionDto,
   SignupInput,
   SubscriptionDto,
   TenantDto,
   UpdateMeInput,
+  UpdatePreferencesInput,
   UserDto,
 } from './auth.schema.js';
 import * as alerts from '../notifications/alerts.js';
@@ -121,7 +124,7 @@ async function toUserDto(user: repo.ProfileUser): Promise<UserDto> {
     phone: user.phone,
     email: user.email,
     role: user.role,
-    language: user.language,
+    language: langOf(user.language),
     photoUrl: await optionalSignedUrl(user.photo),
     canSeeFinancials: user.canSeeFinancials,
   };
@@ -300,6 +303,7 @@ export async function signup(input: SignupInput): Promise<AuthResult> {
       email: input.email ?? null,
       passwordHash,
       role: 'THEKEDAR',
+      ...(input.language ? { language: dbLanguage(input.language) } : {}),
     });
     // Starting master data: material catalog, quality categories, labour rates, billing template.
     await provisionMasterData(tx, tenant.id);
@@ -394,21 +398,32 @@ export async function login(input: LoginInput): Promise<AuthResult> {
 export async function requestLoginOtp(input: OtpRequestInput) {
   const users = await repo.findActiveUsersByPhone(prismaAdmin, input.phone);
   if (!users.length) throw new NotFound('PHONE_NOT_REGISTERED', 'No account uses this phone number.');
-  const { code, expiresIn } = await issueOtp(input.phone, input.purpose);
+  const { code, expiresIn } = await issueOtp(input.phone, input.purpose, languageOfUsers(users));
   // Same code by email to every address on this phone, so sign-in works when SMS is slow or missing.
-  const emails = [...new Set(users.map((u) => u.email).filter((e): e is string => Boolean(e)))];
+  const emails = emailsWithLanguage(users);
   const minutes = Math.max(1, Math.round(expiresIn / 60));
   await Promise.all(
-    emails.map((to) =>
-      trySendMail({
-        to,
-        type: 'OTP',
-        subject: 'Your login code',
-        text: `Your login code is ${code}. It expires in ${minutes} minutes.\nDo not share it with anyone. If you did not try to sign in, ignore this email.`,
-      }),
-    ),
+    emails.map(({ to, lang }) => trySendMail({ to, type: 'OTP', subject: tr(lang, 'mail.otp.subject'), text: tr(lang, 'mail.otp.text', { code, minutes }) })),
   );
   return { sent: true as const, expiresIn, resendAfter: OTP_RESEND_SECONDS, emailed: emails.length > 0 };
+}
+
+type LangUser = { language: Language; lastLoginAt: Date | null };
+
+/**
+ * The language for a message to a phone that may belong to several users (one per company):
+ * the one who signed in most recently (else the first account).
+ */
+export function languageOfUsers(users: LangUser[]): Lang {
+  const latest = [...users].sort((a, b) => (b.lastLoginAt?.getTime() ?? 0) - (a.lastLoginAt?.getTime() ?? 0))[0];
+  return langOf(latest?.language);
+}
+
+/** Distinct emails of these users, each in the language of the (latest signed-in) user owning it. */
+function emailsWithLanguage(users: Array<LangUser & { email: string | null }>): Array<{ to: string; lang: Lang }> {
+  const byEmail = new Map<string, LangUser[]>();
+  for (const u of users) if (u.email) byEmail.set(u.email, [...(byEmail.get(u.email) ?? []), u]);
+  return [...byEmail].map(([to, owners]) => ({ to, lang: languageOfUsers(owners) }));
 }
 
 export async function verifyLoginOtp(input: OtpVerifyInput): Promise<AuthResult> {
@@ -554,14 +569,14 @@ export async function forgotPassword(input: ForgotPasswordInput): Promise<{ sent
   const phones = [...new Set(users.map((u) => u.phone))];
   for (const phone of phones) {
     try {
-      const { code } = await issueOtp(phone, 'PASSWORD_RESET');
-      const emails = [...new Set(users.filter((u) => u.phone === phone && u.email).map((u) => u.email!))];
-      for (const email of emails) {
+      const owners = users.filter((u) => u.phone === phone);
+      const { code } = await issueOtp(phone, 'PASSWORD_RESET', languageOfUsers(owners));
+      for (const { to, lang } of emailsWithLanguage(owners)) {
         await mailProvider().send({
-          to: email,
+          to,
           type: 'PASSWORD_RESET',
-          subject: 'Your password reset code',
-          text: `Your password reset code is ${code}. It expires in ${Math.round(env.OTP_TTL_SECONDS / 60)} minutes.\nIf you did not request this, you can ignore this email.`,
+          subject: tr(lang, 'mail.reset.subject'),
+          text: tr(lang, 'mail.reset.text', { code, minutes: Math.round(env.OTP_TTL_SECONDS / 60) }),
         });
       }
     } catch (err) {
@@ -676,6 +691,16 @@ export async function updateMe(input: UpdateMeInput): Promise<MeDto> {
   return getMe();
 }
 
+/**
+ * The signed-in user's own preferences (language for SMS, email, notifications, PDFs). Any
+ * company user, also in a read-only company. Not audited: a personal display setting.
+ */
+export async function updatePreferences(input: UpdatePreferencesInput): Promise<PreferencesDto> {
+  const ctx = getCtx();
+  await withTenant(ctx.tenantId!, (tx) => repo.updateUser(tx, ctx.userId!, { language: dbLanguage(input.language) }));
+  return { language: input.language };
+}
+
 export async function listSessions(): Promise<SessionDto[]> {
   const ctx = getCtx();
   const sessions = await withTenant(ctx.tenantId!, (tx) => repo.listActiveSessions(tx, ctx.userId!, new Date()));
@@ -754,6 +779,8 @@ export async function acceptInvitation(token: string, input: AcceptInvitationInp
       passwordHash,
       role: invitation.role,
       roleId: invitation.role === 'THEKEDAR' ? null : (invitation.roleId ?? (await defaultRoleId(tx, tenantId, invitation.role))),
+      // The invite's language (chosen by the inviter) becomes the person's language.
+      language: invitation.language,
     });
     // The old flag on a PM invite = the financial bundle as overrides.
     if (invitation.role === 'PM' && invitation.canSeeFinancials) {

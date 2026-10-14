@@ -19,6 +19,7 @@ import {
   resetPasswordBody,
   signupBody,
   updateMeBody,
+  updatePreferencesBody,
 } from './auth.schema.js';
 
 /** Mounted at /api/v1/auth */
@@ -41,6 +42,7 @@ authRouter.post('/logout-all', authenticate, h(c.logoutAll));
 // users can still change their password and language.
 authRouter.get('/me', authenticate, tenantContext, h(c.getMe));
 authRouter.patch('/me', authenticate, tenantContext, validate({ body: updateMeBody }), h(c.updateMe));
+authRouter.patch('/me/preferences', authenticate, tenantContext, validate({ body: updatePreferencesBody }), h(c.updatePreferences));
 authRouter.get('/sessions', authenticate, tenantContext, h(c.listSessions));
 
 /** Mounted at /api/v1/invitations */

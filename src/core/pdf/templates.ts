@@ -1,7 +1,11 @@
 /**
- * Plain HTML templates for billing PDFs (no framework). Every value is escaped; money is
- * shown South-Asian style ("Rs 27,75,000").
+ * Plain HTML templates for billing PDFs and report files (no framework). Every value is escaped;
+ * money is shown South-Asian style ("Rs 27,75,000"). Labels come from the i18n catalogue in the
+ * document's language (`lang`, default English): Urdu documents are `dir="rtl"` with the embedded
+ * Nastaliq font (fonts.ts); numbers, codes and money stay left-to-right inside <bdi>.
  */
+import { CATALOGS, enumLabel, isRtl, tr, unitLabel, type Lang, type MessageKey, type Params } from '../i18n/index.js';
+import { URDU_FONT_FAMILY, urduFontFace } from './fonts.js';
 
 export interface Letterhead {
   name: string;
@@ -43,6 +47,18 @@ export function day(date: string | null | undefined): string {
   return date ? `${dayMonth(date)} ${date.slice(0, 4)}` : '—';
 }
 
+/** Left-to-right island (money, dates, numbers, codes) — keeps its order inside Urdu text. */
+const ltr = (html: string) => `<bdi dir="ltr">${html}</bdi>`;
+const money = (paisa: bigint | string | number) => ltr(rs(paisa));
+const date = (d: string | null | undefined) => ltr(day(d));
+
+/** Escaped label in the document language (params are escaped too; pre-built HTML goes in `html`). */
+function label(lang: Lang, key: MessageKey, params: Params = {}, html: Record<string, string> = {}): string {
+  return esc(CATALOGS[lang][key]).replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (whole, name: string) =>
+    html[name] !== undefined ? html[name] : params[name] !== undefined && params[name] !== null ? esc(params[name]) : whole,
+  );
+}
+
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
   * { box-sizing: border-box; }
@@ -52,16 +68,16 @@ const CSS = `
   .brand img { height: 46px; width: auto; }
   .brand h1 { font-size: 18px; margin: 0; }
   .muted { color: #64748b; }
-  .doc { text-align: right; }
+  .doc { text-align: end; }
   .doc h2 { margin: 0; font-size: 20px; color: #1d4ed8; letter-spacing: .5px; }
   .grid { display: flex; gap: 24px; margin-bottom: 16px; }
   .grid > div { flex: 1; }
   .label { font-size: 9px; text-transform: uppercase; letter-spacing: .6px; color: #64748b; margin-bottom: 2px; }
   table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-  th { text-align: left; font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: #475569; background: #f1f5f9; padding: 7px 8px; }
+  th { text-align: start; font-size: 9px; text-transform: uppercase; letter-spacing: .5px; color: #475569; background: #f1f5f9; padding: 7px 8px; }
   td { padding: 7px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
-  .r { text-align: right; white-space: nowrap; }
-  .totals { margin-left: auto; width: 46%; margin-top: 10px; }
+  .r { text-align: end; white-space: nowrap; }
+  .totals { margin-inline-start: auto; width: 46%; margin-top: 10px; }
   .totals td { border: none; padding: 4px 8px; }
   .totals .grand td { font-size: 13px; font-weight: 700; border-top: 2px solid #0f172a; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 9px; font-weight: 600; }
@@ -69,20 +85,45 @@ const CSS = `
   .note { margin-top: 18px; padding: 10px; background: #f8fafc; border-radius: 6px; }
 `;
 
-function shell(company: Letterhead, docTitle: string, docMeta: string, body: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${CSS}</style></head><body>
+/** Urdu: Nastaliq (embedded) with room for its tall letters; no letter-spacing / upper-casing. */
+const URDU_CSS = () => `
+  ${urduFontFace()}
+  body { font-family: Inter, ${URDU_FONT_FAMILY}; line-height: 1.9; }
+  .label, th, .doc h2 { letter-spacing: 0; text-transform: none; }
+  th { font-size: 10px; } .label { font-size: 10px; }
+  bdi { font-family: Inter, Arial, sans-serif; }
+`;
+
+/** `<html lang dir>` + styles for the language. */
+function documentHead(lang: Lang): string {
+  const rtl = isRtl(lang);
+  return `<!doctype html><html lang="${lang === 'ur' ? 'ur' : 'en'}" dir="${rtl ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><style>${CSS}${rtl ? URDU_CSS() : ''}</style></head>`;
+}
+
+function shell(company: Letterhead, docTitle: string, docMeta: string, body: string, lang: Lang): string {
+  return `${documentHead(lang)}<body>
   <div class="head">
     <div class="brand">
       ${company.logoUrl ? `<img src="${esc(company.logoUrl)}" alt="">` : ''}
       <div>
         <h1>${esc(company.name)}</h1>
-        <div class="muted">${[company.address, company.phone, company.ntn ? `NTN ${company.ntn}` : null].filter(Boolean).map(esc).join(' · ')}</div>
+        <div class="muted">${[company.address, company.phone, company.ntn ? `NTN ${company.ntn}` : null].filter(Boolean).map((v) => ltr(esc(v))).join(' · ')}</div>
       </div>
     </div>
     <div class="doc"><h2>${esc(docTitle)}</h2><div class="muted">${docMeta}</div></div>
   </div>
   ${body}
   </body></html>`;
+}
+
+/** Footer (page numbers) for the renderer, in the language. */
+export function pdfFooter(text: string, lang: Lang): string {
+  const rtl = isRtl(lang);
+  return `
+  <div dir="${rtl ? 'rtl' : 'ltr'}" style="width:100%;font-family:Inter,${rtl ? URDU_FONT_FAMILY : 'Arial,sans-serif'};font-size:8px;color:#64748b;padding:0 14mm;display:flex;justify-content:space-between">
+    <span>${esc(text)}</span>
+    <span>${esc(tr(lang, 'pdf.page'))} <span class="pageNumber"></span> ${esc(tr(lang, 'pdf.of'))} <span class="totalPages"></span></span>
+  </div>`;
 }
 
 export interface InvoicePdfData {
@@ -103,28 +144,29 @@ export interface InvoicePdfData {
   notes: string | null;
 }
 
-export function invoiceHtml(d: InvoicePdfData): string {
+export function invoiceHtml(d: InvoicePdfData, lang: Lang = 'en'): string {
+  const L = (key: MessageKey, params?: Params, html?: Record<string, string>) => label(lang, key, params, html);
   const rows = d.lines
     .map(
-      (l, i) => `<tr><td>${i + 1}</td><td>${esc(l.description)}</td><td class="r">${l.quantity ? `${esc(l.quantity)} ${esc(l.unit ?? '')}` : ''}</td>
-      <td class="r">${l.ratePaisa !== null ? rs(l.ratePaisa) : ''}</td><td class="r">${rs(l.amountPaisa)}</td></tr>`,
+      (l, i) => `<tr><td>${i + 1}</td><td>${esc(l.description)}</td><td class="r">${l.quantity ? `${ltr(esc(l.quantity))} ${esc(unitLabel(lang, l.unit))}` : ''}</td>
+      <td class="r">${l.ratePaisa !== null ? money(l.ratePaisa) : ''}</td><td class="r">${money(l.amountPaisa)}</td></tr>`,
     )
     .join('');
   const body = `
   <div class="grid">
-    <div><div class="label">Bill to</div><strong>${esc(d.client?.name ?? '—')}</strong><div class="muted">${[d.client?.phone, d.client?.address].filter(Boolean).map(esc).join('<br>')}</div></div>
-    <div><div class="label">Project</div><strong>${esc(d.project.name)}</strong><div class="muted">${esc(d.project.code)}${d.project.siteAddress ? `<br>${esc(d.project.siteAddress)}` : ''}</div></div>
-    <div><div class="label">Due</div><strong>${day(d.dueDate)}</strong></div>
+    <div><div class="label">${L('pdf.billTo')}</div><strong>${esc(d.client?.name ?? '—')}</strong><div class="muted">${[d.client?.phone ? ltr(esc(d.client.phone)) : null, d.client?.address ? esc(d.client.address) : null].filter(Boolean).join('<br>')}</div></div>
+    <div><div class="label">${L('pdf.project')}</div><strong>${esc(d.project.name)}</strong><div class="muted">${ltr(esc(d.project.code))}${d.project.siteAddress ? `<br>${esc(d.project.siteAddress)}` : ''}</div></div>
+    <div><div class="label">${L('pdf.due')}</div><strong>${date(d.dueDate)}</strong></div>
   </div>
-  <table><thead><tr><th>#</th><th>Description</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>
+  <table><thead><tr><th>#</th><th>${L('pdf.description')}</th><th class="r">${L('pdf.qty')}</th><th class="r">${L('pdf.rate')}</th><th class="r">${L('pdf.amount')}</th></tr></thead><tbody>${rows}</tbody></table>
   <table class="totals">
-    <tr><td>Subtotal</td><td class="r">${rs(d.subtotalPaisa)}</td></tr>
-    ${d.taxPaisa > 0n ? `<tr><td>${esc(d.taxLabel ?? 'Sales tax')} ${esc(d.taxRatePercent ?? '')}%</td><td class="r">${rs(d.taxPaisa)}</td></tr>` : ''}
-    <tr class="grand"><td>Total</td><td class="r">${rs(d.totalPaisa)}</td></tr>
-    ${d.paidPaisa > 0n ? `<tr><td>Received</td><td class="r">${rs(d.paidPaisa)}</td></tr><tr><td><strong>Balance due</strong></td><td class="r"><strong>${rs(d.balancePaisa)}</strong></td></tr>` : ''}
+    <tr><td>${L('pdf.subtotal')}</td><td class="r">${money(d.subtotalPaisa)}</td></tr>
+    ${d.taxPaisa > 0n ? `<tr><td>${d.taxLabel ? esc(d.taxLabel) : L('pdf.salesTax')} ${ltr(`${esc(d.taxRatePercent ?? '')}%`)}</td><td class="r">${money(d.taxPaisa)}</td></tr>` : ''}
+    <tr class="grand"><td>${L('pdf.total')}</td><td class="r">${money(d.totalPaisa)}</td></tr>
+    ${d.paidPaisa > 0n ? `<tr><td>${L('pdf.received')}</td><td class="r">${money(d.paidPaisa)}</td></tr><tr><td><strong>${L('pdf.balanceDue')}</strong></td><td class="r"><strong>${money(d.balancePaisa)}</strong></td></tr>` : ''}
   </table>
   ${d.notes ? `<div class="note">${esc(d.notes)}</div>` : ''}`;
-  return shell(d.company, 'INVOICE', `${esc(d.number)}<br>Issued ${day(d.issueDate)}`, body);
+  return shell(d.company, tr(lang, 'pdf.invoice'), `${ltr(esc(d.number))}<br>${L('pdf.issued', {}, { date: date(d.issueDate) })}`, body, lang);
 }
 
 export interface ReceiptPdfData {
@@ -135,7 +177,10 @@ export interface ReceiptPdfData {
   project: { name: string; code: string };
   amountPaisa: bigint;
   whtPaisa: bigint;
+  /** Payment method enum (CASH, CHEQUE…) — labelled in the language. */
   method: string;
+  bankName: string | null;
+  chequeNo: string | null;
   reference: string | null;
   status: string;
   allocations: Array<{ invoiceNumber: string; amountPaisa: bigint }>;
@@ -143,24 +188,32 @@ export interface ReceiptPdfData {
   receivedBy: string | null;
 }
 
-export function receiptHtml(d: ReceiptPdfData): string {
+export function receiptHtml(d: ReceiptPdfData, lang: Lang = 'en'): string {
+  const L = (key: MessageKey, params?: Params, html?: Record<string, string>) => label(lang, key, params, html);
   const badge = d.status === 'CLEARED' ? 'ok' : d.status === 'PENDING' ? 'warn' : 'bad';
-  const rows = d.allocations.map((a) => `<tr><td>${esc(a.invoiceNumber)}</td><td class="r">${rs(a.amountPaisa)}</td></tr>`).join('');
+  const rows = d.allocations.map((a) => `<tr><td>${ltr(esc(a.invoiceNumber))}</td><td class="r">${money(a.amountPaisa)}</td></tr>`).join('');
+  const method = [esc(enumLabel(lang, 'PaymentMethod', d.method)), d.bankName ? esc(d.bankName) : null].filter(Boolean).join(' · ');
+  const reference = [d.chequeNo ? L('pdf.cheque', { number: d.chequeNo }) : null, d.reference ? ltr(esc(d.reference)) : null].filter(Boolean).join(' · ');
   const body = `
   <div class="grid">
-    <div><div class="label">Received from</div><strong>${esc(d.client?.name ?? '—')}</strong></div>
-    <div><div class="label">Project</div><strong>${esc(d.project.name)}</strong><div class="muted">${esc(d.project.code)}</div></div>
-    <div><div class="label">Method</div><strong>${esc(d.method)}</strong><div class="muted">${esc(d.reference ?? '')}</div><span class="badge ${badge}">${esc(d.status)}</span></div>
+    <div><div class="label">${L('pdf.receivedFrom')}</div><strong>${esc(d.client?.name ?? '—')}</strong></div>
+    <div><div class="label">${L('pdf.project')}</div><strong>${esc(d.project.name)}</strong><div class="muted">${ltr(esc(d.project.code))}</div></div>
+    <div><div class="label">${L('pdf.method')}</div><strong>${method}</strong><div class="muted">${reference}</div><span class="badge ${badge}">${esc(enumLabel(lang, 'ClientPaymentStatus', d.status))}</span></div>
   </div>
-  <table class="totals" style="width:60%;margin-left:0">
-    <tr class="grand"><td>Amount received</td><td class="r">${rs(d.amountPaisa)}</td></tr>
-    ${d.whtPaisa > 0n ? `<tr><td>Tax withheld (WHT)</td><td class="r">${rs(d.whtPaisa)}</td></tr>` : ''}
+  <table class="totals" style="width:60%;margin-inline-start:0">
+    <tr class="grand"><td>${L('pdf.amountReceived')}</td><td class="r">${money(d.amountPaisa)}</td></tr>
+    ${d.whtPaisa > 0n ? `<tr><td>${L('pdf.wht')}</td><td class="r">${money(d.whtPaisa)}</td></tr>` : ''}
   </table>
-  ${rows ? `<table><thead><tr><th>Against invoice</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
-  ${d.creditPaisa > 0n ? `<div class="note">Kept as advance / credit: <strong>${rs(d.creditPaisa)}</strong> — applied to the next invoice.</div>` : ''}
-  ${d.receivedBy ? `<p class="muted" style="margin-top:28px">Received by ${esc(d.receivedBy)}</p>` : ''}`;
-  return shell(d.company, 'RECEIPT', `${esc(d.number)}<br>${day(d.receivedOn)}`, body);
+  ${rows ? `<table><thead><tr><th>${L('pdf.againstInvoice')}</th><th class="r">${L('pdf.amount')}</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
+  ${d.creditPaisa > 0n ? `<div class="note">${L('pdf.creditKept', {}, { amount: `<strong>${money(d.creditPaisa)}</strong>` })}</div>` : ''}
+  ${d.receivedBy ? `<p class="muted" style="margin-top:28px">${L('pdf.receivedBy', { name: d.receivedBy })}</p>` : ''}`;
+  return shell(d.company, tr(lang, 'pdf.receipt'), `${ltr(esc(d.number))}<br>${date(d.receivedOn)}`, body, lang);
 }
+
+/** What a statement row is, so its "detail" text can be written in the document language. */
+export type StatementDetail =
+  | { kind: 'INVOICE'; dueDate: string | null }
+  | { kind: 'PAYMENT'; method: string; bankName: string | null; chequeNo: string | null; whtPaisa: bigint };
 
 export interface StatementPdfData {
   company: Letterhead;
@@ -169,36 +222,52 @@ export interface StatementPdfData {
   from: string;
   to: string;
   openingPaisa: bigint;
-  rows: Array<{ date: string; kind: string; reference: string; description: string; debitPaisa: bigint; creditPaisa: bigint; balancePaisa: bigint; status?: string | null }>;
+  rows: Array<{ date: string; kind: string; reference: string; description: string; detail?: StatementDetail; debitPaisa: bigint; creditPaisa: bigint; balancePaisa: bigint; status?: string | null }>;
   closingPaisa: bigint;
   creditPaisa: bigint;
 }
 
-export function statementHtml(d: StatementPdfData): string {
+function statementDetail(lang: Lang, r: StatementPdfData['rows'][number]): string {
+  const d = r.detail;
+  if (!d) return esc(r.description);
+  if (d.kind === 'INVOICE') return label(lang, 'pdf.invoiceDue', {}, { date: date(d.dueDate) });
+  return [
+    esc(enumLabel(lang, 'PaymentMethod', d.method)),
+    d.bankName ? esc(d.bankName) : null,
+    d.chequeNo ? label(lang, 'pdf.cheque', { number: d.chequeNo }) : null,
+    d.whtPaisa > 0n ? label(lang, 'pdf.inclWht', {}, { amount: money(d.whtPaisa) }) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+export function statementHtml(d: StatementPdfData, lang: Lang = 'en'): string {
+  const L = (key: MessageKey, params?: Params, html?: Record<string, string>) => label(lang, key, params, html);
   const rows = d.rows
     .map(
-      (r) => `<tr><td>${day(r.date)}</td><td>${esc(r.kind)}${r.status ? ` <span class="badge ${r.status === 'BOUNCED' ? 'bad' : r.status === 'PENDING' ? 'warn' : 'ok'}">${esc(r.status)}</span>` : ''}</td>
-      <td>${esc(r.reference)}</td><td>${esc(r.description)}</td><td class="r">${r.debitPaisa ? rs(r.debitPaisa) : ''}</td><td class="r">${r.creditPaisa ? rs(r.creditPaisa) : ''}</td><td class="r">${rs(r.balancePaisa)}</td></tr>`,
+      (r) => `<tr><td>${date(r.date)}</td><td>${esc(enumLabel(lang, 'StatementEntry', r.kind))}${r.status ? ` <span class="badge ${r.status === 'BOUNCED' ? 'bad' : r.status === 'PENDING' ? 'warn' : 'ok'}">${esc(enumLabel(lang, 'ClientPaymentStatus', r.status))}</span>` : ''}</td>
+      <td>${ltr(esc(r.reference))}</td><td>${statementDetail(lang, r)}</td><td class="r">${r.debitPaisa ? money(r.debitPaisa) : ''}</td><td class="r">${r.creditPaisa ? money(r.creditPaisa) : ''}</td><td class="r">${money(r.balancePaisa)}</td></tr>`,
     )
     .join('');
   const body = `
   <div class="grid">
-    <div><div class="label">Owner</div><strong>${esc(d.client?.name ?? '—')}</strong></div>
-    <div><div class="label">Project</div><strong>${esc(d.project.name)}</strong><div class="muted">${esc(d.project.code)}</div></div>
-    <div><div class="label">Period</div><strong>${day(d.from)} – ${day(d.to)}</strong></div>
+    <div><div class="label">${L('pdf.owner')}</div><strong>${esc(d.client?.name ?? '—')}</strong></div>
+    <div><div class="label">${L('pdf.project')}</div><strong>${esc(d.project.name)}</strong><div class="muted">${ltr(esc(d.project.code))}</div></div>
+    <div><div class="label">${L('pdf.period')}</div><strong>${date(d.from)} – ${date(d.to)}</strong></div>
   </div>
-  <table><thead><tr><th>Date</th><th>Entry</th><th>Ref</th><th>Detail</th><th class="r">Billed</th><th class="r">Received</th><th class="r">Balance</th></tr></thead>
-  <tbody><tr><td>${day(d.from)}</td><td colspan="5"><strong>Opening balance</strong></td><td class="r">${rs(d.openingPaisa)}</td></tr>${rows}</tbody></table>
+  <table><thead><tr><th>${L('pdf.date')}</th><th>${L('pdf.entry')}</th><th>${L('pdf.ref')}</th><th>${L('pdf.detail')}</th><th class="r">${L('pdf.billed')}</th><th class="r">${L('pdf.received')}</th><th class="r">${L('pdf.balance')}</th></tr></thead>
+  <tbody><tr><td>${date(d.from)}</td><td colspan="5"><strong>${L('pdf.openingBalance')}</strong></td><td class="r">${money(d.openingPaisa)}</td></tr>${rows}</tbody></table>
   <table class="totals">
-    <tr class="grand"><td>Balance due</td><td class="r">${rs(d.closingPaisa)}</td></tr>
-    ${d.creditPaisa > 0n ? `<tr><td>Advance / credit held</td><td class="r">${rs(d.creditPaisa)}</td></tr>` : ''}
+    <tr class="grand"><td>${L('pdf.balanceDue')}</td><td class="r">${money(d.closingPaisa)}</td></tr>
+    ${d.creditPaisa > 0n ? `<tr><td>${L('pdf.creditHeld')}</td><td class="r">${money(d.creditPaisa)}</td></tr>` : ''}
   </table>`;
-  return shell(d.company, 'STATEMENT', `Owner account<br>${day(d.to)}`, body);
+  return shell(d.company, tr(lang, 'pdf.statement'), `${L('pdf.ownerAccount')}<br>${date(d.to)}`, body, lang);
 }
 
 export type ReportColumnType = 'text' | 'money' | 'qty' | 'int' | 'percent' | 'date';
 export interface ReportPdfData {
   company: Letterhead;
+  /** Already in the document language (reports.export localizeReport). */
   title: string;
   subtitle: string;
   generatedOn: string;
@@ -211,28 +280,28 @@ function cell(type: ReportColumnType, v: string | number | null | undefined): st
   if (v === null || v === undefined || v === '') return '';
   switch (type) {
     case 'money':
-      return rs(BigInt(v));
+      return money(BigInt(v));
     case 'percent':
-      return `${v}%`;
+      return ltr(`${v}%`);
     case 'date':
-      return day(String(v));
+      return date(String(v));
     case 'qty':
     case 'int':
-      return Number(v).toLocaleString('en-PK', { maximumFractionDigits: 3 });
+      return ltr(Number(v).toLocaleString('en-PK', { maximumFractionDigits: 3 }));
     default:
       return esc(v);
   }
 }
 
 /** Generic report table (letterhead, filters line, rows, totals). */
-export function reportHtml(d: ReportPdfData): string {
+export function reportHtml(d: ReportPdfData, lang: Lang = 'en'): string {
   const right = (t: ReportColumnType) => (t === 'text' || t === 'date' ? '' : ' class="r"');
   const head = d.columns.map((c) => `<th${right(c.type)}>${esc(c.label)}</th>`).join('');
   const body = d.rows.map((r) => `<tr>${d.columns.map((c) => `<td${right(c.type)}>${cell(c.type, r[c.key])}</td>`).join('')}</tr>`).join('');
-  const totals = d.totals ? `<tr class="total">${d.columns.map((c, i) => `<td${right(c.type)}><strong>${i === 0 ? 'Total' : cell(c.type, d.totals![c.key])}</strong></td>`).join('')}</tr>` : '';
+  const totals = d.totals ? `<tr class="total">${d.columns.map((c, i) => `<td${right(c.type)}><strong>${i === 0 ? esc(tr(lang, 'common.total')) : cell(c.type, d.totals![c.key])}</strong></td>`).join('')}</tr>` : '';
   const html = `
   <style>table.report { font-size: 8.5px; } table.report th, table.report td { padding: 5px 5px; } tr.total td { border-top: 2px solid #0f172a; }</style>
   <div class="muted" style="margin-bottom:8px">${esc(d.subtitle)}</div>
-  <table class="report"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${d.columns.length}">No rows</td></tr>`}${totals}</tbody></table>`;
-  return shell(d.company, d.title.toUpperCase(), `Generated ${day(d.generatedOn)}`, html);
+  <table class="report"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${d.columns.length}">${esc(tr(lang, 'common.noRows'))}</td></tr>`}${totals}</tbody></table>`;
+  return shell(d.company, lang === 'ur' ? d.title : d.title.toUpperCase(), label(lang, 'pdf.generated', {}, { date: date(d.generatedOn) }), html, lang);
 }

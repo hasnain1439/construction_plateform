@@ -1,0 +1,4 @@
+NotoNastaliqUrdu-arabic.woff2 - Noto Nastaliq Urdu (Arabic-script subset, variable weight)
+Copyright The Noto Project Authors (https://github.com/notofonts/nastaliq-urdu)
+Licensed under the SIL Open Font License, Version 1.1 - https://openfontlicense.org
+Used by src/core/pdf/fonts.ts: embedded (base64 @font-face) into Urdu PDFs, so chromium needs no system Urdu font.

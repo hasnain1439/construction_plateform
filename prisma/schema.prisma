@@ -394,6 +394,7 @@ model Tenant {
   billingEvents          BillingEvent[]
   notifications          Notification[]
   dailyLogs              DailyLog[]
+  openingBalances        OpeningBalance[]
 }
 
 model TenantSettings {
@@ -431,6 +432,11 @@ model TenantSettings {
   taxLabel                  String?
   /// Whether a PM with billing.view may record client payments.
   pmCanRecordPayments       Boolean   @default(false)
+  /// Setup checklist on the dashboard hidden by the owner (POST /onboarding/checklist/dismiss).
+  onboardingDismissedAt     DateTime? @db.Timestamptz(3)
+  onboardingDismissedById   String?   @db.Uuid
+  /// The owner confirmed the material / labour rates (setup checklist step).
+  ratesReviewedAt           DateTime? @db.Timestamptz(3)
   createdAt                 DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt                 DateTime  @updatedAt @db.Timestamptz(3)
   tenant                    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -614,6 +620,8 @@ model Project {
   wizardCompletedSteps   Int[]                   @default([])
   /// Set by the quotations module (Phase 2).
   createdFromQuoteId     String?                 @db.Uuid
+  /// Sample project from "Try with demo data": never counts against the plan, removed by DELETE /demo.
+  isDemo                 Boolean                 @default(false)
   activatedAt            DateTime?               @db.Timestamptz(3)
   createdById            String?                 @db.Uuid
   createdAt              DateTime                @default(now()) @db.Timestamptz(3)
@@ -759,6 +767,8 @@ model Invitation {
   /// Permission role given on accept (default: the system template of the invited role).
   roleId           String?          @db.Uuid
   projectIds       String[]         @db.Uuid
+  /// Language of the invite SMS / email; becomes the user's language on accept.
+  language         Language         @default(ROMAN_URDU)
   status           InvitationStatus @default(PENDING)
   expiresAt        DateTime         @db.Timestamptz(3)
   invitedById      String?          @db.Uuid
@@ -1082,6 +1092,8 @@ model Supplier {
   ntn             String?
   notes           String?
   isActive        Boolean               @default(true)
+  /// Sample data from "Try with demo data" (removed by DELETE /demo).
+  isDemo          Boolean               @default(false)
   createdAt       DateTime              @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime              @updatedAt @db.Timestamptz(3)
   tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1125,6 +1137,8 @@ model Worker {
   dailyRatePaisa  BigInt
   isActive        Boolean              @default(true)
   notes           String?
+  /// Sample data from "Try with demo data" (removed by DELETE /demo).
+  isDemo          Boolean              @default(false)
   createdById     String?              @db.Uuid
   createdAt       DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime             @updatedAt @db.Timestamptz(3)
@@ -1186,6 +1200,8 @@ model Client {
   email       String?
   address     String?
   notes       String?
+  /// Sample data from "Try with demo data" (removed by DELETE /demo).
+  isDemo      Boolean         @default(false)
   createdById String?         @db.Uuid
   createdAt   DateTime        @default(now()) @db.Timestamptz(3)
   updatedAt   DateTime        @updatedAt @db.Timestamptz(3)
@@ -1398,6 +1414,8 @@ enum StockMovementType {
   USAGE_OUT
   COUNT_ADJUSTMENT
   CORRECTION
+  /// Opening stock entered on the Opening balances page (Central Store, with its rate).
+  OPENING_IN
 }
 
 enum DeliverTo {
@@ -2112,6 +2130,8 @@ enum CashEntryType {
   HANDOVER_IN
   COUNT_ADJUSTMENT
   REFUND_IN
+  /// Cash in hand before the app (Opening balances page).
+  OPENING
 }
 
 enum ExpenseCategory {
@@ -2389,6 +2409,8 @@ model CashAccount {
   id           String         @id @default(uuid(7)) @db.Uuid
   tenantId     String         @db.Uuid
   holderUserId String         @db.Uuid
+  /// Sample cash book of "Try with demo data" (inactive, removed by DELETE /demo).
+  isDemo       Boolean        @default(false)
   name         String
   isActive     Boolean        @default(true)
   createdAt    DateTime       @default(now()) @db.Timestamptz(3)
@@ -2732,8 +2754,12 @@ model Notification {
   userId    String               @db.Uuid
   type      NotificationType
   severity  NotificationSeverity
+  /// Title / body rendered in the recipient's language when created (fallback for old rows).
   title     String
   body      String
+  /// Message key + params (core/i18n): the inbox re-renders the text in the reader's current language.
+  textKey   String?
+  params    Json?
   projectId String?              @db.Uuid
   refType   String
   refId     String               @db.Uuid
@@ -2847,4 +2873,38 @@ model SyncIdMap {
   @@unique([tenantId, clientId])
   @@index([tenantId, deviceId, status, createdAt])
   @@index([tenantId, serverId])
+}
+
+// ─── Onboarding (Pilot · Part 7) ────────────────────────────────────────────
+
+enum OpeningBalanceKind {
+  SUPPLIER_UDHAAR
+  CASH_IN_HAND
+  STORE_STOCK
+  WORKER_PESHGI
+}
+
+/// One opening balance per item (supplier / cash holder / material / worker), locked once saved.
+/// The money itself lives in the normal ledgers (refType / refId): supplier ledger OPENING,
+/// cash entry OPENING, stock movement OPENING_IN, worker Advance.
+model OpeningBalance {
+  id          String             @id @default(uuid(7)) @db.Uuid
+  tenantId    String             @db.Uuid
+  kind        OpeningBalanceKind
+  /// supplierId / holder userId / materialId / workerId
+  entityId    String             @db.Uuid
+  projectId   String?            @db.Uuid
+  amountPaisa BigInt
+  quantity    Decimal?           @db.Decimal(14, 3)
+  ratePaisa   BigInt?
+  date        DateTime           @db.Date
+  note        String?
+  refType     String
+  refId       String             @db.Uuid
+  createdById String?            @db.Uuid
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, kind, entityId])
+  @@index([tenantId, createdAt])
 }

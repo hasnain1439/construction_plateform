@@ -19,5 +19,5 @@ export async function alreadyNotified(tx: Tx, tenantId: string, type: Notificati
 }
 
 export function activeUsers(tx: Tx, where: Prisma.UserWhereInput) {
-  return tx.user.findMany({ where: { ...where, status: 'ACTIVE' }, select: { id: true, role: true, phone: true, canSeeFinancials: true } });
+  return tx.user.findMany({ where: { ...where, status: 'ACTIVE' }, select: { id: true, role: true, phone: true, canSeeFinancials: true, language: true } });
 }

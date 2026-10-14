@@ -18,6 +18,7 @@ export const cashEntryTypeSchema = z.enum([
   'HANDOVER_IN',
   'COUNT_ADJUSTMENT',
   'REFUND_IN',
+  'OPENING',
 ]);
 export const cashEntryStatusSchema = z.enum(['PENDING_ACK', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'POSTED']);
 const reference = z.string().trim().min(1).max(60);

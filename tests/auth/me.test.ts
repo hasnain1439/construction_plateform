@@ -72,7 +72,7 @@ describe('PATCH /auth/me', () => {
     const s = await loginMobile(owner.phone, owner.password);
     const res = await api().patch('/api/v1/auth/me').set(bearer(s.accessToken)).send({ name: 'Khalid M.', language: 'URDU' });
     expect(res.status).toBe(200);
-    expect(res.body.data.user).toMatchObject({ name: 'Khalid M.', language: 'URDU' });
+    expect(res.body.data.user).toMatchObject({ name: 'Khalid M.', language: 'ur' });
   });
 
   it('password change revokes other sessions but keeps the current one', async () => {

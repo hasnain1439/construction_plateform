@@ -21,7 +21,7 @@ describe('invites and login codes by email as well as SMS', () => {
     expect(res.status).toBe(201);
     const mail = lastMailTo('bilal@example.com');
     expect(mail?.subject).toContain('Mail Test Builders');
-    expect(mail?.html).toContain('Accept invitation');
+    expect(mail?.html).toContain('Invite qabool karein'); // Roman Urdu: the default invite language
     expect(linkIn(mail?.text)).toBeTruthy();
     expect(linkIn(mail?.text)).toBe(linkIn(lastSmsTo('+923452229991')?.body));
   });
@@ -32,7 +32,7 @@ describe('invites and login codes by email as well as SMS', () => {
     const sent = await api().post('/api/v1/invitations').set(await owner()).send({ name: 'Usman Munshi', phone, email, role: 'MUNSHI' });
     expect(sent.status).toBe(201);
     const mail = lastMailTo(email);
-    expect(mail?.subject).toContain('invited');
+    expect(mail?.subject).toContain('invite');
     expect(mail?.text).toContain('Munshi');
     const token = linkIn(mail?.text)!;
     expect(token).toBe(linkIn(lastSmsTo(phone)?.body));

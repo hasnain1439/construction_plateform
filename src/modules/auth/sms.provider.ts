@@ -1,5 +1,6 @@
 import { env, isTest } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
+import type { Lang } from '../../core/i18n/lang.js';
 import { maskPhone } from '../../core/utils/phone.js';
 import { withDeliveryLog, type MessageType, type ProviderSendResult } from './deliveryLog.js';
 
@@ -16,6 +17,8 @@ export interface SmsMessage {
   tenantId?: string | null;
   /** Values for {placeholders} in a configured template (code, minutes, url, company…). */
   params?: Record<string, string | number>;
+  /** Recipient's language of `body` (picks SMS_TEMPLATES["TYPE.lang"] before SMS_TEMPLATES[TYPE]). */
+  lang?: Lang;
 }
 
 /** Implement this for a gateway and register it in `smsProvider()`. Throw when the gateway refuses. */
@@ -34,12 +37,14 @@ export function fillTemplate(template: string, vars: Record<string, string | num
 }
 
 /**
- * The text actually sent: SMS_TEMPLATES[type] filled with the message params (plus {message} =
+ * The text actually sent: SMS_TEMPLATES["type.lang"] (e.g. "OTP.ur") or SMS_TEMPLATES[type] filled
+ * with the message params (plus {message} =
  * the built-in text), or the built-in text when no template is configured or the template uses
  * a placeholder this message doesn't have (never send "{code}" to a user).
  */
 export function smsText(message: SmsMessage, templates: Record<string, string> | undefined = env.SMS_TEMPLATES): string {
-  const template = templates?.[message.type ?? 'GENERIC'];
+  const type = message.type ?? 'GENERIC';
+  const template = (message.lang ? templates?.[`${type}.${message.lang}`] : undefined) ?? templates?.[type];
   if (!template) return message.body;
   const filled = fillTemplate(template, { ...message.params, message: message.body });
   if (/\{[A-Za-z][A-Za-z0-9_]*\}/.test(filled)) {

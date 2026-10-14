@@ -68,7 +68,7 @@ export async function listTenants(query: TenantsQuery) {
 
   // Usage for the whole page in three grouped queries (not N+1).
   const ids = rows.map((r) => r.id);
-  const projects = await prismaAdmin.project.groupBy({ by: ['tenantId'], where: { tenantId: { in: ids }, status: { in: [...PLAN_COUNTED_PROJECT_STATUSES] } }, _count: { _all: true } });
+  const projects = await prismaAdmin.project.groupBy({ by: ['tenantId'], where: { tenantId: { in: ids }, isDemo: false, status: { in: [...PLAN_COUNTED_PROJECT_STATUSES] } }, _count: { _all: true } });
   const office = await prismaAdmin.user.groupBy({
     by: ['tenantId'],
     where: { tenantId: { in: ids }, status: 'ACTIVE', role: { in: ['THEKEDAR', 'PM'] } },

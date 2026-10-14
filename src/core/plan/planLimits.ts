@@ -6,7 +6,7 @@ import { PlanLimit } from '../errors/AppError.js';
  * Plan limits shared by every module that creates something the plan counts.
  *
  *   activeProjects – projects with status ACTIVE or CLOSEOUT (DRAFT, handed-over, closed
- *                    and READ_ONLY projects are free)
+ *                    and READ_ONLY projects are free; so is the one demo project, isDemo)
  *   officeUsers    – active THEKEDAR + PM, plus pending (unexpired) PM invitations,
  *                    which reserve a seat. MUNSHI users and invites never count.
  *
@@ -44,7 +44,7 @@ async function pendingPmInvites(tx: Tx, tenantId: string, now: Date): Promise<nu
 }
 
 export async function getUsage(tx: Tx, tenantId: string, now = new Date()): Promise<Usage> {
-  const activeProjects = await tx.project.count({ where: { tenantId, status: { in: [...PLAN_COUNTED_PROJECT_STATUSES] } } });
+  const activeProjects = await tx.project.count({ where: { tenantId, isDemo: false, status: { in: [...PLAN_COUNTED_PROJECT_STATUSES] } } });
   const officeUsers = (await activeOfficeUsers(tx, tenantId)) + (await pendingPmInvites(tx, tenantId, now));
   return { activeProjects, officeUsers };
 }

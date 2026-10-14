@@ -11,6 +11,7 @@ import {
   resetPasswordBody,
   signupBody,
   updateMeBody,
+  updatePreferencesBody,
 } from '../src/modules/auth/auth.schema.js';
 import { updateCompanyBody, updateSettingsBody, createHolidayBody } from '../src/modules/company/company.schema.js';
 import { createInvitationBody, setUserPasswordBody, setUserProjectsBody, updateUserBody } from '../src/modules/team/team.schema.js';
@@ -29,9 +30,12 @@ import * as ap from '../src/modules/approvals/approvals.schema.js';
 import * as dl from '../src/modules/dailylogs/dailylogs.schema.js';
 import * as sy from '../src/modules/sync/sync.schema.js';
 import * as pe from '../src/modules/permissions/permissions.schema.js';
+import * as ob from '../src/modules/onboarding/onboarding.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
+  'post /api/v1/onboarding/checklist/dismiss': ob.dismissBody,
+  'post /api/v1/opening-balances': ob.openingBody,
   'patch /api/v1/company': updateCompanyBody,
   'patch /api/v1/company/settings': updateSettingsBody,
   'post /api/v1/company/holidays': createHolidayBody,
@@ -60,6 +64,7 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/auth/password/forgot': forgotPasswordBody,
   'post /api/v1/auth/password/reset': resetPasswordBody,
   'patch /api/v1/auth/me': updateMeBody,
+  'patch /api/v1/auth/me/preferences': updatePreferencesBody,
   'post /api/v1/invitations/{token}/accept': acceptInvitationBody,
   'post /api/v1/admin/auth/login': adminLoginBody,
   'post /api/v1/admin/auth/refresh': refreshBody,
@@ -189,6 +194,8 @@ describe('API docs', () => {
       'Workers',
       'Sub-contractors',
       'Clients',
+      'Onboarding',
+      'Imports',
       'Projects',
       'Project Wizard',
       'Floors & Rooms',
@@ -225,7 +232,7 @@ describe('API docs', () => {
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(236); // +1: /health/ready
+    expect(Object.keys(res.body.paths)).toHaveLength(257); // +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

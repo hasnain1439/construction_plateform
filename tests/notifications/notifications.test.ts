@@ -82,7 +82,7 @@ describe('/notifications', () => {
     const m = await munshi(seeded().malik.id);
     expect((await api().post('/api/v1/topup-requests').set(m).send({ amountPaisa: '4000000', note: 'Wages' })).status).toBe(201);
     const list = (await api().get('/api/v1/notifications').set(await owner())).body.data;
-    expect(list[0]).toMatchObject({ type: 'TOPUP_REQUESTED', severity: 'INFO', title: 'Top-up request: Rs 40,000', actionUrl: '/finance/cash-floats', read: false });
+    expect(list[0]).toMatchObject({ type: 'TOPUP_REQUESTED', severity: 'INFO', title: 'Top-up ki darkhwast: Rs 40,000', actionUrl: '/finance/cash-floats', read: false });
     expect((await api().get('/api/v1/notifications').set(m)).body.data).toEqual([]);
   });
 });

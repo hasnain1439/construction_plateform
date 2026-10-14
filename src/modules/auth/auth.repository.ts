@@ -3,7 +3,7 @@
  *   - `prismaAdmin` (BYPASSRLS) for cross-tenant lookups before the tenant is known;
  *   - a `withTenant()` transaction for everything inside one company.
  */
-import type { DevicePlatform, OtpPurpose, Prisma, UserRole } from '../../generated/prisma/client.js';
+import type { DevicePlatform, Language, OtpPurpose, Prisma, UserRole } from '../../generated/prisma/client.js';
 
 type Db = Prisma.TransactionClient;
 
@@ -95,6 +95,7 @@ export function createUser(
     role: UserRole;
     roleId?: string | null;
     canSeeFinancials?: boolean;
+    language?: Language;
   },
 ) {
   return tx.user.create({

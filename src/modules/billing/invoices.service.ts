@@ -29,7 +29,8 @@ import {
   ymd,
   type BillingActor,
 } from './billing.shared.js';
-import { letterhead, salutation, shareOf, shortDay, storePdf, withinOrBackground } from './documents.js';
+import { documentLang, letterhead, pdfFileName, salutation, shareOf, shortDay, storePdf, withinOrBackground } from './documents.js';
+import { tr, type Lang } from '../../core/i18n/index.js';
 import { applyCredit, LIVE, recomputeInvoice, resolveBouncedFor, resolveEvent, syncStage } from './ledger.js';
 import { track } from '../../core/observability/analytics.js';
 
@@ -367,7 +368,7 @@ export async function issue(id: string, input: { issueDate?: string | undefined 
   const a = actor();
   await withTenant(a.tenantId, (tx) => issueTx(tx, a, id, input));
   await withinOrBackground(
-    () => withTenant(a.tenantId, (tx) => makeInvoicePdf(tx, a, id)),
+    () => withTenant(a.tenantId, async (tx) => makeInvoicePdf(tx, a, id, await documentLang(tx, a.userId))),
     (err) => logger.warn({ err, invoiceId: id }, 'invoice PDF not made on issue — it is made on first download'),
   );
   const issued = await withTenant(a.tenantId, async (tx) => invoiceDto(await load(tx, id)));
@@ -430,7 +431,8 @@ export async function getInvoice(id: string) {
 
 // ─── PDF ────────────────────────────────────────────────────────────────────
 
-export async function makeInvoicePdf(tx: Tx, a: BillingActor, id: string) {
+/** The invoice PDF in `lang` (stored; `pdfAttachmentId` points at the latest one made). */
+export async function makeInvoicePdf(tx: Tx, a: BillingActor, id: string, lang: Lang = 'en') {
   const inv = await load(tx, id);
   const html = invoiceHtml({
     company: await letterhead(tx, a.tenantId),
@@ -448,25 +450,27 @@ export async function makeInvoicePdf(tx: Tx, a: BillingActor, id: string) {
     paidPaisa: inv.paidPaisa,
     balancePaisa: inv.balancePaisa,
     notes: inv.notes,
-  });
-  const attachmentId = await storePdf(tx, a.tenantId, a.userId, 'INVOICE_PDF', `${inv.number}.pdf`, html, `${inv.number} · ${inv.project.name}`);
+  }, lang);
+  const attachmentId = await storePdf(tx, a.tenantId, a.userId, 'INVOICE_PDF', pdfFileName(inv.number!, lang), html, `${inv.number} · ${inv.project.name}`, lang);
   await tx.invoice.update({ where: { id }, data: { pdfAttachmentId: attachmentId } });
   return attachmentId;
 }
 
-export const invoiceWhatsapp = (inv: { number: string | null; totalPaisa: bigint; dueDate: Date | null; project: { name: string }; client: { name: string } | null }) => (url: string) =>
-  `${salutation(inv.client?.name)}, ${inv.project.name} ka invoice ${inv.number} (${rs(inv.totalPaisa)}), due ${shortDay(ymd(inv.dueDate))}. Link: ${url}`;
+export const invoiceWhatsapp = (inv: { number: string | null; totalPaisa: bigint; dueDate: Date | null; project: { name: string }; client: { name: string } | null }, lang: Lang = 'roman') => (url: string) =>
+  tr(lang, 'share.invoice', { salutation: salutation(inv.client?.name, lang), project: inv.project.name, number: inv.number, amount: rs(inv.totalPaisa), due: shortDay(ymd(inv.dueDate)), url });
 
-export async function invoicePdf(id: string) {
+/** The PDF in `lang` (default: the caller's language); made again when the stored one is in another language. */
+export async function invoicePdf(id: string, langOverride?: Lang) {
   const a = actor();
   return withTenant(a.tenantId, async (tx) => {
     const inv = await find(tx, a, id);
     if (inv.status === 'DRAFT') throw new Conflict('INVOICE_NOT_ISSUED', 'Issue the invoice to get its PDF');
+    const lang = await documentLang(tx, a.userId, langOverride);
     let attachmentId = inv.pdfAttachmentId;
-    let share = attachmentId ? await shareOf(tx, a.tenantId, attachmentId, invoiceWhatsapp(inv)) : null;
+    let share = attachmentId ? await shareOf(tx, a.tenantId, attachmentId, invoiceWhatsapp(inv, lang), pdfFileName(inv.number!, lang)) : null;
     if (!share) {
-      attachmentId = await makeInvoicePdf(tx, a, inv.id);
-      share = await shareOf(tx, a.tenantId, attachmentId, invoiceWhatsapp(inv));
+      attachmentId = await makeInvoicePdf(tx, a, inv.id, lang);
+      share = await shareOf(tx, a.tenantId, attachmentId, invoiceWhatsapp(inv, lang));
     }
     return { ...share!, clientPhone: inv.client?.phone ?? null };
   });

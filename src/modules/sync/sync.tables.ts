@@ -15,6 +15,7 @@ import type { Prisma } from '../../generated/prisma/client.js';
 import { totalsOf } from '../cashbook/cash.js';
 import { addDays, today } from '../labor/labor.shared.js';
 import * as S from './sync.serializers.js';
+import { readerLang } from '../notifications/notifications.service.js';
 
 export interface SyncActor {
   tenantId: string;
@@ -331,7 +332,10 @@ export const TABLES: TableDef[] = [
   {
     name: 'notifications',
     sources: ['Notification'],
-    load: async (tx, sc, ids) =>
-      (await tx.notification.findMany({ where: { tenantId: sc.a.tenantId, ...byIds(ids), userId: sc.a.userId, createdAt: { gte: since(sc, 30) } }, orderBy: { createdAt: 'desc' } })).map(S.serializeNotification),
+    load: async (tx, sc, ids) => {
+      const lang = await readerLang(tx, sc.a.userId);
+      const rows = await tx.notification.findMany({ where: { tenantId: sc.a.tenantId, ...byIds(ids), userId: sc.a.userId, createdAt: { gte: since(sc, 30) } }, orderBy: { createdAt: 'desc' } });
+      return rows.map((n) => S.serializeNotification(n, lang));
+    },
   },
 ];

@@ -3,6 +3,7 @@
  * React Native clients can import them for form validation.
  */
 import { z } from 'zod';
+import { dbLanguage, isLang, langSchema } from '../../core/i18n/lang.js';
 import { normalizePkPhone } from '../../core/utils/phone.js';
 
 // ─── Building blocks ────────────────────────────────────────────────────────
@@ -71,7 +72,13 @@ export const clientSchema = z
   .meta({ description: '"web" → httpOnly cookies; "mobile" → tokens in the response body' });
 
 export const regionSchema = z.enum(['PUNJAB_KP', 'KARACHI_SINDH'], { error: 'Region must be PUNJAB_KP or KARACHI_SINDH' });
+/** Stored language enum (team / company settings responses). The signed-in user's own language uses `langSchema` (en / roman / ur). */
 export const languageSchema = z.enum(['ENGLISH', 'ROMAN_URDU', 'URDU']);
+/** Either form in requests; always stored as the enum. */
+export const anyLanguageInput = z
+  .union([langSchema, languageSchema])
+  .transform((v) => (isLang(v) ? dbLanguage(v) : v))
+  .meta({ description: 'en | roman | ur (preferred) or the old ENGLISH | ROMAN_URDU | URDU' });
 export const roleSchema = z.enum(['THEKEDAR', 'PM', 'MUNSHI']);
 
 export const deviceSchema = z
@@ -109,6 +116,7 @@ export const signupBody = z
       .union([z.literal(225), z.literal(272.25)], { error: 'marlaStandard must be 225 or 272.25' })
       .optional()
       .meta({ description: 'Square feet per marla. Defaults to 225.' }),
+    language: langSchema.optional().meta({ description: "The owner's language (messages, PDFs). Default roman." }),
     client: clientSchema,
     device: deviceSchema.optional(),
   })
@@ -191,7 +199,7 @@ export const updateMeBody = z
   .object({
     name: z.string().trim().min(2, 'Name is too short').max(80).optional(),
     photoAttachmentId: z.uuid().nullable().optional(),
-    language: languageSchema.optional(),
+    language: anyLanguageInput.optional(),
     currentPassword: z.string().min(1).max(200).optional(),
     newPassword: passwordSchema.optional(),
   })
@@ -207,7 +215,13 @@ export const updateMeBody = z
       ctx.addIssue({ code: 'custom', message: 'Nothing to update' });
     }
   })
-  .meta({ example: { name: 'Khalid Malik', language: 'URDU' } });
+  .meta({ example: { name: 'Khalid Malik', language: 'ur' } });
+
+export const updatePreferencesBody = z
+  .object({ language: langSchema })
+  .meta({ id: 'PreferencesInput', example: { language: 'ur' } });
+
+export const preferencesDto = z.object({ language: langSchema }).meta({ id: 'Preferences', example: { language: 'ur' } });
 
 export const invitationTokenParams = z.object({
   token: z.string().min(16, 'Invalid invitation link').max(200),
@@ -241,7 +255,7 @@ export const userDto = z
     phone: z.string(),
     email: z.string().nullable(),
     role: roleSchema,
-    language: languageSchema,
+    language: langSchema.meta({ description: "The user's language for messages, notifications and PDFs: en | roman | ur" }),
     photoUrl: z.string().nullable(),
     canSeeFinancials: z.boolean(),
   })
@@ -349,6 +363,8 @@ export type RefreshInput = z.infer<typeof refreshBody>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordBody>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordBody>;
 export type UpdateMeInput = z.infer<typeof updateMeBody>;
+export type UpdatePreferencesInput = z.infer<typeof updatePreferencesBody>;
+export type PreferencesDto = z.infer<typeof preferencesDto>;
 export type AcceptInvitationInput = z.infer<typeof acceptInvitationBody>;
 export type AdminLoginInput = z.infer<typeof adminLoginBody>;
 export type UserDto = z.infer<typeof userDto>;

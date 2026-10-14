@@ -8,9 +8,11 @@
 import type { Browser } from 'playwright';
 import { logger } from '../../config/logger.js';
 import { AppError } from '../errors/AppError.js';
+import type { Lang } from '../i18n/lang.js';
+import { pdfFooter } from './templates.js';
 
 export interface PdfRenderer {
-  render(html: string, opts: { footerText: string }): Promise<Buffer>;
+  render(html: string, opts: { footerText: string; lang: Lang }): Promise<Buffer>;
 }
 
 export const pdfUnavailable = () => new AppError(503, 'PDF_UNAVAILABLE', 'PDFs cannot be made right now — try again in a minute');
@@ -27,14 +29,8 @@ async function getBrowser(): Promise<Browser> {
   return browser;
 }
 
-const footer = (text: string) => `
-  <div style="width:100%;font-family:Inter,Arial,sans-serif;font-size:8px;color:#64748b;padding:0 14mm;display:flex;justify-content:space-between">
-    <span>${text}</span>
-    <span>Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
-  </div>`;
-
 const chromiumRenderer: PdfRenderer = {
-  async render(html, { footerText }) {
+  async render(html, { footerText, lang }) {
     const b = await getBrowser();
     const page = await b.newPage();
     try {
@@ -46,7 +42,7 @@ const chromiumRenderer: PdfRenderer = {
         margin: { top: '14mm', bottom: '18mm', left: '14mm', right: '14mm' },
         displayHeaderFooter: true,
         headerTemplate: '<div></div>',
-        footerTemplate: footer(footerText),
+        footerTemplate: pdfFooter(footerText, lang),
       });
     } finally {
       await page.close();
@@ -61,9 +57,10 @@ export function setPdfRenderer(r: PdfRenderer | null) {
   current = r ?? chromiumRenderer;
 }
 
-export async function renderPdf(html: string, footerText: string): Promise<Buffer> {
+/** `lang`: the document language (footer labels / direction; the HTML carries its own). */
+export async function renderPdf(html: string, footerText: string, lang: Lang = 'en'): Promise<Buffer> {
   try {
-    return await current.render(html, { footerText });
+    return await current.render(html, { footerText, lang });
   } catch (err) {
     logger.warn({ err }, 'pdf render failed');
     throw pdfUnavailable();

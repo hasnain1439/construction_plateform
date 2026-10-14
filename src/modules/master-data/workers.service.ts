@@ -44,6 +44,7 @@ function toWorkerDto(w: Worker, labels: Map<string, TypeLabels>) {
     phone: w.phone,
     dailyRatePaisa: w.dailyRatePaisa.toString(),
     isActive: w.isActive,
+    isDemo: w.isDemo,
     notes: w.notes,
     createdAt: w.createdAt.toISOString(),
   };

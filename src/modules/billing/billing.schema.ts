@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { langSchema } from '../../core/i18n/lang.js';
 import { paginationQuery } from '../../core/http/pagination.js';
 import { isoDateSchema } from '../../core/utils/dates.js';
 import { paisaSchema } from '../company/company.schema.js';
@@ -129,7 +130,7 @@ export const receivablesQuery = z.object({
   overdueOnly: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });
 export const statementQuery = z
-  .object({ from: isoDateSchema.optional(), to: isoDateSchema.optional() })
+  .object({ from: isoDateSchema.optional(), to: isoDateSchema.optional(), lang: langSchema.optional().meta({ description: 'PDF language (default: your language)' }) })
   .refine((v) => !v.from || !v.to || v.from <= v.to, { message: '`from` must be on or before `to`', path: ['to'] });
 export const eventsQuery = z.object({ openOnly: z.enum(['true', 'false']).transform((v) => v === 'true').optional() });
 

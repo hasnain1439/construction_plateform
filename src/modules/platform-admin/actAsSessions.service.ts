@@ -15,6 +15,7 @@ import { withTenant } from '../../core/db/withTenant.js';
 import { Conflict, NotFound } from '../../core/errors/AppError.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import type { Prisma } from '../../generated/prisma/client.js';
+import { langOf, tr } from '../../core/i18n/index.js';
 import { trySendMail } from '../auth/mail.provider.js';
 import * as alerts from '../notifications/alerts.js';
 import { adminId, auditAdmin } from './platformAdmin.shared.js';
@@ -96,7 +97,6 @@ export async function startSession(input: StartActAsInput) {
 
 /** In-app notification + email to every active owner. Never fails the start. */
 async function notifyOwners(s: Row): Promise<void> {
-  const text = `Platform support accessed your account: ${s.reason}`;
   try {
     await withTenant(s.tenantId, (tx) => alerts.platformSupportAccess(tx, { tenantId: s.tenantId, sessionId: s.id, adminName: s.admin.name, reason: s.reason }));
   } catch (err) {
@@ -104,19 +104,21 @@ async function notifyOwners(s: Row): Promise<void> {
   }
   const owners = await prismaAdmin.user.findMany({
     where: { tenantId: s.tenantId, role: 'THEKEDAR', status: 'ACTIVE', isSystem: false, email: { not: null } },
-    select: { name: true, email: true },
+    select: { name: true, email: true, language: true },
   });
   const until = s.expiresAt.toLocaleTimeString('en-PK', { timeZone: 'Asia/Karachi', hour: '2-digit', minute: '2-digit' });
   for (const o of owners) {
+    // Each owner in their own language.
+    const lang = langOf(o.language);
     await trySendMail({
       to: o.email!,
       type: 'SUPPORT_ACCESS',
       tenantId: s.tenantId,
-      subject: `Platform support accessed ${s.tenant.name}`,
+      subject: tr(lang, 'mail.support.subject', { company: s.tenant.name }),
       text:
-        `Assalam-o-Alaikum ${o.name},\n\n${text}\n\n` +
-        `Support person: ${s.admin.name}\nAccess: read-only unless they switch to write mode with another reason\nUntil: ${until} (Pakistan time) or when they end it\n\n` +
-        `Every change they make is in your audit log (Settings → Audit log). If you did not expect this, reply to this email.`,
+        `${tr(lang, 'mail.support.greeting', { name: o.name })}\n\n${tr(lang, 'notif.platformSupportAccess.body', { reason: s.reason, admin: s.admin.name })}\n\n` +
+        `${tr(lang, 'mail.support.person', { admin: s.admin.name })}\n${tr(lang, 'mail.support.access')}\n${tr(lang, 'mail.support.until', { until })}\n\n` +
+        tr(lang, 'mail.support.audit'),
     });
   }
 }

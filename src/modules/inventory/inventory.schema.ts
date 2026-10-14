@@ -76,6 +76,7 @@ export const movementTypeSchema = z.enum([
   'USAGE_OUT',
   'COUNT_ADJUSTMENT',
   'CORRECTION',
+  'OPENING_IN',
 ]);
 
 export const movementsQuery = paginationQuery.extend({

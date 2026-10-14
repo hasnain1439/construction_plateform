@@ -30,6 +30,7 @@ export function toClientDto(c: Client) {
     email: c.email,
     address: c.address,
     notes: c.notes,
+    isDemo: c.isDemo,
     createdAt: c.createdAt.toISOString(),
   };
 }

@@ -2,6 +2,7 @@ import { env } from '../../config/env.js';
 import { logger } from '../../config/logger.js';
 import { prismaAdmin } from '../../core/db/prisma.js';
 import { AppError, BadRequest, Gone, TooManyRequests } from '../../core/errors/AppError.js';
+import { DEFAULT_LANG, tr, type Lang } from '../../core/i18n/index.js';
 import { generateOtp, hashSecret, safeEqual } from '../../core/utils/crypto.js';
 import { maskPhone } from '../../core/utils/phone.js';
 import type { OtpPurpose } from '../../generated/prisma/enums.js';
@@ -17,18 +18,16 @@ function hashOtp(phone: string, purpose: OtpPurpose, code: string): string {
   return hashSecret(`${phone}:${purpose}:${code}`);
 }
 
-const MESSAGES: Record<OtpPurpose, (code: string, minutes: number) => string> = {
-  LOGIN: (code, minutes) => `Your login code is ${code}. It expires in ${minutes} minutes. Do not share it with anyone.`,
-  PASSWORD_RESET: (code, minutes) =>
-    `Your password reset code is ${code}. It expires in ${minutes} minutes. If you did not ask for this, ignore this message.`,
-};
+/** The code SMS in the phone owner's language. */
+export const otpSms = (purpose: OtpPurpose, lang: Lang, code: string, minutes: number) => tr(lang, purpose === 'LOGIN' ? 'sms.otp.login' : 'sms.otp.reset', { code, minutes });
 
 /**
  * Creates a new OTP for `phone` and returns the plain code to the caller so it can be
  * delivered (SMS here; email too for password reset). Enforces the 60 s resend wait and
- * 5 sends/hour per phone. Earlier open codes for the same purpose are invalidated.
+ * 5 sends/hour per phone. Earlier open codes for the same purpose are invalidated. The SMS is in
+ * `lang` — the language of the person who owns the phone (`languageOfUsers`).
  */
-export async function issueOtp(phone: string, purpose: OtpPurpose): Promise<{ code: string; expiresIn: number }> {
+export async function issueOtp(phone: string, purpose: OtpPurpose, lang: Lang = DEFAULT_LANG): Promise<{ code: string; expiresIn: number }> {
   const now = new Date();
   const code = generateOtp();
 
@@ -68,9 +67,10 @@ export async function issueOtp(phone: string, purpose: OtpPurpose): Promise<{ co
   try {
     await smsProvider().send({
       to: phone,
-      body: MESSAGES[purpose](code, minutes),
+      body: otpSms(purpose, lang, code, minutes),
       type: purpose === 'LOGIN' ? 'OTP' : 'PASSWORD_RESET',
       params: { code, minutes },
+      lang,
     });
   } catch (err) {
     smsError = err;

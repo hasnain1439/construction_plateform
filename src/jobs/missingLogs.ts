@@ -44,10 +44,7 @@ export async function runMissingLogCheck(now = new Date()): Promise<{ checked: n
           recipients: ['THEKEDAR', { projectRoles: ['PM'], projectId: p.id }],
           type: 'MISSING_DAILY_LOG',
           severity: 'WARNING',
-          title: waiting ? `${p.name}: ${waiting} ${waiting === 1 ? 'entry' : 'entries'} waiting to sync` : `${p.name}: aaj ka log nahi aaya`,
-          body: waiting
-            ? `The munshi’s phone has ${waiting} unsent ${waiting === 1 ? 'entry' : 'entries'} — no log or hazri has reached the office today yet.`
-            : 'No daily log and no hazri for today yet. Call the munshi.',
+          text: waiting ? { key: 'missingLogWaiting', params: { project: p.name, count: waiting } } : { key: 'missingLog', params: { project: p.name } },
           projectId: p.id,
           ref: { type: 'PROJECT', id: p.id },
           actionUrl: `/projects/${p.id}/site/daily-logs`,

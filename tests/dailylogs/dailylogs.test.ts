@@ -102,7 +102,7 @@ describe('missing daily-log job', () => {
     await prismaAdmin.notification.deleteMany({ where: { type: 'MISSING_DAILY_LOG' } });
     await runMissingLogCheck(at('18:20'));
     const bahria = await prismaAdmin.notification.findFirstOrThrow({ where: { type: 'MISSING_DAILY_LOG', refId: s.projects.bahria.id } });
-    expect(bahria.title).toBe('Bahria Town · 1 Kanal: 12 entries waiting to sync');
+    expect(bahria.title).toBe('Bahria Town · 1 Kanal: 12 entries sync ke intezar mein');
   });
 });
 

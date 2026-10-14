@@ -16,6 +16,7 @@ import type {
   ResetPasswordInput,
   SignupInput,
   UpdateMeInput,
+  UpdatePreferencesInput,
 } from './auth.schema.js';
 import * as auth from './auth.service.js';
 import { clearAuthCookies, deliverTokens, readRefreshToken, rememberedChoice } from './token.service.js';
@@ -82,6 +83,10 @@ export async function resetPassword(req: Request, res: Response) {
 
 export async function getMe(_req: Request, res: Response) {
   return ok(res, await auth.getMe());
+}
+
+export async function updatePreferences(req: Request, res: Response) {
+  return ok(res, await auth.updatePreferences(req.body as UpdatePreferencesInput));
 }
 
 export async function updateMe(req: Request, res: Response) {

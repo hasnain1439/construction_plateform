@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { paginationQuery } from '../../core/http/pagination.js';
+import { langSchema } from '../../core/i18n/lang.js';
 import { emailSchema, languageSchema, passwordSchema, phoneSchema, roleSchema } from '../auth/auth.schema.js';
 
 const uuid = (label: string) => z.uuid({ error: `Invalid ${label}` });
@@ -90,6 +91,7 @@ export const createInvitationBody = z
     projectIds: projectIdsSchema.optional(),
     canSeeFinancials: z.boolean().optional().meta({ description: 'PM only. Defaults to the company setting pmCanSeeFinancials. Deprecated: = the financial permission bundle as overrides on accept.' }),
     roleId: uuid('roleId').optional().meta({ description: 'Permission role given on accept (GET /roles). Default: the system template of  (Project Manager / Munshi).' }),
+    language: langSchema.optional().meta({ description: "Language of the invite SMS / email (en | roman | ur); becomes the person's language on accept. Default: the company's default language." }),
   })
   .superRefine((v, ctx) => {
     if (v.role !== 'PM' && v.canSeeFinancials) {
@@ -106,6 +108,7 @@ export const invitationDto = z
     role: staffRoleSchema,
     canSeeFinancials: z.boolean(),
     roleId: z.uuid().nullable().meta({ description: 'Permission role given on accept' }),
+    language: langSchema.meta({ description: "Language of the invite messages; the person's language on accept" }),
     projects: z.array(projectRef),
     status: invitationStatusSchema,
     expiresAt: z.iso.datetime(),

@@ -72,6 +72,7 @@ import {
   workersRouter,
   workerTypesRouter,
 } from './modules/master-data/master-data.routes.js';
+import { demoRouter, importsRouter, onboardingRouter, openingBalancesRouter } from './modules/onboarding/onboarding.routes.js';
 import { permissionsRouter, rolesRouter, userPermissionsRouter } from './modules/permissions/permissions.routes.js';
 import { platformAdminRouter } from './modules/platform-admin/platformAdmin.routes.js';
 import { subscriptionRouter } from './modules/subscription/subscription.routes.js';
@@ -196,6 +197,10 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/floors', floorsRouter);
   mount('/rooms', roomsRouter);
   mount('/openings', openingsRouter);
+  mount('/onboarding', onboardingRouter);
+  mount('/imports', importsRouter);
+  mount('/opening-balances', openingBalancesRouter);
+  mount('/demo', demoRouter);
   mount('/admin', platformAdminRouter); // after /admin/auth (public login)
   options.extraRoutes?.(api);
   app.use('/api/v1', api);

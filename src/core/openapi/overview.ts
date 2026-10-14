@@ -116,6 +116,8 @@ export const TAGS = [
   { name: 'Workers', description: 'Daily-wage workers (site staff can add them)' },
   { name: 'Sub-contractors', description: 'Piece-rate teams by trade' },
   { name: 'Clients', description: 'Project owners (no login) — THEKEDAR, PM' },
+  { name: 'Onboarding', description: 'First-login setup checklist, opening balances and “Try with demo data”' },
+  { name: 'Imports', description: 'Excel / CSV import of workers, sub-contractors, suppliers, custom materials and clients (template → preview → commit)' },
   { name: 'Projects', description: 'Projects: list, create (draft), detail, review, activation and status. PM / MUNSHI see assigned projects only; others get 404' },
   { name: 'Project Wizard', description: 'Wizard tabs 1–4: basic, team, contract (supply rules + billing stages), plot & structure, coverage' },
   { name: 'Floors & Rooms', description: 'Tab 5: rooms and openings per floor, with area calculations' },
