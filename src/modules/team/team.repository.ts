@@ -21,6 +21,7 @@ const userListInclude = {
   projectAccess: { select: { project: { select: { id: true, name: true } } } },
   devices: { select: { lastActiveAt: true }, orderBy: { lastActiveAt: 'desc' }, take: 1 },
   permissionRole: { select: { id: true, key: true, name: true } },
+  roleAssignments: { select: { role: { select: { id: true, key: true, name: true } } }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }] },
 } satisfies Prisma.UserInclude;
 
 export type UserListRow = Prisma.UserGetPayload<{ include: typeof userListInclude }>;

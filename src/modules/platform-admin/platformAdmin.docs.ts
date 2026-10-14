@@ -1,9 +1,6 @@
 import { z } from 'zod';
 import { errors, jsonBody, platformSecurity, registry, type NamedExample } from '../../core/openapi/registry.js';
 import {
-  actAsModeBody,
-  actAsSessionsQuery,
-  startActAsBody,
   approvePaymentBody,
   auditQuery,
   catalogMaterialsQuery,
@@ -288,80 +285,6 @@ export function registerPlatformAdminDocs(): void {
     summary: 'Delete a platform holiday',
     request: { params: idParam('Holiday') },
     responses: { ...ok('Deleted'), ...errors({ ...AUTH, 404: ['HOLIDAY_NOT_FOUND'] }) },
-  });
-
-  // ─── Act-as sessions ─────────────────────────────────────────────────────
-  const SESSION_ID = '0199a8c0-0000-7000-8000-0000000000f0';
-  const TENANT_ID = '0199a8c0-0000-7000-8000-0000000000aa';
-  const sessionExample = {
-    id: SESSION_ID,
-    tenant: { id: TENANT_ID, name: 'Malik & Sons Builders', slug: 'malik-and-sons-builders' },
-    admin: { id: '0199a8c0-0000-7000-8000-0000000000a1', name: 'Platform Admin', email: 'admin@platform.local' },
-    reason: 'Owner asked us to check a wrong supplier balance (ticket 1042)',
-    mode: 'READ_ONLY',
-    writeReason: null,
-    writeEnabledAt: null,
-    startedAt: '2026-10-12T09:00:00.000Z',
-    expiresAt: '2026-10-12T10:00:00.000Z',
-    endedAt: null,
-    status: 'ACTIVE',
-    secondsLeft: 2520,
-  };
-  const ACT_AS_HOWTO =
-    'Then call the normal company API with the admin token plus `X-Act-As-Tenant: <companyId>` and `X-Act-As-Session: <session id>`. ' +
-    'Without a live session of this admin in this company the company API answers `403 ACT_AS_SESSION_REQUIRED | ACT_AS_SESSION_INVALID | ACT_AS_SESSION_EXPIRED | ACT_AS_SESSION_ENDED`; ' +
-    'a READ_ONLY session answers every POST / PUT / PATCH / DELETE with `403 ACT_AS_READ_ONLY`.';
-  path('post', '/api/v1/admin/act-as-sessions', {
-    summary: 'Start a support session in a company',
-    description:
-      'Opens a company for this admin: **READ_ONLY**, for `durationMinutes` (default 60, 5–240). The reason (5–300 characters) is shown to the company. ' +
-      "The admin's other live sessions end. Every active owner gets an in-app notification (`PLATFORM_SUPPORT_ACCESS`) and an email: " +
-      '*"Platform support accessed your account: <reason>"*. Audited as `admin.act_as_started` in the company audit log. ' +
-      ACT_AS_HOWTO,
-    request: {
-      body: jsonBody(startActAsBody, {
-        support: ex('Read-only look, 60 minutes', { tenantId: TENANT_ID, reason: 'Owner asked us to check a wrong supplier balance (ticket 1042)' }),
-        short: ex('15 minutes', { tenantId: TENANT_ID, reason: 'Check the failed invoice PDF', durationMinutes: 15 }),
-        noReason: ex('❌ Reason too short → 400', { tenantId: TENANT_ID, reason: 'fix' }),
-      }),
-    },
-    responses: { ...createdResp('Session started', sessionExample), ...errors({ ...AUTH, 400: ['VALIDATION_ERROR'], 404: ['TENANT_NOT_FOUND'] }) },
-  });
-  path('get', '/api/v1/admin/act-as-sessions', {
-    summary: 'Support sessions',
-    description: 'Newest first. Filter by company (`tenantId`), admin (`adminId`) and `active` (true = live, false = ended or expired). `status` is ACTIVE, EXPIRED or ENDED.',
-    request: { query: actAsSessionsQuery },
-    responses: { ...ok('Sessions', [sessionExample]), ...errors({ ...AUTH, 400: ['VALIDATION_ERROR'] }) },
-  });
-  path('get', '/api/v1/admin/act-as-sessions/{id}', {
-    summary: 'One support session',
-    description: 'Mode, time left (`secondsLeft`) and status — the admin console banner reads this.',
-    request: { params: idParam('Session') },
-    responses: { ...ok('Session', sessionExample), ...errors({ ...AUTH, 404: ['ACT_AS_SESSION_NOT_FOUND'] }) },
-  });
-  path('post', '/api/v1/admin/act-as-sessions/{id}/mode', {
-    summary: 'Switch a support session to write mode (or back to read-only)',
-    description:
-      'Own live sessions only. `WRITE` needs a second reason (5–300 characters): what you need to change and why. Changes made afterwards are audited with that reason. ' +
-      'Audited as `admin.act_as_mode_changed`. `409 ACT_AS_SESSION_NOT_ACTIVE` when the session has ended or expired.',
-    request: {
-      params: idParam('Session'),
-      body: jsonBody(actAsModeBody, {
-        write: ex('Write mode', { mode: 'WRITE', reason: 'Correct the duplicated supplier payment the owner reported' }),
-        readOnly: ex('Back to read-only', { mode: 'READ_ONLY' }),
-        noReason: ex('❌ Write without a reason → 400', { mode: 'WRITE' }),
-      }),
-    },
-    responses: {
-      ...ok('Session', { ...sessionExample, mode: 'WRITE', writeReason: 'Correct the duplicated supplier payment the owner reported', writeEnabledAt: '2026-10-12T09:10:00.000Z' }),
-      ...errors({ ...AUTH, 400: ['VALIDATION_ERROR'], 404: ['ACT_AS_SESSION_NOT_FOUND'], 409: ['ACT_AS_SESSION_NOT_ACTIVE'] }),
-    },
-  });
-  path('post', '/api/v1/admin/act-as-sessions/{id}/end', {
-    summary: 'End a support session',
-    description: 'Ends it now (idempotent). Any super admin may end any session. Audited as `admin.act_as_ended`.',
-    request: { params: idParam('Session') },
-    responses: { ...ok('Session', { ...sessionExample, endedAt: '2026-10-12T09:20:00.000Z', status: 'ENDED', secondsLeft: 0 }), ...errors({ ...AUTH, 404: ['ACT_AS_SESSION_NOT_FOUND'] }) },
   });
 
   // ─── Audit log ───────────────────────────────────────────────────────────

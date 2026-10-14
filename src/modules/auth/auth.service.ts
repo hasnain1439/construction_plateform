@@ -28,7 +28,7 @@ import type { Language, TenantStatus } from '../../generated/prisma/enums.js';
 import { optionalSignedUrl } from '../attachments/attachments.service.js';
 import { provisionMasterData } from '../master-data/provision.js';
 import { defaultRoleId, provisionPermissions } from '../permissions/provision.js';
-import { setFinancialAccess } from '../permissions/permissions.service.js';
+import { applyInviteOverrides, assignRoles, permissionsChanged, setFinancialAccess } from '../permissions/permissions.service.js';
 import { ownerAccess } from '../../core/auth/access.js';
 import * as repo from './auth.repository.js';
 import type {
@@ -82,6 +82,7 @@ export interface AuthResult {
   scopes: Access['scopes'];
   approvalLimits: Access['approvalLimits'];
   permissionRole: Access['role'];
+  permissionRoles: Access['roles'];
 }
 
 export { accessFieldsOf };
@@ -778,14 +779,25 @@ export async function acceptInvitation(token: string, input: AcceptInvitationInp
       email: invitation.email,
       passwordHash,
       role: invitation.role,
-      roleId: invitation.role === 'THEKEDAR' ? null : (invitation.roleId ?? (await defaultRoleId(tx, tenantId, invitation.role))),
+      roleId: invitation.role === 'THEKEDAR' ? null : (current.roleIds[0] ?? invitation.roleId ?? (await defaultRoleId(tx, tenantId, invitation.role))),
       // The invite's language (chosen by the inviter) becomes the person's language.
       language: invitation.language,
     });
+    // Every role of the invite (union of their permissions; the first = primary).
+    if (invitation.role !== 'THEKEDAR' && user.roleId) {
+      await assignRoles(tx, tenantId, user.id, current.roleIds.length ? current.roleIds : [user.roleId]);
+    }
     // The old flag on a PM invite = the financial bundle as overrides.
     if (invitation.role === 'PM' && invitation.canSeeFinancials) {
       await setFinancialAccess(tx, { tenantId, userId: user.id, access: ownerAccess() }, user.id, true);
       user.canSeeFinancials = true;
+    }
+    // Extra / removed permissions chosen in the invite form (validated when it was created).
+    const applied = await applyInviteOverrides(tx, { tenantId, userId: user.id, invitationId: invitation.id, invitedById: current.invitedById, overrides: current.permissionOverrides });
+    if (invitation.role === 'PM') {
+      // Keep the deprecated canSeeFinancials = "PM with fields.amounts" (e.g. an Administrator role).
+      if (!applied.length) await permissionsChanged(tx, tenantId, { userId: user.id });
+      user.canSeeFinancials = (await tx.user.findUniqueOrThrow({ where: { id: user.id }, select: { canSeeFinancials: true } })).canSeeFinancials;
     }
     if (!(await repo.markInvitationAccepted(tx, invitation.id, user.id, now))) {
       throw new Conflict('INVITE_ALREADY_ACCEPTED', 'This invitation has already been used. Log in instead.');
@@ -803,7 +815,7 @@ export async function acceptInvitation(token: string, input: AcceptInvitationInp
       action: 'invite.accept',
       entityType: 'Invitation',
       entityId: invitation.id,
-      details: { role: invitation.role, projects: projectIds.length },
+      details: { role: invitation.role, projects: projectIds.length, permissionOverrides: applied.length },
     });
     await alerts.inviteAccepted(tx, { tenantId, userId: user.id, name: user.name, role: invitation.role, at: now });
     const { dto } = await loadProfileDtos(tx, user.id, tenantId);

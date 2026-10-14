@@ -81,8 +81,6 @@ Money is integer **paisa** sent as a string (\`"950000"\` = Rs 9,500) · IDs are
 | **403** | \`FORBIDDEN\` | A business rule blocks this (e.g. a munshi buying into the store). |
 | **403** | \`COMPANY_SUSPENDED\` | Company account is suspended — contact support. |
 | **403** | \`ACCOUNT_READ_ONLY\` | Company is read-only — renew the subscription to make changes. |
-| **403** | \`ACT_AS_SESSION_REQUIRED\` / \`ACT_AS_SESSION_INVALID\` / \`ACT_AS_SESSION_EXPIRED\` / \`ACT_AS_SESSION_ENDED\` | Platform admin: start a support session (*POST admin/act-as-sessions*) and send \`X-Act-As-Session\` with \`X-Act-As-Tenant\`. |
-| **403** | \`ACT_AS_READ_ONLY\` | Platform admin: the support session is read-only — switch it to write mode with a reason. |
 | **403** | \`LINK_EXPIRED\` / \`INVALID_SIGNATURE\` | File link is old or edited — fetch the attachment again for a fresh \`url\`. |
 | **404** | \`*_NOT_FOUND\` | Doesn't exist **in your company** (other companies' data is invisible). |
 | **400** | \`INSUFFICIENT_CASH\` | Not enough site cash in hand — ask for a top-up first. |

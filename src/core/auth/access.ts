@@ -2,7 +2,8 @@
  * Effective permissions of a company user, and the helpers every service uses to check them.
  *
  *   effective = THEKEDAR → every key (scope ALL_PROJECTS, no limits)
- *             | role permissions + ALLOW overrides − DENY overrides   (ownerOnly keys never)
+ *             | union of the member's role permissions (widest scope, highest limit — "no limit"
+ *               wins) + ALLOW overrides − DENY overrides                (ownerOnly keys never)
  *
  * The request's access is resolved once per request by tenantContext (cached per user, keyed by
  * User.permVersion + Role.version, so any change applies on the next request — no token refresh
@@ -27,6 +28,8 @@ export type PermissionSource = 'owner' | 'role' | 'override';
 
 export interface Grant {
   permissionKey: string;
+  /** Role the grant comes from (several roles → union). */
+  roleId?: string | null;
   scope?: PermissionScope | null;
   maxAmountPaisa?: bigint | null;
 }
@@ -46,6 +49,8 @@ export interface FieldAccess {
 export interface AccessDto {
   owner: boolean;
   role: { id: string | null; key: string | null; name: string | null } | null;
+  /** Every permission role of the member (role = the first / primary). */
+  roles: RoleInfo[];
   permissions: string[];
   fieldAccess: FieldAccess;
   /** Scoped keys the user holds → ASSIGNED_PROJECTS / ALL_PROJECTS. */
@@ -57,6 +62,8 @@ export interface AccessDto {
 export interface Access extends AccessDto {
   has: ReadonlySet<string>;
   sources: Record<string, PermissionSource>;
+  /** key → ids of the roles that give it (empty for owner / override-only keys). */
+  grantedBy: Record<string, string[]>;
   /** Role keys removed by a DENY override. */
   denied: string[];
 }
@@ -67,15 +74,24 @@ export interface RoleInfo {
   name: string | null;
 }
 
-function build(owner: boolean, role: RoleInfo | null, granted: Map<string, { scope: PermissionScope; max: bigint | null; source: PermissionSource }>, denied: string[]): Access {
+interface Granted {
+  scope: PermissionScope;
+  max: bigint | null;
+  source: PermissionSource;
+  roles: string[];
+}
+
+function build(owner: boolean, roles: RoleInfo[], granted: Map<string, Granted>, denied: string[]): Access {
   const keys = [...granted.keys()].sort();
   const scopes: Record<string, PermissionScope> = {};
   const approvalLimits: Record<string, string | null> = {};
   const sources: Record<string, PermissionSource> = {};
+  const grantedBy: Record<string, string[]> = {};
   for (const k of keys) {
     const g = granted.get(k)!;
     const def = CATALOG_BY_KEY.get(k);
     sources[k] = g.source;
+    grantedBy[k] = g.roles;
     if (def?.scoped) scopes[k] = g.scope;
     if (def?.limit) approvalLimits[k] = g.max === null ? null : g.max.toString();
   }
@@ -83,31 +99,48 @@ function build(owner: boolean, role: RoleInfo | null, granted: Map<string, { sco
   const field = (k: FieldKey) => has.has(k);
   return {
     owner,
-    role,
+    role: roles[0] ?? null,
+    roles,
     permissions: keys,
     fieldAccess: { rates: field('fields.rates'), amounts: field('fields.amounts'), profit: field('fields.profit'), contract: field('fields.contract') },
     scopes,
     approvalLimits,
     has,
     sources,
+    grantedBy,
     denied: denied.sort(),
   };
 }
 
 /** Every key, all projects, no limits. */
 export function ownerAccess(): Access {
-  const granted = new Map(PERMISSION_KEYS.map((k) => [k, { scope: 'ALL_PROJECTS' as PermissionScope, max: null, source: 'owner' as PermissionSource }]));
-  return build(true, null, granted, []);
+  const granted = new Map<string, Granted>(PERMISSION_KEYS.map((k) => [k, { scope: 'ALL_PROJECTS', max: null, source: 'owner', roles: [] }]));
+  return build(true, [], granted, []);
 }
 const OWNER = ownerAccess();
 
-/** Pure resolution: role grants + ALLOW overrides − DENY overrides (never ownerOnly keys). */
-export function resolveAccess(input: { role: CompanyRole; roleInfo?: RoleInfo | null; roleGrants: Grant[]; overrides?: OverrideGrant[] }): Access {
+const wider = (a: PermissionScope, b: PermissionScope): PermissionScope => (a === 'ALL_PROJECTS' || b === 'ALL_PROJECTS' ? 'ALL_PROJECTS' : 'ASSIGNED_PROJECTS');
+/** Higher of two approval limits; null = no limit, which always wins. */
+const higher = (a: bigint | null, b: bigint | null): bigint | null => (a === null || b === null ? null : a > b ? a : b);
+
+/**
+ * Pure resolution: union of the role grants (several roles: widest scope, highest limit) + ALLOW
+ * overrides − DENY overrides (never ownerOnly keys).
+ */
+export function resolveAccess(input: { role: CompanyRole; roleInfo?: RoleInfo | null; roles?: RoleInfo[]; roleGrants: Grant[]; overrides?: OverrideGrant[] }): Access {
   if (input.role === 'THEKEDAR') return OWNER;
-  const granted = new Map<string, { scope: PermissionScope; max: bigint | null; source: PermissionSource }>();
+  const granted = new Map<string, Granted>();
   for (const g of input.roleGrants) {
     if (!CATALOG_BY_KEY.has(g.permissionKey) || OWNER_ONLY_KEYS.has(g.permissionKey)) continue;
-    granted.set(g.permissionKey, { scope: g.scope ?? 'ASSIGNED_PROJECTS', max: g.maxAmountPaisa ?? null, source: 'role' });
+    const scope = g.scope ?? 'ASSIGNED_PROJECTS';
+    const max = g.maxAmountPaisa ?? null;
+    const prev = granted.get(g.permissionKey);
+    if (!prev) granted.set(g.permissionKey, { scope, max, source: 'role', roles: g.roleId ? [g.roleId] : [] });
+    else {
+      prev.scope = wider(prev.scope, scope);
+      prev.max = higher(prev.max, max);
+      if (g.roleId && !prev.roles.includes(g.roleId)) prev.roles.push(g.roleId);
+    }
   }
   const denied: string[] = [];
   for (const o of input.overrides ?? []) {
@@ -118,13 +151,15 @@ export function resolveAccess(input: { role: CompanyRole; roleInfo?: RoleInfo | 
         scope: o.scope ?? fromRole?.scope ?? 'ASSIGNED_PROJECTS',
         max: o.maxAmountPaisa !== undefined && o.maxAmountPaisa !== null ? o.maxAmountPaisa : (fromRole?.max ?? null),
         source: 'override',
+        roles: fromRole?.roles ?? [],
       });
     }
   }
   for (const o of input.overrides ?? []) {
     if (o.effect === 'DENY' && granted.delete(o.permissionKey)) denied.push(o.permissionKey);
   }
-  return build(false, input.roleInfo ?? null, granted, denied);
+  const roles = input.roles ?? (input.roleInfo ? [input.roleInfo] : []);
+  return build(false, roles, granted, denied);
 }
 
 /** The code template of a role (+ the old financial flag) — used before a company is backfilled and outside requests. */
@@ -150,7 +185,7 @@ export function defaultAccess(role: CompanyRole, canSeeFinancials = false): Acce
 }
 
 export function toAccessDto(a: Access): AccessDto {
-  return { owner: a.owner, role: a.role, permissions: a.permissions, fieldAccess: a.fieldAccess, scopes: a.scopes, approvalLimits: a.approvalLimits };
+  return { owner: a.owner, role: a.role, roles: a.roles, permissions: a.permissions, fieldAccess: a.fieldAccess, scopes: a.scopes, approvalLimits: a.approvalLimits };
 }
 
 /**
@@ -245,5 +280,6 @@ export function accessFieldsOf(a: Access) {
     scopes: a.scopes,
     approvalLimits: a.approvalLimits,
     permissionRole: a.owner ? null : a.role,
+    permissionRoles: a.owner ? [] : a.roles,
   };
 }

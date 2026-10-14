@@ -171,12 +171,6 @@ export const ur: Record<MessageKey, string> = {
   'mail.invite.orOpen': 'یا یہ لنک کھولیں: {url}',
   'mail.invite.expiry': 'یہ لنک صرف ایک بار چلے گا اور {days} دن میں ختم ہو جائے گا۔ اگر آپ کو اس کی توقع نہیں تھی تو یہ ای میل نظر انداز کریں۔',
   'mail.invite.munshiNote': 'شامل ہونے کے بعد موبائل ایپ میں اپنے فون نمبر سے سائن اِن کریں — پاس ورڈ یا لاگ اِن کوڈ سے۔',
-  'mail.support.subject': 'پلیٹ فارم سپورٹ نے {company} کا اکاؤنٹ کھولا',
-  'mail.support.greeting': 'السلام علیکم {name}،',
-  'mail.support.person': 'سپورٹ کرنے والا: {admin}',
-  'mail.support.access': 'اجازت: صرف دیکھنا، جب تک وہ دوسری وجہ لکھ کر تبدیلی کا موڈ آن نہ کریں',
-  'mail.support.until': 'کب تک: {until} (پاکستان وقت) یا جب وہ ختم کریں',
-  'mail.support.audit': 'ان کی ہر تبدیلی آپ کے آڈٹ لاگ میں ہے (Settings → Audit log)۔ اگر آپ کو اس کی توقع نہیں تھی تو اس ای میل کا جواب دیں۔',
 
   'share.salutation': 'السلام علیکم {name} صاحب',
   'share.salutationNoName': 'السلام علیکم',

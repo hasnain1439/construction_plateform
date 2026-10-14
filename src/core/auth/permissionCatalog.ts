@@ -12,8 +12,9 @@
  * - `limit` keys accept an optional `maxAmountPaisa` (approval limit); above it → 403
  *   APPROVAL_LIMIT_EXCEEDED (the owner approves).
  *
- * The default role templates ("Project Manager", "Munshi", …) are defined at the bottom and
- * reproduce the access the old role checks gave (see tests/permissions/parity.test.ts).
+ * The default role templates ("Administrator", "Project Manager", "Munshi", …) are defined at the
+ * bottom. Project Manager / Munshi reproduce the access the old role checks gave (see
+ * tests/permissions/parity.test.ts); Administrator = every key except the ownerOnly ones.
  */
 
 export interface PermissionLabel {
@@ -195,7 +196,7 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   def('team.member.manage', L('Manage team & permissions', 'Team aur ijazat ka intezam', 'ٹیم اور اجازت کا انتظام'), 'Invite, edit, deactivate users, devices, roles and permissions (never an owner, never owner-only permissions).'),
   def('company.profile.view', L('View company profile', 'Company profile dekhna', 'کمپنی پروفائل دیکھنا'), 'Company name, NTN, logo, contact.'),
   def('company.settings.manage', L('Company profile & settings', 'Company profile aur settings', 'کمپنی پروفائل اور سیٹنگز'), 'Change the company profile and settings.', { ownerOnly: true }),
-  def('company.audit.view', L('View audit log', 'Audit log dekhna', 'آڈٹ لاگ دیکھنا'), 'Who changed what in the company, including platform support sessions.', { ownerOnly: true }),
+  def('company.audit.view', L('View audit log', 'Audit log dekhna', 'آڈٹ لاگ دیکھنا'), 'Who changed what in the company, including changes made by platform support.', { ownerOnly: true }),
   def('company.opening.manage', L('Opening balances', 'Opening balance (pehle ka hisaab)', 'ابتدائی بیلنس'), 'Enter the opening balances (supplier udhaar, cash in hand, store stock, worker peshgi) once per item; they lock after saving.'),
   def('company.holiday.manage', L('Manage holidays', 'Chhuttiyon ka intezam', 'چھٹیوں کا انتظام'), 'Add or delete company holidays.'),
   def('subscription.manage', L('Subscription & payments', 'Subscription aur adayegi', 'سبسکرپشن اور ادائیگی'), 'Plan, subscription payments, plan changes.', { ownerOnly: true }),
@@ -339,6 +340,15 @@ export const FINANCIAL_BUNDLE = [
 ];
 
 export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
+  {
+    key: 'ADMINISTRATOR',
+    name: L('Administrator', 'Admin', 'ایڈمن'),
+    baseRole: 'PM',
+    description:
+      'Office account with every permission except the owner-only ones (company settings, audit log, subscription): all projects, no approval limits, every amount visible.',
+    // Every catalogue key except ownerOnly; scoped keys on ALL_PROJECTS; no approval limits.
+    grants: PERMISSION_CATALOG.filter((p) => !p.ownerOnly).map((p) => ({ key: p.key, ...(p.scoped ? { scope: 'ALL_PROJECTS' as const } : {}) })),
+  },
   {
     key: 'PROJECT_MANAGER',
     name: L('Project Manager', 'Project Manager', 'پراجیکٹ مینیجر'),

@@ -4,14 +4,6 @@ import type { Access } from '../auth/access.js';
 
 export type ActorType = 'ANONYMOUS' | 'USER' | 'PLATFORM_ADMIN';
 
-export interface ActAsContext {
-  sessionId: string;
-  adminName: string;
-  reason: string;
-  mode: 'READ_ONLY' | 'WRITE';
-  writeReason: string | null;
-}
-
 export interface RequestContext {
   requestId: string;
   ip: string | undefined;
@@ -28,8 +20,8 @@ export interface RequestContext {
   sessionId?: string;
   /** Platform super admin acting inside a company (X-Act-As-Tenant); userId is then the company's system user. */
   platformAdminId?: string;
-  /** The act-as session behind such a request (X-Act-As-Session): who, why and in which mode. */
-  actAs?: ActAsContext;
+  /** That admin's name (audit details: "Platform support · <name>"). */
+  platformAdminName?: string;
   /** Set by tenantContext when the company is READ_ONLY. */
   readOnly?: boolean;
 }

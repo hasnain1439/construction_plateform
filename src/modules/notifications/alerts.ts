@@ -264,18 +264,3 @@ export const inviteAccepted = (tx: Tx, e: Base & { userId: string; name: string;
     ...(e.at ? { at: e.at } : {}),
   });
 
-// ─── Platform support ───────────────────────────────────────────────────────
-
-/** A platform super admin opened the company (act-as session) — every owner is told why. */
-export const platformSupportAccess = (tx: Tx, e: Base & { sessionId: string; adminName: string; reason: string }) =>
-  notify(tx, {
-    tenantId: e.tenantId,
-    recipients: ['THEKEDAR'],
-    type: 'PLATFORM_SUPPORT_ACCESS',
-    severity: 'WARNING',
-    text: { key: 'platformSupportAccess', params: { reason: e.reason, admin: e.adminName } },
-    ref: { type: 'ACT_AS_SESSION', id: e.sessionId },
-    actionUrl: '/settings/audit-log',
-    actorId: null,
-    ...(e.at ? { at: e.at } : {}),
-  });

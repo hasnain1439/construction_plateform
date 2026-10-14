@@ -143,6 +143,7 @@ const authResultExample = {
     scopes: { 'projects.project.view': 'ALL_PROJECTS', 'cashbook.expense.approve': 'ALL_PROJECTS' },
     approvalLimits: { 'cashbook.expense.approve': null, 'labor.settlement.approve': null },
     permissionRole: null,
+    permissionRoles: [],
     accessTokenExpiresIn: 900,
     accessToken: '<jwt — mobile only>',
     refreshToken: '<opaque — mobile only>',

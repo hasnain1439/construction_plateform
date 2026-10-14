@@ -10,7 +10,7 @@ import { hashUserId } from './hash.js';
  * Only a fixed list of events and an allow-list of properties ever leave the server.
  * Never money values, names, phones, emails or free text. The person is a hash of the user
  * id (same value as web / mobile, see hash.ts); the company is a PostHog group keyed by its id.
- * Support sessions (platform admin acting inside a company) are not tracked.
+ * A platform admin acting inside a company is not tracked.
  */
 
 export const ANALYTICS_EVENTS = ['login', 'project_activated', 'hazri_marked', 'purchase_saved', 'invoice_issued', 'sync_error'] as const;
@@ -99,7 +99,7 @@ export function track(event: AnalyticsEvent, props: AnalyticsProps = {}, actor?:
     const target = currentSink();
     if (!target || !ANALYTICS_EVENTS.includes(event)) return;
     const ctx = tryGetCtx();
-    if (!actor && ctx?.platformAdminId) return; // support session, not product usage
+    if (!actor && ctx?.platformAdminId) return; // platform admin acting inside a company, not product usage
     const userId = actor?.userId ?? ctx?.userId;
     const tenantId = actor?.tenantId ?? ctx?.tenantId;
     if (!userId && !tenantId) return;

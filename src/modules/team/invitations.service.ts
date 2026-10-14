@@ -1,5 +1,5 @@
 import { defaultRoleId } from '../permissions/provision.js';
-import { assertAssignableRole } from '../permissions/permissions.service.js';
+import { assertAssignableRoles, storedOverrides, validateInviteOverrides } from '../permissions/permissions.service.js';
 import { FINANCIAL_BUNDLE } from '../../core/auth/permissionCatalog.js';
 import { accessOf, can } from '../../core/auth/access.js';
 import { isProduction } from '../../config/env.js';
@@ -11,6 +11,7 @@ import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { assertWithinLimit, lockPlanUsage } from '../../core/plan/planLimits.js';
 import { hashSecret, randomToken } from '../../core/utils/crypto.js';
 import type { Language, UserRole } from '../../generated/prisma/enums.js';
+import type { Prisma } from '../../generated/prisma/client.js';
 import { dbLanguage, langOf } from '../../core/i18n/index.js';
 import { deliverInvite, inviteUrl } from '../auth/inviteMessages.js';
 import * as repo from './team.repository.js';
@@ -82,6 +83,8 @@ export async function listInvitations(query: ListInvitationsQuery) {
       role: r.role as InvitationDto['role'],
       canSeeFinancials: r.canSeeFinancials,
       roleId: r.roleId,
+      roleIds: r.roleIds.length ? r.roleIds : r.roleId ? [r.roleId] : [],
+      permissionOverrides: storedOverrides(r.permissionOverrides),
       language: langOf(r.language),
       projects: r.projectIds.map((id) => byId.get(id)).filter((p): p is { id: string; name: string } => Boolean(p)),
       status: r.status,
@@ -120,11 +123,16 @@ export async function createInvitation(input: CreateInvitationInput): Promise<In
     // The permission role given on accept: the chosen one (fits the account, within the inviter's
     // own permissions) or the system template of the invited role.
     const manager = { tenantId, userId, access: accessOf() };
-    if (input.roleId) await assertAssignableRole(tx, manager, input.roleId, input.role);
+    // Several roles allowed (roleIds); roleId = one role (older clients).
+    const chosen = input.roleIds ?? (input.roleId ? [input.roleId] : []);
+    if (chosen.length) await assertAssignableRoles(tx, manager, chosen, input.role);
     if (canSeeFinancials && input.canSeeFinancials && !manager.access.owner) {
       for (const k of FINANCIAL_BUNDLE) if (!can(k)) throw new Forbidden('GRANT_EXCEEDS_OWN', 'You can only give permissions you have yourself', { permission: k });
     }
-    const roleId = input.roleId ?? (await defaultRoleId(tx, tenantId, input.role));
+    const roleIds = chosen.length ? chosen : [await defaultRoleId(tx, tenantId, input.role)];
+    const roleId = roleIds[0]!;
+    // Extra / removed permissions on top of the role — same rules as PUT /users/:id/permission-overrides.
+    const permissionOverrides = validateInviteOverrides(manager, input.permissionOverrides ?? []);
     // The invite's language: chosen by the inviter, else the company's default language.
     const language = input.language ? dbLanguage(input.language) : (settings?.defaultLanguage ?? 'ROMAN_URDU');
 
@@ -137,6 +145,8 @@ export async function createInvitation(input: CreateInvitationInput): Promise<In
       email: input.email ?? null,
       canSeeFinancials,
       roleId,
+      roleIds,
+      permissionOverrides: permissionOverrides as unknown as Prisma.InputJsonArray,
       projectIds,
       language,
       status: 'PENDING',
@@ -150,7 +160,7 @@ export async function createInvitation(input: CreateInvitationInput): Promise<In
       action: 'invite.create',
       entityType: 'Invitation',
       entityId: created.id,
-      details: { role: input.role, roleId, projects: projectIds.length, canSeeFinancials, language: langOf(language) },
+      details: { role: input.role, roleId, roleIds, projects: projectIds.length, canSeeFinancials, language: langOf(language), permissionOverrides } as unknown as Prisma.InputJsonObject,
     });
     const tenant = await repo.findTenantName(tx, tenantId);
     return { invitation: created, companyName: tenant?.name ?? 'Your company' };

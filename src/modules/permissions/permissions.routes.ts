@@ -11,6 +11,7 @@ import {
   setOverridesBody,
   setRolePermissionsBody,
   setUserRoleBody,
+  setUserRolesBody,
   updateRoleBody,
   userIdParams,
 } from './permissions.schema.js';
@@ -41,3 +42,4 @@ export const userPermissionsRouter = Router();
 userPermissionsRouter.get('/:id/permissions', ...company, manage, validate({ params: userIdParams }), h(c.getUserPermissions));
 userPermissionsRouter.put('/:id/permission-overrides', ...company, manage, validate({ params: userIdParams, body: setOverridesBody }), h(c.setOverrides));
 userPermissionsRouter.patch('/:id/role', ...company, manage, validate({ params: userIdParams, body: setUserRoleBody }), h(c.setUserRole));
+userPermissionsRouter.put('/:id/roles', ...company, manage, validate({ params: userIdParams, body: setUserRolesBody }), h(c.setUserRoles));

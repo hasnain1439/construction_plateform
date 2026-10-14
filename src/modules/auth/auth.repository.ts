@@ -296,7 +296,7 @@ export function findInvitationByTokenHash(db: Db, tokenHash: string) {
 }
 
 export function findInvitationById(tx: Db, id: string) {
-  return tx.invitation.findUnique({ where: { id }, select: { status: true, expiresAt: true, tokenHash: true } });
+  return tx.invitation.findUnique({ where: { id }, select: { status: true, expiresAt: true, tokenHash: true, invitedById: true, permissionOverrides: true, roleIds: true } });
 }
 
 /** RLS-scoped (called inside withTenant): does the company have any user yet? */

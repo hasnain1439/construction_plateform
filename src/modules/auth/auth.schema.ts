@@ -295,7 +295,10 @@ export const accessFields = {
   permissionRole: z
     .object({ id: z.uuid().nullable(), key: z.string().nullable(), name: z.string().nullable() })
     .nullable()
-    .meta({ description: 'The role template (null for THEKEDAR)' }),
+    .meta({ description: 'The primary (first) role template (null for THEKEDAR)' }),
+  permissionRoles: z
+    .array(z.object({ id: z.uuid().nullable(), key: z.string().nullable(), name: z.string().nullable() }))
+    .meta({ description: 'Every role of the member, primary first (effective = union of them + overrides). Empty for THEKEDAR.' }),
 };
 
 export const authResultDto = z

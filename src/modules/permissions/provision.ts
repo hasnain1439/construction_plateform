@@ -4,7 +4,8 @@
  *
  * 1. System role templates (ROLE_TEMPLATES) exist and their permissions equal the code
  *    definition (a changed template bumps Role.version → cached access refreshes).
- * 2. Every PM / MUNSHI without a role gets the system template of their account type.
+ * 2. Every PM / MUNSHI without a role gets the system template of their account type, and every
+ *    member's User.roleId is also a UserRoleAssignment (several roles per member).
  * 3. PMs with the old `canSeeFinancials` flag get the FINANCIAL_BUNDLE as ALLOW overrides
  *    (once — only while they have no overrides at all).
  *
@@ -70,12 +71,18 @@ export async function provisionPermissions(tx: Tx, tenantId: string): Promise<Pe
 
   const users = await tx.user.findMany({
     where: { tenantId, role: { in: ['PM', 'MUNSHI'] }, isSystem: false },
-    select: { id: true, role: true, roleId: true, canSeeFinancials: true, _count: { select: { permissionOverrides: true } } },
+    select: { id: true, role: true, roleId: true, canSeeFinancials: true, _count: { select: { permissionOverrides: true, roleAssignments: true } } },
   });
   for (const u of users) {
     const base = u.role as 'PM' | 'MUNSHI';
+    if (u.roleId && !u._count.roleAssignments) {
+      await tx.userRoleAssignment.create({ data: { tenantId, userId: u.id, roleId: u.roleId, position: 0 } });
+      result.usersAssigned += 1;
+    }
     if (!u.roleId) {
-      await tx.user.update({ where: { id: u.id }, data: { roleId: roles.get(DEFAULT_TEMPLATE_FOR[base])! } });
+      const roleId = roles.get(DEFAULT_TEMPLATE_FOR[base])!;
+      await tx.user.update({ where: { id: u.id }, data: { roleId } });
+      await tx.userRoleAssignment.upsert({ where: { userId_roleId: { userId: u.id, roleId } }, create: { tenantId, userId: u.id, roleId, position: 0 }, update: {} });
       result.usersAssigned += 1;
       if (base === 'PM' && u.canSeeFinancials && u._count.permissionOverrides === 0) {
         await tx.userPermissionOverride.createMany({

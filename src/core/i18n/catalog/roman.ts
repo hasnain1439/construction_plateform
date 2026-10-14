@@ -171,12 +171,6 @@ export const roman: Record<MessageKey, string> = {
   'mail.invite.orOpen': 'Ya yeh link kholein: {url}',
   'mail.invite.expiry': 'Yeh link sirf ek baar chalega aur {days} din mein khatam ho jayega. Agar aap ko is ki tawaqqo nahi thi to is email ko nazar andaaz karein.',
   'mail.invite.munshiNote': 'Shamil hone ke baad mobile app mein apne phone number se sign in karein — password ya login code se.',
-  'mail.support.subject': 'Platform support ne {company} ka account khola',
-  'mail.support.greeting': 'Assalam-o-Alaikum {name},',
-  'mail.support.person': 'Support karne wala: {admin}',
-  'mail.support.access': 'Ijazat: sirf dekhna, jab tak woh doosri wajah likh kar tabdeeli ka mode on na karein',
-  'mail.support.until': 'Kab tak: {until} (Pakistan time) ya jab woh khatam karein',
-  'mail.support.audit': 'Un ki har tabdeeli aap ke audit log mein hai (Settings → Audit log). Agar aap ko is ki tawaqqo nahi thi to is email ka jawab dein.',
 
   'share.salutation': 'Assalam o Alaikum {name} sahib',
   'share.salutationNoName': 'Assalam o Alaikum',

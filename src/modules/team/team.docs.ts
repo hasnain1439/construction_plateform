@@ -231,11 +231,29 @@ export function registerTeamDocs(): void {
     description:
       'THEKEDAR only. Sends an SMS (Roman Urdu) with a one-time link valid 7 days. ' +
       'A PM invite reserves an office seat (active THEKEDAR + PM + pending PM invites ≤ plan limit). ' +
-      'The response includes `inviteUrl` (the one-time link) so the inviter can share it on WhatsApp / SMS too.',
+      'The response includes `inviteUrl` (the one-time link) so the inviter can share it on WhatsApp / SMS too. ' +
+      'Permissions: `roleId` (GET /roles; must fit the account type) plus optional `permissionOverrides` — ALLOW adds a key on top of the role, DENY removes one — ' +
+      'validated exactly like PUT /users/{id}/permission-overrides (no owner-only keys; a non-owner inviter can only give what they hold). ' +
+      'On accept they become the new user’s overrides (same transaction, audited `user.permissions_update` with `via: "invitation"`).',
     security: companySecurity,
     request: {
       body: jsonBody(createInvitationBody, {
         pm: ex('Invite a PM', { name: 'Usman Ghani', phone: '0345-1112233', role: 'PM', canSeeFinancials: false }),
+        admin: ex('Invite an Administrator (office, everything except owner-only)', { name: 'Usman Ghani', phone: '0345-1112233', role: 'PM', roleId: '0199a8c0-0000-7000-8000-000000000300' }),
+        withPermissions: ex(
+          'PM role + one extra, one removed',
+          {
+            name: 'Usman Ghani',
+            phone: '0345-1112233',
+            role: 'PM',
+            roleId: '0199a8c0-0000-7000-8000-000000000301',
+            permissionOverrides: [
+              { key: 'billing.invoice.view', effect: 'ALLOW' },
+              { key: 'clients.client.create', effect: 'DENY' },
+            ],
+          },
+          'The web invite form sends the diff between the ticked checklist and the chosen role.',
+        ),
         munshi: ex('Invite a Munshi', { name: 'Naveed Iqbal', phone: '0312-7654321', role: 'MUNSHI' }, 'Add projectIds from your company to assign sites.'),
         member: ex('❌ Already a member → 409', { name: 'Bilal Ahmed', phone: '03331112233', role: 'PM' }),
       }),
@@ -250,7 +268,14 @@ export function registerTeamDocs(): void {
           },
         },
       },
-      ...errors({ 400: ['VALIDATION_ERROR', 'INVALID_PROJECT'], ...OWNER, 402: ['PLAN_LIMIT_REACHED'], 409: ['ALREADY_MEMBER', 'INVITE_PENDING'] }),
+      ...errors({
+        400: ['VALIDATION_ERROR', 'INVALID_PROJECT', 'ROLE_NOT_FOR_ACCOUNT', 'UNKNOWN_PERMISSION', 'SCOPE_NOT_SUPPORTED', 'LIMIT_NOT_SUPPORTED', 'DUPLICATE_PERMISSION', 'DENY_HAS_NO_SCOPE'],
+        ...AUTH,
+        403: [...OWNER[403], 'OWNER_ONLY_PERMISSION', 'GRANT_EXCEEDS_OWN'],
+        402: ['PLAN_LIMIT_REACHED'],
+        404: ['ROLE_NOT_FOUND'],
+        409: ['ALREADY_MEMBER', 'INVITE_PENDING'],
+      }),
     },
   });
 

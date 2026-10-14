@@ -124,6 +124,7 @@ const NEW_ROUTES: Snapshot = {
   'GET /api/v1/users/:id/permissions': owner(404),
   'PUT /api/v1/users/:id/permission-overrides': owner(400),
   'PATCH /api/v1/users/:id/role': owner(400),
+  'PUT /api/v1/users/:id/roles': owner(400),
   'GET /api/v1/company/audit-logs': owner(200),
   // Pilot · Part 7 — onboarding: checklist, opening balances, demo (owner), imports (the entity's create permission)
   'GET /api/v1/onboarding/checklist': owner(200),

@@ -1,16 +1,8 @@
 import type { Request, RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
 import { getCtx } from '../context/requestContext.js';
-import { BadRequest, Forbidden, NotFound, Unauthorized } from '../errors/AppError.js';
-import {
-  ACT_AS_HEADER,
-  ACT_AS_SAFE_METHODS,
-  ACT_AS_SESSION_HEADER,
-  adminSessionAlive,
-  liveActAsSession,
-  systemUserId,
-  tenantExists,
-} from '../../modules/auth/actAs.js';
+import { BadRequest, NotFound, Unauthorized } from '../errors/AppError.js';
+import { ACT_AS_HEADER, liveAdminName, systemUserId, tenantExists } from '../../modules/auth/actAs.js';
 import { COOKIES, verifyAccessToken, type Audience } from '../auth/jwt.js';
 import { ownerAccess } from '../auth/access.js';
 import { tagSentryScope } from '../observability/sentryScope.js';
@@ -62,25 +54,22 @@ const companyAuth = authenticateFor('company');
 const platformAuth = authenticateFor('platform');
 
 /**
- * Super admin acting inside a company: a valid platform token + `X-Act-As-Tenant` + a live
- * `X-Act-As-Session` of this admin in this company (403 ACT_AS_SESSION_* otherwise). A
- * READ_ONLY session may only read (403 ACT_AS_READ_ONLY). The request then runs as that
- * company's system user (THEKEDAR, every permission) and keeps the admin's id and the session
- * for the audit log. See modules/auth/actAs.ts.
+ * Super admin acting inside a company: a valid platform token of a signed-in, active admin +
+ * `X-Act-As-Tenant` is enough — direct, full (read and write) access, no session, reason or
+ * expiry (a legacy `X-Act-As-Session` header is ignored). The request then runs as that
+ * company's system user (THEKEDAR, every permission) and keeps the admin's id and name for the
+ * audit log. See modules/auth/actAs.ts.
  */
 async function actAs(req: Request, tenantId: string): Promise<void> {
   if (!UUID.test(tenantId)) throw new BadRequest('INVALID_TENANT', 'X-Act-As-Tenant must be a company id');
   platformAuth(req, {} as never, () => undefined); // verifies the platform token, fills the context
   const ctx = getCtx();
-  if (ctx.actorType !== 'PLATFORM_ADMIN' || !ctx.sessionId || !(await adminSessionAlive(ctx.sessionId))) {
+  const adminName = ctx.actorType === 'PLATFORM_ADMIN' && ctx.sessionId ? await liveAdminName(ctx.sessionId) : null;
+  if (!adminName) {
     throw new Unauthorized('SESSION_REVOKED', 'You have been signed out. Please log in again.');
   }
   if (!(await tenantExists(tenantId))) throw new NotFound('TENANT_NOT_FOUND', 'Company not found');
-  const session = await liveActAsSession(req.get(ACT_AS_SESSION_HEADER)?.trim() || undefined, ctx.userId!, tenantId);
-  if (session.mode === 'READ_ONLY' && !ACT_AS_SAFE_METHODS.has(req.method)) {
-    throw new Forbidden('ACT_AS_READ_ONLY', 'This support session is read-only. Switch it to write mode (with a reason) to make changes.');
-  }
-  ctx.actAs = session;
+  ctx.platformAdminName = adminName;
   ctx.platformAdminId = ctx.userId;
   ctx.actorType = 'USER';
   ctx.tenantId = tenantId;

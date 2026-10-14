@@ -1,5 +1,7 @@
 /**
- * Gives every existing company the permission role templates, assigns them to users without a
+ * Gives every existing company the permission role templates (Administrator, Project Manager,
+ * Munshi, Accountant, Store Keeper — a template added later, e.g. Administrator, is created for
+ * every company on the next run), assigns them to users without a
  * role and moves PMs with the old canSeeFinancials flag to ALLOW overrides. Idempotent — safe to
  * run repeatedly; re-syncs the system templates when their code definition changed.
  *   npm run backfill:permissions
