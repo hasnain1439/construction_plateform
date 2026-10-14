@@ -3,6 +3,7 @@ import { writeAudit } from '../../core/audit/audit.js';
 import { getCtx } from '../../core/context/requestContext.js';
 import { maskPhone } from '../../core/utils/phone.js';
 import type { Prisma } from '../../generated/prisma/client.js';
+import { langOf, type Lang } from '../../core/i18n/index.js';
 import { smsProvider } from '../auth/sms.provider.js';
 
 type Tx = Prisma.TransactionClient;
@@ -45,13 +46,13 @@ export async function nextReceiptNo(tx: Tx, now = new Date()): Promise<string> {
   return `${prefix}${String(next).padStart(4, '0')}`;
 }
 
-/** Best-effort SMS to every active THEKEDAR of a company (never fails the request). */
-export async function smsOwners(tx: Tx, tenantId: string, body: string): Promise<void> {
-  const owners = await tx.user.findMany({ where: { tenantId, role: 'THEKEDAR', status: 'ACTIVE' }, select: { phone: true } });
+/** Best-effort SMS to every active THEKEDAR of a company, each in their language (never fails the request). */
+export async function smsOwners(tx: Tx, tenantId: string, body: (lang: Lang) => string): Promise<void> {
+  const owners = await tx.user.findMany({ where: { tenantId, role: 'THEKEDAR', status: 'ACTIVE' }, select: { phone: true, language: true } });
   await Promise.all(
     owners.map((o) =>
       smsProvider()
-        .send({ to: o.phone, body, type: 'PLATFORM', tenantId })
+        .send({ to: o.phone, body: body(langOf(o.language)), type: 'PLATFORM', tenantId, lang: langOf(o.language) })
         .catch((err: unknown) => logger.error({ err, phone: maskPhone(o.phone) }, 'admin sms failed')),
     ),
   );

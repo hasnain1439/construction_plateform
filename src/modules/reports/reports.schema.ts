@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { langSchema } from '../../core/i18n/lang.js';
 import { isoDateSchema } from '../../core/utils/dates.js';
 import { uuid } from '../inventory/inventory.schema.js';
 
@@ -13,6 +14,7 @@ export const reportQuery = z
     projectId: uuid('projectId').optional(),
     from: isoDateSchema.optional(),
     to: isoDateSchema.optional(),
+    lang: langSchema.optional().meta({ description: 'Language of csv / xlsx / pdf titles, headers and labels (default: your language). JSON is not translated.' }),
   })
   .refine((v) => !v.from || !v.to || v.from <= v.to, { message: '`from` must be on or before `to`', path: ['from'] });
 

@@ -66,7 +66,7 @@ export async function seedMalikNotifications(db: PrismaClient, s: NotificationsS
       projectName: gp144.toLocation.name,
       dispatchId: gp144.id,
       number: gp144.number,
-      lines: gp144.items.map((i) => `${i.material.name} ${Number(i.sentQty)} ${i.material.unit}`),
+      lines: gp144.items.map((i) => ({ qty: Number(i.sentQty), unit: i.material.unit, name: i.material.name, group: null })),
       at: gp144.dispatchedAt,
     });
     if (expense) await alerts.expensePending(tx, { tenantId: t, projectId: expense.projectId, entryId: expense.id, holder: expense.account.holder.name, amountPaisa: -expense.amountPaisa, description: expense.description, at: expense.occurredAt });

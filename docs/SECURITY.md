@@ -31,6 +31,16 @@ until the app wipes it), insider abuse by a company owner inside their own compa
   that transaction; outside it tenant tables return no rows.
 - Composite `(tenantId, id)` foreign keys keep children in the parent's company.
 - Out-of-scope projects answer **404**, not 403, so ids of other projects / companies don't leak.
+- Two SECURITY DEFINER functions (owned by the migration role) write where app_user can't:
+  `sync_track()` (SyncChange rows) and `purge_demo_data()` ("Remove demo data", migration
+  `20261022090000_onboarding`). `purge_demo_data()` takes **no tenant parameter** — it reads the
+  caller's own `app.tenant_id` (set by `withTenant`), refuses to run without it, filters every
+  statement by that tenant, and only touches demo-tagged rows (`isDemo` project / client / supplier /
+  workers / cash book and what hangs off them); EXECUTE is revoked from PUBLIC and granted to
+  app_user only. The API refuses (`409 DEMO_IN_USE`) while real data uses demo rows.
+- Spreadsheet imports (`/imports/:entity/*`) read uploads in memory only (≤ 2 MB, ≤ 1000 rows,
+  zip signature check before exceljs), never store the file, and validate every row with the same
+  rules as the create endpoints.
 - Tests: `tests/rls.test.ts`, `tests/guards/prismaAdminImports.test.ts`, per-module cross-company tests.
 
 ## 3. Permissions

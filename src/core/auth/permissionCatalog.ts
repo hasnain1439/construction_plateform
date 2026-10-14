@@ -196,6 +196,7 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   def('company.profile.view', L('View company profile', 'Company profile dekhna', 'کمپنی پروفائل دیکھنا'), 'Company name, NTN, logo, contact.'),
   def('company.settings.manage', L('Company profile & settings', 'Company profile aur settings', 'کمپنی پروفائل اور سیٹنگز'), 'Change the company profile and settings.', { ownerOnly: true }),
   def('company.audit.view', L('View audit log', 'Audit log dekhna', 'آڈٹ لاگ دیکھنا'), 'Who changed what in the company, including platform support sessions.', { ownerOnly: true }),
+  def('company.opening.manage', L('Opening balances', 'Opening balance (pehle ka hisaab)', 'ابتدائی بیلنس'), 'Enter the opening balances (supplier udhaar, cash in hand, store stock, worker peshgi) once per item; they lock after saving.'),
   def('company.holiday.manage', L('Manage holidays', 'Chhuttiyon ka intezam', 'چھٹیوں کا انتظام'), 'Add or delete company holidays.'),
   def('subscription.manage', L('Subscription & payments', 'Subscription aur adayegi', 'سبسکرپشن اور ادائیگی'), 'Plan, subscription payments, plan changes.', { ownerOnly: true }),
 

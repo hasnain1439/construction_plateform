@@ -7,6 +7,7 @@ import type ExcelJSModule from 'exceljs';
 import type { Tx } from '../../core/db/withTenant.js';
 import { renderPdf } from '../../core/pdf/renderer.js';
 import { reportHtml, type Letterhead, type ReportColumnType } from '../../core/pdf/templates.js';
+import { enumLabel, hasKey, tr, unitLabel, type Lang } from '../../core/i18n/index.js';
 import { uuidv7 } from '../../core/utils/uuid.js';
 import { signedUrlFor } from '../attachments/attachments.service.js';
 import { storage } from '../attachments/storage.provider.js';
@@ -30,6 +31,59 @@ export interface Report {
   rows: Array<Record<string, Cell>>;
   totals: Record<string, Cell> | null;
   notes?: string[];
+  /** "Total" in the file language (set by localizeReport). */
+  totalLabel?: string;
+}
+
+// ─── Language of the files ──────────────────────────────────────────────────
+
+/** Columns whose label differs from the shared `report.col.<key>` one. */
+const COLUMN_KEY: Record<string, string> = { 'receivables-ageing:project': 'report.col.code', 'material-audit:value': 'report.col.stockValue' };
+/** Words the builders put in cells → enum labels. */
+const CELL_KEY: Record<string, string> = {
+  Worker: 'enum.PayeeKind.WORKER',
+  'Sub-contractor': 'enum.PayeeKind.SUBCONTRACTOR',
+  Store: 'enum.StockLocationType.STORE',
+  Site: 'enum.StockLocationType.SITE',
+  Transit: 'enum.StockLocationType.TRANSIT',
+  'In transit': 'enum.StockLocationType.TRANSIT',
+};
+
+function columnLabel(lang: Lang, report: string, c: ReportColumn): string {
+  const special = COLUMN_KEY[`${report}:${c.key}`];
+  if (special && hasKey(special)) return tr(lang, special);
+  const age = /^age_(.+)$/.exec(c.key);
+  if (age) return tr(lang, 'report.col.ageDays', { range: age[1] });
+  const bucket = /^cost_(.+)$/.exec(c.key);
+  if (bucket) return enumLabel(lang, 'CostBucket', bucket[1]);
+  const spent = /^spent_(.+)$/.exec(c.key);
+  if (spent) return enumLabel(lang, 'ExpenseCategory', spent[1]);
+  const key = `report.col.${c.key}`;
+  return hasKey(key) ? tr(lang, key) : c.label;
+}
+
+function localCell(lang: Lang, key: string, v: Cell): Cell {
+  if (typeof v !== 'string') return v;
+  if (key === 'status') return enumLabel(lang, 'ProjectStatus', v);
+  if (key === 'unit') return unitLabel(lang, v);
+  const k = CELL_KEY[v];
+  return (key === 'kind' || key === 'location') && k && hasKey(k) ? tr(lang, k) : v;
+}
+
+/**
+ * The report for a file in `lang`: title, column headers, "Total" and enum cells (status, type,
+ * unit) translated. Names, codes, numbers and the subtitle (filters / dates) stay as built.
+ * JSON responses are never translated (the apps label them).
+ */
+export function localizeReport(r: Report, lang: Lang): Report {
+  const titleKey = `report.title.${r.name}`;
+  return {
+    ...r,
+    title: hasKey(titleKey) ? tr(lang, titleKey) : r.title,
+    columns: r.columns.map((c) => ({ ...c, label: columnLabel(lang, r.name, c) })),
+    rows: r.rows.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, localCell(lang, k, v)]))),
+    totalLabel: tr(lang, 'common.total'),
+  };
 }
 
 export const MIME: Record<Exclude<ReportFormat, 'json'>, string> = {
@@ -51,7 +105,7 @@ export function toCsv(r: Report): Buffer {
   };
   const lines = [r.columns.map((c) => esc(label(c))).join(',')];
   for (const row of r.rows) lines.push(r.columns.map((c) => esc(plain(c, row[c.key] ?? null))).join(','));
-  if (r.totals) lines.push(r.columns.map((c, i) => esc(i === 0 ? 'Total' : plain(c, r.totals![c.key] ?? null))).join(','));
+  if (r.totals) lines.push(r.columns.map((c, i) => esc(i === 0 ? (r.totalLabel ?? 'Total') : plain(c, r.totals![c.key] ?? null))).join(','));
   // BOM so Excel opens UTF-8 (Urdu names, ·) correctly.
   return Buffer.from(`﻿${lines.join('\r\n')}\r\n`, 'utf8');
 }
@@ -70,7 +124,7 @@ export async function toXlsx(r: Report): Promise<Buffer> {
   header.font = { bold: true };
   header.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
   for (const row of r.rows) ws.addRow(r.columns.map((c) => plain(c, row[c.key] ?? null)));
-  if (r.totals) ws.addRow(r.columns.map((c, i) => (i === 0 ? 'Total' : plain(c, r.totals![c.key] ?? null)))).font = { bold: true };
+  if (r.totals) ws.addRow(r.columns.map((c, i) => (i === 0 ? (r.totalLabel ?? 'Total') : plain(c, r.totals![c.key] ?? null)))).font = { bold: true };
   r.columns.forEach((c, i) => {
     const col = ws.getColumn(i + 1);
     col.width = Math.min(40, Math.max(12, label(c).length + 2, ...r.rows.map((row) => String(row[c.key] ?? '').length + 2)));
@@ -80,15 +134,16 @@ export async function toXlsx(r: Report): Promise<Buffer> {
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
-export async function toPdf(company: Letterhead, r: Report): Promise<Buffer> {
-  return renderPdf(reportHtml({ company, title: r.title, subtitle: r.subtitle, generatedOn: r.generatedAt.slice(0, 10), columns: r.columns, rows: r.rows, totals: r.totals }), `${company.name} · ${r.title}`);
+export async function toPdf(company: Letterhead, r: Report, lang: Lang = 'en'): Promise<Buffer> {
+  return renderPdf(reportHtml({ company, title: r.title, subtitle: r.subtitle, generatedOn: r.generatedAt.slice(0, 10), columns: r.columns, rows: r.rows, totals: r.totals }, lang), `${company.name} · ${r.title}`, lang);
 }
 
 /** Renders the file — outside any transaction (a PDF can take seconds). */
-export async function renderReport(r: Report, format: Exclude<ReportFormat, 'json'>, company: Letterhead | null): Promise<Buffer> {
+export async function renderReport(report: Report, format: Exclude<ReportFormat, 'json'>, company: Letterhead | null, lang: Lang = 'en'): Promise<Buffer> {
+  const r = localizeReport(report, lang);
   if (format === 'csv') return toCsv(r);
   if (format === 'xlsx') return toXlsx(r);
-  return toPdf(company!, r);
+  return toPdf(company!, r, lang);
 }
 
 export { letterhead };

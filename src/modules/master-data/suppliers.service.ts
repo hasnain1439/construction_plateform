@@ -25,6 +25,7 @@ function toSupplierDto(s: Supplier) {
     ntn: s.ntn,
     notes: s.notes,
     isActive: s.isActive,
+    isDemo: s.isDemo,
     createdAt: s.createdAt.toISOString(),
   };
 }

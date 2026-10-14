@@ -9,6 +9,8 @@ import { visible } from '../../core/auth/fieldStrip.js';
 import type { FieldAccess } from '../../core/auth/access.js';
 import { formatDateOnly } from '../../core/utils/dates.js';
 import { UNIT_OF } from '../labor/assignments.service.js';
+import type { Lang } from '../../core/i18n/lang.js';
+import { localizedText } from '../notifications/notifications.service.js';
 
 export interface SyncViewer {
   userId: string;
@@ -445,12 +447,15 @@ export const serializeHoliday = (h: { id: string; startDate: Date; endDate: Date
   type: h.type,
 });
 
-export const serializeNotification = (n: { id: string; type: string; severity: string; title: string; body: string; projectId: string | null; refType: string; refId: string; actionUrl: string | null; readAt: Date | null; createdAt: Date }) => ({
+/** Title / body in the reader's language (`lang`), from the stored key + params when there is one. */
+export const serializeNotification = (
+  n: { id: string; type: string; severity: string; title: string; body: string; textKey: string | null; params: unknown; projectId: string | null; refType: string; refId: string; actionUrl: string | null; readAt: Date | null; createdAt: Date },
+  lang: Lang,
+) => ({
   id: n.id,
   type: n.type,
   severity: n.severity,
-  title: n.title,
-  body: n.body,
+  ...localizedText(n, lang),
   projectId: n.projectId,
   refType: n.refType,
   refId: n.refId,

@@ -10,6 +10,7 @@ import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../core/errors/AppError.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { formatDateOnly } from '../../core/utils/dates.js';
+import { joinList, langOf, materialLine, tr, type Lang, type MaterialLine } from '../../core/i18n/index.js';
 import type { DispatchStatus, Prisma, StockLocation } from '../../generated/prisma/client.js';
 import { optionalSignedUrl } from '../attachments/attachments.service.js';
 import { lateSyncedIds } from '../sync/lateSync.js';
@@ -136,36 +137,29 @@ export async function dispatchDetail(tx: Tx, a: Actor, id: string) {
 
 // ─── SMS ────────────────────────────────────────────────────────────────────
 
-const count = (n: Dec) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 3 }).format(qn(n));
 
-/** "200 bags cement", "5,000 eent", "1 ton sariya", else "<qty> <unit> <name>". */
-export function smsLine(m: MaterialInfo, qty: Dec): string {
-  switch (m.groupCode) {
-    case 'CEMENT':
-      return `${count(qty)} bags ${m.name.toLowerCase().includes('white') ? 'white cement' : 'cement'}`;
-    case 'BRICKS':
-      return `${count(qty)} eent`;
-    case 'STEEL':
-      return `${count(qty)} ton sariya`;
-    default:
-      return `${count(qty)} ${m.unit} ${m.name}`;
-  }
+/** The dispatched item as a language-neutral line (rendered per reader: "200 bags cement", "5,000 eent", "1 ton sariya"). */
+export const lineOf = (m: MaterialInfo, qty: Dec): MaterialLine => ({ qty: qn(qty), unit: m.unit, name: m.name, group: m.groupCode });
+
+/** "200 bags cement", "5,000 eent", "1 ton sariya", else "<qty> <unit> <name>" — in `lang` (default Roman Urdu). */
+export function smsLine(m: MaterialInfo, qty: Dec, lang: Lang = 'roman'): string {
+  return materialLine(lang, lineOf(m, qty));
 }
 
-export function dispatchSms(number: string, lines: string[], vehicleNo: string | null): string {
-  const list = lines.length > 1 ? `${lines.slice(0, -1).join(', ')} aur ${lines.at(-1)}` : lines[0]!;
-  return `${number}: ${list} aap ki site par aa rahe hain${vehicleNo ? ` (${vehicleNo})` : ''}.`;
+export function dispatchSms(number: string, lines: MaterialLine[], vehicleNo: string | null, lang: Lang = 'roman'): string {
+  return tr(lang, 'sms.dispatch', { number, list: joinList(lang, lines.map((l) => materialLine(lang, l))), vehicle: vehicleNo ? ` (${vehicleNo})` : '' });
 }
 
-/** Tells the destination site's PM / munshis what is coming. Never fails the dispatch. */
-async function notifySite(tx: Tx, tenantId: string, projectId: string, text: string) {
+/** Tells the destination site's PM / munshis what is coming, each in their language. Never fails the dispatch. */
+async function notifySite(tx: Tx, tenantId: string, projectId: string, sms: (lang: Lang) => string) {
   const people = await tx.user.findMany({
     where: { tenantId, status: 'ACTIVE', role: { in: ['PM', 'MUNSHI'] }, projectAccess: { some: { projectId } } },
-    select: { phone: true },
+    select: { phone: true, language: true },
   });
   for (const p of people) {
+    const lang = langOf(p.language);
     await smsProvider()
-      .send({ to: p.phone, body: text, type: 'DISPATCH', tenantId })
+      .send({ to: p.phone, body: sms(lang), type: 'DISPATCH', tenantId, lang })
       .catch((err: unknown) => logger.warn({ err }, 'dispatch sms failed'));
   }
 }
@@ -231,15 +225,15 @@ export async function writeDispatch(tx: Tx, a: Pick<Actor, 'tenantId' | 'userId'
     await tx.dispatchItem.create({ data: { tenantId: a.tenantId, dispatchId: dispatch.id, materialId: i.materialId, sentQty: i.qty, unitCostPaisa: out.unitCostPaisa, sortOrder } });
   }
   if (plan.to.type === 'SITE' && plan.to.projectId) {
-    const text = dispatchSms(number, plan.items.map((i) => smsLine(materials.get(i.materialId)!, i.qty)), plan.vehicleNo ?? null);
-    await notifySite(tx, a.tenantId, plan.to.projectId, text);
+    const lines = plan.items.map((i) => lineOf(materials.get(i.materialId)!, i.qty));
+    await notifySite(tx, a.tenantId, plan.to.projectId, (lang) => dispatchSms(number, lines, plan.vehicleNo ?? null, lang));
     await alerts.dispatchCreated(tx, {
       tenantId: a.tenantId,
       projectId: plan.to.projectId,
       projectName: plan.to.name,
       dispatchId: dispatch.id,
       number,
-      lines: plan.items.map((i) => smsLine(materials.get(i.materialId)!, i.qty)),
+      lines,
       at: plan.at,
     });
   }

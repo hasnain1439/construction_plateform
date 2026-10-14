@@ -9,7 +9,11 @@
  *   - a MUNSHI only ever gets site notifications (MUNSHI_TYPES) — never money ones; a PM
  *     without financials never gets billing / subscription ones.
  *   - dedupe: the same (type, refId, user) at most once per 24 h.
- *   - `sms` sends an SMS for CRITICAL notifications (text = the body, or the given string).
+ *   - `sms` sends an SMS for CRITICAL notifications (text = the type's SMS text / the body in the
+ *     recipient's language, or the given string).
+ *   - language: `text` (key + params, notifications/texts.ts) is rendered per recipient in their
+ *     `User.language` and stored with the row, so the inbox can re-render it in the reader's
+ *     current language. `title` / `body` are only for callers without a text key (tests).
  */
 import { logger } from '../../config/logger.js';
 import { getCtx } from '../../core/context/requestContext.js';
@@ -18,9 +22,11 @@ import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { NotFound } from '../../core/errors/AppError.js';
 import type { NotificationSeverity, NotificationType, Prisma, UserRole } from '../../generated/prisma/client.js';
+import { langOf, type Lang } from '../../core/i18n/index.js';
 import { smsProvider } from '../auth/sms.provider.js';
 import * as repo from './notifications.repository.js';
 import type { NotificationsQuery } from './notifications.schema.js';
+import { renderNotification, type NotificationText } from './texts.js';
 
 export type Recipient = 'THEKEDAR' | { userIds: string[] } | { projectRoles: UserRole[]; projectId: string };
 
@@ -29,8 +35,11 @@ export interface NotifyInput {
   recipients: Recipient[];
   type: NotificationType;
   severity: NotificationSeverity;
-  title: string;
-  body: string;
+  /** The text in every language (preferred). */
+  text?: NotificationText;
+  /** Fixed text (no key) — used when `text` is not given. */
+  title?: string;
+  body?: string;
   projectId?: string | null;
   ref: { type: string; id: string };
   actionUrl?: string | null;
@@ -100,14 +109,17 @@ export async function notify(tx: Tx, input: NotifyInput): Promise<string[]> {
   const fresh = users.filter((u) => !seen.has(u.id));
   if (!fresh.length) return [];
   const sendSms = Boolean(input.sms) && input.severity === 'CRITICAL';
+  const texts = new Map(fresh.map((u) => [u.id, textFor(input, langOf(u.language))]));
   await tx.notification.createMany({
     data: fresh.map((u) => ({
       tenantId: input.tenantId,
       userId: u.id,
       type: input.type,
       severity: input.severity,
-      title: input.title,
-      body: input.body,
+      title: texts.get(u.id)!.title,
+      body: texts.get(u.id)!.body,
+      textKey: input.text?.key ?? null,
+      params: (input.text?.params ?? undefined) as Prisma.InputJsonValue | undefined,
       projectId: input.projectId ?? null,
       refType: input.ref.type,
       refId: input.ref.id,
@@ -117,10 +129,19 @@ export async function notify(tx: Tx, input: NotifyInput): Promise<string[]> {
     })),
   });
   if (sendSms) {
-    const text = typeof input.sms === 'string' ? input.sms : input.body;
-    for (const u of fresh) await smsProvider().send({ to: u.phone, body: text, type: 'NOTIFICATION', tenantId: input.tenantId }).catch((err: unknown) => logger.warn({ err, type: input.type }, 'notification sms failed'));
+    for (const u of fresh) {
+      const t = texts.get(u.id)!;
+      const text = typeof input.sms === 'string' ? input.sms : (t.sms ?? t.body);
+      await smsProvider().send({ to: u.phone, body: text, type: 'NOTIFICATION', tenantId: input.tenantId, lang: langOf(u.language) }).catch((err: unknown) => logger.warn({ err, type: input.type }, 'notification sms failed'));
+    }
   }
   return fresh.map((u) => u.id);
+}
+
+function textFor(input: NotifyInput, lang: Lang): { title: string; body: string; sms: string | null } {
+  const rendered = input.text ? renderNotification(lang, input.text.key, input.text.params) : null;
+  if (rendered) return rendered;
+  return { title: input.title ?? input.type, body: input.body ?? '', sms: null };
 }
 
 function tryUserId(): string | undefined {
@@ -140,12 +161,23 @@ function me() {
 
 type Row = Awaited<ReturnType<typeof repo.listNotifications>>[number];
 
-export const notificationDto = (n: Row) => ({
+/** The reader's language (inbox / dashboard / sync render notifications in it). */
+export async function readerLang(tx: Tx, userId: string): Promise<Lang> {
+  const u = await tx.user.findUnique({ where: { id: userId }, select: { language: true } });
+  return langOf(u?.language);
+}
+
+/** Title / body in `lang` from the stored key + params; the stored text when there is no key. */
+export function localizedText(n: { title: string; body: string; textKey: string | null; params: unknown }, lang: Lang): { title: string; body: string } {
+  const r = renderNotification(lang, n.textKey, n.params);
+  return r ? { title: r.title, body: r.body } : { title: n.title, body: n.body };
+}
+
+export const notificationDto = (n: Row, lang: Lang) => ({
   id: n.id,
   type: n.type,
   severity: n.severity,
-  title: n.title,
-  body: n.body,
+  ...localizedText(n, lang),
   project: n.project,
   refType: n.refType,
   refId: n.refId,
@@ -168,8 +200,8 @@ export async function listNotifications(query: NotificationsQuery) {
   };
   return withTenant(a.tenantId, async (tx) => {
     const { skip, take } = skipTake(query);
-    const [rows, total] = await inSequence([() => repo.listNotifications(tx, where, skip, take), () => repo.countNotifications(tx, where)]);
-    return { data: rows.map(notificationDto), meta: pageMeta(query, total) };
+    const [rows, total, lang] = await inSequence([() => repo.listNotifications(tx, where, skip, take), () => repo.countNotifications(tx, where), () => readerLang(tx, a.userId)]);
+    return { data: rows.map((n) => notificationDto(n, lang)), meta: pageMeta(query, total) };
   });
 }
 
@@ -189,9 +221,10 @@ export async function markRead(id: string) {
   return withTenant(a.tenantId, async (tx) => {
     const n = await tx.notification.findFirst({ where: { tenantId: a.tenantId, id, userId: a.userId }, include: { project: { select: { id: true, code: true, name: true } } } });
     if (!n) throw new NotFound('NOTIFICATION_NOT_FOUND', 'Notification not found');
-    if (n.readAt) return notificationDto(n);
+    const lang = await readerLang(tx, a.userId);
+    if (n.readAt) return notificationDto(n, lang);
     const updated = await tx.notification.update({ where: { id: n.id }, data: { readAt: new Date() }, include: { project: { select: { id: true, code: true, name: true } } } });
-    return notificationDto(updated);
+    return notificationDto(updated, lang);
   });
 }
 
@@ -211,5 +244,6 @@ export async function criticalUnread(tx: Tx, tenantId: string, userId: string, t
     orderBy: { createdAt: 'desc' },
     take,
   });
-  return rows.map(notificationDto);
+  const lang = await readerLang(tx, userId);
+  return rows.map((n) => notificationDto(n, lang));
 }

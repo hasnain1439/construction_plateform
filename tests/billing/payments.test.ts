@@ -124,8 +124,8 @@ describe('B4–B6 — receivables, PDFs, statement, events', () => {
     expect(st.rows[1].reference).toBe(newer.number);
 
     pdfCalls.length = 0;
-    const pdf = await api().get(`/api/v1/projects/${dha()}/owner-statement/pdf`).set(o).query({ from: daysAgo(15) });
-    expect(pdf.body.data.whatsappText).toContain('baqaya Rs 49,75,000');
+    const pdf = await api().get(`/api/v1/projects/${dha()}/owner-statement/pdf`).set(o).query({ from: daysAgo(15), lang: 'en' });
+    expect(pdf.body.data.whatsappText).toContain('balance Rs 49,75,000'); // ?lang=en
     expect(pdfCalls[0]!.html).toContain('STATEMENT');
     const receipt = await api().get(`/api/v1/payments/${payment.id}/receipt-pdf`).set(o);
     expect(receipt.body.data).toMatchObject({ url: expect.any(String), clientPhone: expect.stringMatching(/^\+92/) });

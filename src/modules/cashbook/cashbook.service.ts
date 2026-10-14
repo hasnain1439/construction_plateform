@@ -11,7 +11,8 @@ import { assertApprovalLimit, assertPerm, can, scopeAll } from '../../core/auth/
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../core/errors/AppError.js';
-import type { CashAccount, CashEntry, Prisma } from '../../generated/prisma/client.js';
+import type { CashAccount, CashEntry, Language, Prisma } from '../../generated/prisma/client.js';
+import { enumLabel, langOf, tr, type Lang } from '../../core/i18n/index.js';
 import { smsProvider } from '../auth/sms.provider.js';
 import { pktDayEnd, pktDayStart } from '../inventory/inventory.service.js';
 import { assertAttachment, occurredAtFor } from '../inventory/stock.js';
@@ -107,9 +108,11 @@ function entryDto(e: CashEntry & { project?: { id: string; code: string; name: s
 
 const projectRef = { project: { select: { id: true, code: true, name: true } } } as const;
 
-async function notify(tenantId: string, phone: string, body: string) {
+/** SMS to a cash holder in their language. */
+async function notify(tenantId: string, holder: { phone: string; language: Language }, body: (lang: Lang) => string) {
+  const lang = langOf(holder.language);
   await smsProvider()
-    .send({ to: phone, body, type: 'CASHBOOK', tenantId })
+    .send({ to: holder.phone, body: body(lang), type: 'CASHBOOK', tenantId, lang })
     .catch((err: unknown) => logger.warn({ err }, 'cash sms failed'));
 }
 
@@ -187,7 +190,9 @@ export async function sendFloatTx(tx: Tx, a: Actor, input: FloatInput, opts: { a
     await alerts.floatSent(tx, { tenantId: a.tenantId, holderUserId: holder.id, entryId: entry.id, amountPaisa: input.amountPaisa, projectId: input.projectId ?? null, method: input.method, at });
   }
   if (!opts.at) {
-    await notify(a.tenantId, holder.phone, `${rupees(input.amountPaisa)} bheje gaye (${input.method}${input.reference ? ` ${input.reference}` : ''}). App mein "Mil gaye" dabayen.`);
+    await notify(a.tenantId, holder, (lang) =>
+      tr(lang, 'sms.cash.floatSent', { amount: rupees(input.amountPaisa), method: enumLabel(lang, 'PaymentMethod', input.method), reference: input.reference ? ` ${input.reference}` : '' }),
+    );
   }
   return entryDto(await tx.cashEntry.findUniqueOrThrow({ where: { id: entry.id }, include: projectRef }));
 }
@@ -352,7 +357,7 @@ export async function rejectExpense(id: string, note: string) {
 
 // ─── Top-ups ────────────────────────────────────────────────────────────────
 
-const topupInclude = { account: { select: { id: true, name: true, holder: { select: { id: true, name: true, phone: true } } } } } as const;
+const topupInclude = { account: { select: { id: true, name: true, holder: { select: { id: true, name: true, phone: true, language: true } } } } } as const;
 type TopupRow = Prisma.TopupRequestGetPayload<{ include: typeof topupInclude }>;
 const topupDto = (t: TopupRow, balance?: bigint) => ({
   id: t.id,
@@ -444,7 +449,7 @@ export async function rejectTopup(id: string, note: string) {
     const t = await findPendingTopup(tx, a, id);
     await tx.topupRequest.update({ where: { id: t.id }, data: { status: 'REJECTED', decidedById: a.userId, decidedAt: new Date(), decisionNote: note } });
     await audit(tx, a, 'cash.topup_rejected', 'TopupRequest', t.id, { note });
-    await notify(a.tenantId, t.account.holder.phone, `Top-up ${rupees(t.amountPaisa)} manzoor nahi hua: ${note}`);
+    await notify(a.tenantId, t.account.holder, (lang) => tr(lang, 'sms.cash.topupRejected', { amount: rupees(t.amountPaisa), note }));
     return topupDto(await tx.topupRequest.findUniqueOrThrow({ where: { id: t.id }, include: topupInclude }));
   });
 }

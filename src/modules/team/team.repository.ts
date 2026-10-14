@@ -172,7 +172,7 @@ export function updateInvitation(tx: Db, id: string, data: Prisma.InvitationUnch
 }
 
 export function findSettings(tx: Db, tenantId: string) {
-  return tx.tenantSettings.findUnique({ where: { tenantId }, select: { pmCanSeeFinancials: true } });
+  return tx.tenantSettings.findUnique({ where: { tenantId }, select: { pmCanSeeFinancials: true, defaultLanguage: true } });
 }
 
 export function findTenantName(tx: Db, tenantId: string) {

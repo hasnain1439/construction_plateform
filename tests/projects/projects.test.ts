@@ -96,7 +96,7 @@ describe('GET /projects and /projects/:id — scoping', () => {
   it('MUNSHI gets basic fields only', async () => {
     const res = await api().get(`/api/v1/projects/${seeded().projects.dha.id}`).set(await munshi());
     expect(res.status).toBe(200);
-    expect(Object.keys(res.body.data).sort()).toEqual(['city', 'client', 'code', 'endDate', 'id', 'name', 'siteAddress', 'startDate', 'status', 'team'].sort());
+    expect(Object.keys(res.body.data).sort()).toEqual(['city', 'client', 'code', 'endDate', 'id', 'isDemo', 'name', 'siteAddress', 'startDate', 'status', 'team'].sort());
   });
 
   it('search, status and pmId filters', async () => {

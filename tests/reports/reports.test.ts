@@ -72,7 +72,7 @@ describe('reports — JSON matches the source modules', () => {
 
 describe('reports — files', () => {
   it('CSV: header + rows + total, returned as a signed link', async () => {
-    const res = await report(await owner(), 'receivables-ageing', { format: 'csv' });
+    const res = await report(await owner(), 'receivables-ageing', { format: 'csv', lang: 'en' });
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ format: 'csv', mimeType: 'text/csv', fileName: expect.stringMatching(/^receivables-ageing-\d{4}-\d{2}-\d{2}\.csv$/) });
     expect(res.body.data.url).toBeTruthy();
@@ -86,7 +86,7 @@ describe('reports — files', () => {
   });
 
   it('Excel: opens with exceljs and has the rows', async () => {
-    const res = await report(await owner(), 'supplier-ageing', { format: 'xlsx' });
+    const res = await report(await owner(), 'supplier-ageing', { format: 'xlsx', lang: 'en' });
     const wb = new ExcelJS.Workbook();
     const file = await download(res.body.data.url);
     await wb.xlsx.load(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer);
@@ -100,7 +100,7 @@ describe('reports — files', () => {
   });
 
   it('PDF: renders through the PDF service with the letterhead', async () => {
-    const res = await report(await owner(), 'stock-valuation', { format: 'pdf' });
+    const res = await report(await owner(), 'stock-valuation', { format: 'pdf', lang: 'en' });
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ format: 'pdf', mimeType: 'application/pdf' });
     expect(pdfCalls).toHaveLength(1);

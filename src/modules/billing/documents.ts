@@ -2,6 +2,7 @@
 import type { Tx } from '../../core/db/withTenant.js';
 import { renderPdf } from '../../core/pdf/renderer.js';
 import { dayMonth, type Letterhead } from '../../core/pdf/templates.js';
+import { langOf, tr, type Lang } from '../../core/i18n/index.js';
 import { uuidv7 } from '../../core/utils/uuid.js';
 import type { AttachmentKind } from '../../generated/prisma/client.js';
 import { signedUrlFor } from '../attachments/attachments.service.js';
@@ -19,9 +20,23 @@ export async function letterhead(tx: Tx, tenantId: string): Promise<Letterhead> 
   };
 }
 
+/**
+ * The language of a company document: `?lang=` when given, else the requesting user's language.
+ * (Owner-facing PDFs follow the office user who makes them.)
+ */
+export async function documentLang(tx: Tx, userId: string | null, override?: Lang): Promise<Lang> {
+  if (override) return override;
+  if (!userId) return 'en';
+  const u = await tx.user.findUnique({ where: { id: userId }, select: { language: true } });
+  return langOf(u?.language);
+}
+
+/** "INV-2026-001.pdf" (English) / "INV-2026-001-ur.pdf" — the language is part of the stored file name (cache key). */
+export const pdfFileName = (base: string, lang: Lang) => `${base}${lang === 'en' ? '' : `-${lang}`}.pdf`;
+
 /** Renders `html`, stores it and returns the attachment id. */
-export async function storePdf(tx: Tx, tenantId: string, userId: string | null, kind: AttachmentKind, fileName: string, html: string, footer: string): Promise<string> {
-  const buffer = await renderPdf(html, footer);
+export async function storePdf(tx: Tx, tenantId: string, userId: string | null, kind: AttachmentKind, fileName: string, html: string, footer: string, lang: Lang = 'en'): Promise<string> {
+  const buffer = await renderPdf(html, footer, lang);
   const id = uuidv7();
   const now = new Date();
   const key = await storage().put(`${tenantId}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${id}.pdf`, buffer, 'application/pdf');
@@ -29,9 +44,10 @@ export async function storePdf(tx: Tx, tenantId: string, userId: string | null, 
   return id;
 }
 
-export async function shareOf(tx: Tx, tenantId: string, attachmentId: string, whatsappText: (url: string) => string) {
+/** Signed link + WhatsApp text; null when the attachment is gone (or is not `fileName`, i.e. another language). */
+export async function shareOf(tx: Tx, tenantId: string, attachmentId: string, whatsappText: (url: string) => string, fileName?: string) {
   const att = await tx.attachment.findFirst({ where: { tenantId, id: attachmentId } });
-  if (!att) return null;
+  if (!att || (fileName !== undefined && att.fileName !== fileName)) return null;
   const signed = await signedUrlFor(att);
   return { attachmentId, url: signed.url, expiresAt: signed.expiresAt.toISOString(), whatsappText: whatsappText(signed.url) };
 }
@@ -48,5 +64,5 @@ export async function withinOrBackground(job: () => Promise<unknown>, onError: (
 /** "12 Oct" */
 export const shortDay = (date: string | null) => (date ? dayMonth(date) : '');
 
-/** "Ahmed Raza sahib" */
-export const salutation = (name: string | null | undefined) => (name ? `Assalam o Alaikum ${name} sahib` : 'Assalam o Alaikum');
+/** "Assalam o Alaikum Ahmed Raza sahib" in the document language (default Roman Urdu). */
+export const salutation = (name: string | null | undefined, lang: Lang = 'roman') => (name ? tr(lang, 'share.salutation', { name }) : tr(lang, 'share.salutationNoName'));

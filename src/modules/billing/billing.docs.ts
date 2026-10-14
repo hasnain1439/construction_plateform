@@ -1,4 +1,5 @@
 import { errors, jsonBody } from '../../core/openapi/registry.js';
+import { langQuery } from '../../core/i18n/lang.js';
 import { AUTH, IDS, KHALID, READ_403, WRITE_403, createdResp, ex, idParam, ok, page, path } from '../inventory/docs.shared.js';
 import {
   cancelBody,
@@ -18,6 +19,8 @@ import {
   updateProgressBody,
   updateStageBody,
 } from './billing.schema.js';
+
+const LANG_NOTE = " Language: `?lang=en|roman|ur`, default the signed-in user's language (Urdu = right-to-left with an embedded Nastaliq font); the WhatsApp text is in the same language. A stored PDF in another language is made again.";
 
 const B = {
   stage: '0199a8c0-0000-7000-8000-000000000e01',
@@ -234,8 +237,8 @@ export function registerBillingDocs(): void {
   });
   path(I, 'get', '/api/v1/invoices/{id}/pdf', {
     summary: 'Invoice PDF + share text',
-    description: 'Signed URL of the stored PDF (made again if missing), and a ready WhatsApp message. 503 PDF_UNAVAILABLE when PDFs cannot be made.',
-    request: { params: idParam('Invoice') },
+    description: 'Signed URL of the stored PDF (made again if missing), and a ready WhatsApp message. 503 PDF_UNAVAILABLE when PDFs cannot be made.' + LANG_NOTE,
+    request: { params: idParam('Invoice'), query: langQuery },
     responses: {
       ...ok('PDF', share('Assalam o Alaikum Ahmed Raza sahib, DHA Phase 6 · 10 Marla ka invoice INV-2026-0010 (Rs 37,00,000), due 3 Sept. Link: https://…')),
       ...errors({ ...AUTH, 403: READ_403, 404: ['INVOICE_NOT_FOUND'], 409: ['INVOICE_NOT_ISSUED'], 503: ['PDF_UNAVAILABLE'] }),
@@ -288,7 +291,8 @@ export function registerBillingDocs(): void {
   });
   path(P, 'get', '/api/v1/payments/{id}/receipt-pdf', {
     summary: 'Receipt PDF + share text',
-    request: { params: idParam('ClientPayment') },
+    description: LANG_NOTE.trim(),
+    request: { params: idParam('ClientPayment'), query: langQuery },
     responses: { ...ok('PDF', share('Assalam o Alaikum Ahmed Raza sahib, … ki receipt RV-2026-0013. Link: https://…')), ...errors({ ...AUTH, 403: READ_403, 404: ['PAYMENT_NOT_FOUND'], 503: ['PDF_UNAVAILABLE'] }) },
   });
 
@@ -389,6 +393,7 @@ export function registerBillingDocs(): void {
   });
   path(T, 'get', '/api/v1/projects/{id}/owner-statement/pdf', {
     summary: 'Owner statement PDF + share text',
+    description: LANG_NOTE.trim(),
     request: { params: idParam('Project'), query: statementQuery },
     responses: { ...ok('PDF', share('Assalam o Alaikum Ahmed Raza sahib, DHA Phase 6 · 10 Marla ka hisaab (…): baqaya Rs 11,00,000. Link: https://…')), ...errors({ ...AUTH, 403: READ_403, ...PROJECT_404, 503: ['PDF_UNAVAILABLE'] }) },
   });

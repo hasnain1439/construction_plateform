@@ -16,7 +16,8 @@ import type { Prisma as P } from '../../generated/prisma/client.js';
 import * as alerts from '../notifications/alerts.js';
 import type { ChequeStatusInput, PaymentInput, PaymentsQuery } from './billing.schema.js';
 import { actor, audit, billingProject, billingSettings, NUMBER, today, ymd, type BillingActor } from './billing.shared.js';
-import { letterhead, salutation, shareOf, storePdf, withinOrBackground } from './documents.js';
+import { documentLang, letterhead, pdfFileName, salutation, shareOf, storePdf, withinOrBackground } from './documents.js';
+import { enumLabel, tr, type Lang } from '../../core/i18n/index.js';
 import { openAmount, openInvoices, recomputeInvoice, recordEvent } from './ledger.js';
 
 export const METHOD_LABEL: Record<string, string> = {
@@ -157,7 +158,7 @@ export async function recordPayment(projectId: string, input: PaymentInput) {
   const a = actor();
   const dto = await withTenant(a.tenantId, (tx) => recordPaymentTx(tx, a, projectId, input));
   await withinOrBackground(
-    () => withTenant(a.tenantId, (tx) => makeReceiptPdf(tx, a, dto.id)),
+    () => withTenant(a.tenantId, async (tx) => makeReceiptPdf(tx, a, dto.id, await documentLang(tx, a.userId))),
     (err) => logger.warn({ err, paymentId: dto.id }, 'receipt PDF not made — it is made on first download'),
   );
   return withTenant(a.tenantId, async (tx) => paymentDto(await load(tx, dto.id)));
@@ -193,7 +194,7 @@ export async function chequeStatusTx(tx: Tx, a: BillingActor, id: string, input:
       cheque,
       amountPaisa: p.amountPaisa,
       reason: input.reason!,
-      sms: opts.sms !== false ? `${cheque} (${rs(p.amountPaisa)}) ${p.project.name} bounce ho gaya.` : false,
+      sms: opts.sms !== false,
       at,
     });
   }
@@ -226,7 +227,7 @@ export async function getPayment(id: string) {
 
 // ─── Receipt PDF ────────────────────────────────────────────────────────────
 
-export async function makeReceiptPdf(tx: Tx, a: BillingActor, id: string) {
+export async function makeReceiptPdf(tx: Tx, a: BillingActor, id: string, lang: Lang = 'en') {
   const p = await load(tx, id);
   const dto = paymentDto(p);
   const receivedBy = p.receivedById ? (await tx.user.findUnique({ where: { id: p.receivedById }, select: { name: true } }))?.name ?? null : null;
@@ -238,27 +239,37 @@ export async function makeReceiptPdf(tx: Tx, a: BillingActor, id: string) {
     project: p.project,
     amountPaisa: p.amountPaisa,
     whtPaisa: p.whtDeductedPaisa,
-    method: [METHOD_LABEL[p.method], p.bankName].filter(Boolean).join(' · '),
-    reference: [p.chequeNo ? `Cheque ${p.chequeNo}` : null, p.reference].filter(Boolean).join(' · ') || null,
+    method: p.method,
+    bankName: p.bankName,
+    chequeNo: p.chequeNo,
+    reference: p.reference,
     status: p.status,
     allocations: p.allocations.map((al) => ({ invoiceNumber: al.invoice.number ?? '—', amountPaisa: al.amountPaisa })),
     creditPaisa: BigInt(dto.creditPaisa),
     receivedBy,
-  });
-  const attachmentId = await storePdf(tx, a.tenantId, a.userId, 'RECEIPT_PDF', `${p.number}.pdf`, html, `${p.number} · ${p.project.name}`);
+  }, lang);
+  const attachmentId = await storePdf(tx, a.tenantId, a.userId, 'RECEIPT_PDF', pdfFileName(p.number, lang), html, `${p.number} · ${p.project.name}`, lang);
   await tx.clientPayment.update({ where: { id }, data: { receiptAttachmentId: attachmentId } });
   return attachmentId;
 }
 
-const receiptWhatsapp = (p: Row) => (url: string) =>
-  `${salutation(p.client?.name)}, ${p.project.name} ki adaigi ${rs(p.amountPaisa)} (${METHOD_LABEL[p.method]}${p.chequeNo ? ` ${p.chequeNo}` : ''}) ki receipt ${p.number}. Shukriya! Link: ${url}`;
+const receiptWhatsapp = (p: Row, lang: Lang = 'roman') => (url: string) =>
+  tr(lang, 'share.receipt', {
+    salutation: salutation(p.client?.name, lang),
+    project: p.project.name,
+    amount: rs(p.amountPaisa),
+    method: `${enumLabel(lang, 'PaymentMethod', p.method)}${p.chequeNo ? ` ${p.chequeNo}` : ''}`,
+    number: p.number,
+    url,
+  });
 
-export async function receiptPdf(id: string) {
+export async function receiptPdf(id: string, langOverride?: Lang) {
   const a = actor();
   return withTenant(a.tenantId, async (tx) => {
     const p = await find(tx, a, id);
-    let share = p.receiptAttachmentId ? await shareOf(tx, a.tenantId, p.receiptAttachmentId, receiptWhatsapp(p)) : null;
-    if (!share) share = await shareOf(tx, a.tenantId, await makeReceiptPdf(tx, a, p.id), receiptWhatsapp(p));
+    const lang = await documentLang(tx, a.userId, langOverride);
+    let share = p.receiptAttachmentId ? await shareOf(tx, a.tenantId, p.receiptAttachmentId, receiptWhatsapp(p, lang), pdfFileName(p.number, lang)) : null;
+    if (!share) share = await shareOf(tx, a.tenantId, await makeReceiptPdf(tx, a, p.id, lang), receiptWhatsapp(p, lang));
     return { ...share!, clientPhone: p.client?.phone ?? null };
   });
 }

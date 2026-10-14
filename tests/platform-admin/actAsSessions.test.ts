@@ -72,15 +72,15 @@ describe('act-as sessions: start', () => {
     expect(inbox.body.data[0]).toMatchObject({
       type: 'PLATFORM_SUPPORT_ACCESS',
       severity: 'WARNING',
-      title: 'Platform support accessed your account',
+      title: 'Platform support ne aap ka account khola', // the owner's language (Roman Urdu by default)
       refId: session.id,
       actionUrl: '/settings/audit-log',
     });
-    expect(inbox.body.data[0].body).toContain(`Platform support accessed your account: ${REASON}`);
+    expect(inbox.body.data[0].body).toContain(`Platform support ne aap ka account khola: ${REASON}`);
 
     const mail = lastMailTo(SEED.malik.owner.email);
-    expect(mail?.subject).toContain('Platform support accessed');
-    expect(mail?.text).toContain(`Platform support accessed your account: ${REASON}`);
+    expect(mail?.subject).toContain('Platform support ne');
+    expect(mail?.text).toContain(`Platform support ne aap ka account khola: ${REASON}`);
     expect(mail?.text).toContain(SEED.admin.name);
 
     // Nobody else in the company is told (PM / munshi), and the other company hears nothing.

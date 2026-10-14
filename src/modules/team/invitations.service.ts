@@ -10,7 +10,8 @@ import { BadRequest, Conflict, Forbidden, NotFound, TooManyRequests } from '../.
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { assertWithinLimit, lockPlanUsage } from '../../core/plan/planLimits.js';
 import { hashSecret, randomToken } from '../../core/utils/crypto.js';
-import type { UserRole } from '../../generated/prisma/enums.js';
+import type { Language, UserRole } from '../../generated/prisma/enums.js';
+import { dbLanguage, langOf } from '../../core/i18n/index.js';
 import { deliverInvite, inviteUrl } from '../auth/inviteMessages.js';
 import * as repo from './team.repository.js';
 import type { CreateInvitationInput, InvitationDto, InvitationSentDto, ListInvitationsQuery } from './team.schema.js';
@@ -33,12 +34,12 @@ function newToken() {
 
 /** The one-time link by SMS, and by email when the invite has one. The token is never logged or stored in plain text. */
 async function sendInvite(
-  invitation: { tenantId: string; phone: string; email: string | null; name: string; role: UserRole },
+  invitation: { tenantId: string; phone: string; email: string | null; name: string; role: UserRole; language: Language },
   companyName: string,
   token: string,
 ): Promise<void> {
   // Best effort: the invitation stays valid; the THEKEDAR can resend.
-  await deliverInvite({ ...invitation, companyName, token });
+  await deliverInvite({ ...invitation, companyName, token, lang: langOf(invitation.language) });
 }
 
 function sentDto(row: { id: string; status: InvitationSentDto['status']; expiresAt: Date }, token: string): InvitationSentDto {
@@ -81,6 +82,7 @@ export async function listInvitations(query: ListInvitationsQuery) {
       role: r.role as InvitationDto['role'],
       canSeeFinancials: r.canSeeFinancials,
       roleId: r.roleId,
+      language: langOf(r.language),
       projects: r.projectIds.map((id) => byId.get(id)).filter((p): p is { id: string; name: string } => Boolean(p)),
       status: r.status,
       expiresAt: r.expiresAt.toISOString(),
@@ -123,6 +125,8 @@ export async function createInvitation(input: CreateInvitationInput): Promise<In
       for (const k of FINANCIAL_BUNDLE) if (!can(k)) throw new Forbidden('GRANT_EXCEEDS_OWN', 'You can only give permissions you have yourself', { permission: k });
     }
     const roleId = input.roleId ?? (await defaultRoleId(tx, tenantId, input.role));
+    // The invite's language: chosen by the inviter, else the company's default language.
+    const language = input.language ? dbLanguage(input.language) : (settings?.defaultLanguage ?? 'ROMAN_URDU');
 
     const created = await repo.createInvitation(tx, {
       tenantId,
@@ -134,6 +138,7 @@ export async function createInvitation(input: CreateInvitationInput): Promise<In
       canSeeFinancials,
       roleId,
       projectIds,
+      language,
       status: 'PENDING',
       expiresAt,
       invitedById: userId,
@@ -145,7 +150,7 @@ export async function createInvitation(input: CreateInvitationInput): Promise<In
       action: 'invite.create',
       entityType: 'Invitation',
       entityId: created.id,
-      details: { role: input.role, roleId, projects: projectIds.length, canSeeFinancials },
+      details: { role: input.role, roleId, projects: projectIds.length, canSeeFinancials, language: langOf(language) },
     });
     const tenant = await repo.findTenantName(tx, tenantId);
     return { invitation: created, companyName: tenant?.name ?? 'Your company' };

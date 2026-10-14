@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import { created, ok } from '../../core/http/response.js';
+import type { Lang } from '../../core/i18n/lang.js';
 import type {
   ChequeStatusInput,
   CreateInvoiceInput,
@@ -42,14 +43,14 @@ export const updateInvoice = async (req: Request, res: Response) => ok(res, awai
 export const deleteInvoice = async (req: Request, res: Response) => ok(res, await invoices.deleteInvoice(param(req, 'id')));
 export const issueInvoice = async (req: Request, res: Response) => ok(res, await invoices.issue(param(req, 'id'), (req.body ?? {}) as { issueDate?: string }));
 export const cancelInvoice = async (req: Request, res: Response) => ok(res, await invoices.cancel(param(req, 'id'), (req.body as { reason: string }).reason));
-export const invoicePdf = async (req: Request, res: Response) => ok(res, await invoices.invoicePdf(param(req, 'id')));
+export const invoicePdf = async (req: Request, res: Response) => ok(res, await invoices.invoicePdf(param(req, 'id'), query<{ lang?: Lang }>(req).lang));
 
 // B3
 export const recordPayment = async (req: Request, res: Response) => created(res, await payments.recordPayment(param(req, 'id'), req.body as PaymentInput));
 export const listPayments = async (req: Request, res: Response) => paged(res, await payments.listPayments(param(req, 'id'), query<PaymentsQuery>(req)));
 export const getPayment = async (req: Request, res: Response) => ok(res, await payments.getPayment(param(req, 'id')));
 export const chequeStatus = async (req: Request, res: Response) => ok(res, await payments.chequeStatus(param(req, 'id'), req.body as ChequeStatusInput));
-export const receiptPdf = async (req: Request, res: Response) => ok(res, await payments.receiptPdf(param(req, 'id')));
+export const receiptPdf = async (req: Request, res: Response) => ok(res, await payments.receiptPdf(param(req, 'id'), query<{ lang?: Lang }>(req).lang));
 
 // B4–B6
 export const projectReceivables = async (req: Request, res: Response) => ok(res, await receivables.projectReceivables(param(req, 'id')));

@@ -125,7 +125,30 @@ const NEW_ROUTES: Snapshot = {
   'PUT /api/v1/users/:id/permission-overrides': owner(400),
   'PATCH /api/v1/users/:id/role': owner(400),
   'GET /api/v1/company/audit-logs': owner(200),
+  // Pilot · Part 7 — onboarding: checklist, opening balances, demo (owner), imports (the entity's create permission)
+  'GET /api/v1/onboarding/checklist': owner(200),
+  'POST /api/v1/onboarding/checklist/dismiss': owner(200),
+  'POST /api/v1/onboarding/checklist/rates-reviewed': owner(200),
+  'GET /api/v1/opening-balances': owner(200),
+  'POST /api/v1/opening-balances': owner(400),
+  'POST /api/v1/demo': owner(201),
+  'DELETE /api/v1/demo': owner(200),
+  ...imports('workers', { MUNSHI: true, PM: true }),
+  ...imports('subcontractors', { MUNSHI: false, PM: true }),
+  ...imports('suppliers', { MUNSHI: false, PM: true }),
+  ...imports('materials', { MUNSHI: false, PM: true }),
+  ...imports('clients', { MUNSHI: false, PM: true }),
 };
+
+/** Template 200; preview / commit without a file 400 FILE_REQUIRED — for whoever holds the create permission. */
+function imports(entity: string, who: { MUNSHI: boolean; PM: boolean }): Snapshot {
+  const out = (ok: Outcome): Record<Persona, Outcome> => ({ MUNSHI: who.MUNSHI ? ok : 'DENIED', PM: who.PM ? ok : 'DENIED', PM_FIN: who.PM ? ok : 'DENIED', THEKEDAR: ok });
+  return {
+    [`GET /api/v1/imports/${entity}/template`]: out(200),
+    [`POST /api/v1/imports/${entity}/preview`]: out(400),
+    [`POST /api/v1/imports/${entity}/commit`]: out(400),
+  };
+}
 
 describe('every company route is guarded by a permission', () => {
   /** Things every signed-in company user may do (own data, uploads, static lists, sync with its own per-table rules). */

@@ -24,6 +24,8 @@ import {
   sessionDto,
   signupBody,
   updateMeBody,
+  updatePreferencesBody,
+  preferencesDto,
 } from './auth.schema.js';
 
 const Auth = ['Auth'];
@@ -120,7 +122,7 @@ const authResultExample = {
       phone: '+923001234567',
       email: 'khalid@maliksons.pk',
       role: 'THEKEDAR',
-      language: 'ROMAN_URDU',
+      language: 'roman',
       photoUrl: null,
       canSeeFinancials: false,
     },
@@ -364,7 +366,7 @@ export function registerAuthDocs(): void {
     security: companySecurity,
     request: {
       body: jsonBody(updateMeBody, {
-        language: ex('Change language', { language: 'URDU' }),
+        language: ex('Change language', { language: 'ur' }),
         name: ex('Change name', { name: 'Khalid Malik Sahib' }),
         password: ex('Change password (Khalid)', { currentPassword: 'Thekedar#2026', newPassword: 'Thekedar#2027' },
           'Run `npm run db:seed` afterwards to restore the demo password.'),
@@ -374,6 +376,27 @@ export function registerAuthDocs(): void {
     responses: {
       200: { description: 'Updated profile', content: { 'application/json': { schema: success(meDto) } } },
       ...errors({ 400: ['VALIDATION_ERROR', 'CURRENT_PASSWORD_WRONG'], ...AUTH_401, 403: ['COMPANY_SUSPENDED'], 404: ['ATTACHMENT_NOT_FOUND'] }),
+    },
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/auth/me/preferences',
+    tags: Auth,
+    summary: 'Set my language (en / roman / ur)',
+    description:
+      "The signed-in user's language: SMS, emails, in-app notifications (also old ones — they are re-rendered), invoice / receipt / statement PDFs and report files the user makes (`?lang=` overrides per document). Any company user, also in a read-only company. Apps call it when the user switches language. Not audited (a personal display setting).",
+    security: companySecurity,
+    request: {
+      body: jsonBody(updatePreferencesBody, {
+        urdu: ex('Urdu', { language: 'ur' }),
+        roman: ex('Roman Urdu', { language: 'roman' }),
+        english: ex('English', { language: 'en' }),
+      }),
+    },
+    responses: {
+      200: { description: 'Saved', content: { 'application/json': { schema: success(preferencesDto) } } },
+      ...errors({ 400: ['VALIDATION_ERROR'], ...AUTH_401, 403: ['COMPANY_SUSPENDED'] }),
     },
   });
 

@@ -29,6 +29,7 @@ import { subAccounts } from '../labor/subcontractLedger.js';
 import { supplierBalances } from '../procurement/supplierLedger.service.js';
 import { findProjectFor } from '../projects/access.js';
 import { letterhead, renderReport, storeReport, type Cell, type Report, type ReportColumn } from './reports.export.js';
+import { documentLang } from '../billing/documents.js';
 import type { ReportName, ReportQuery } from './reports.schema.js';
 
 const NON_DRAFT = ['ACTIVE', 'CLOSEOUT', 'HANDED_OVER', 'CLOSED'] as const;
@@ -542,11 +543,12 @@ export async function buildReport(tx: Tx, a: ReadActor, name: ReportName, q: Rep
 export async function runReport(name: ReportName, q: ReportQuery) {
   const a = readActor();
   assertPerm('finance.reports.view', a, 'Reports are for the office');
-  const { report, company } = await withTenant(a.tenantId, async (tx) => ({
+  const { report, company, lang } = await withTenant(a.tenantId, async (tx) => ({
     report: await buildReport(tx, a, name, q),
     company: q.format === 'pdf' ? await letterhead(tx, a.tenantId) : null,
+    lang: q.format === 'json' ? ('en' as const) : await documentLang(tx, a.userId, q.lang),
   }));
   if (q.format === 'json') return report;
-  const buffer = await renderReport(report, q.format, company);
+  const buffer = await renderReport(report, q.format, company, lang);
   return withTenant(a.tenantId, (tx) => storeReport(tx, a, report, q.format as Exclude<ReportQuery['format'], 'json'>, buffer));
 }

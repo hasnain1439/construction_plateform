@@ -27,9 +27,9 @@ describe('notifications seed', () => {
     expect(types).toEqual(
       expect.arrayContaining(['CHEQUE_BOUNCED', 'INVOICE_OVERDUE', 'SHORTAGE_CREATED', 'EXPENSE_PENDING_APPROVAL', 'SETTLEMENT_SUBMITTED', 'TOPUP_REQUESTED', 'SUBCONTRACTOR_OVERPAID', 'LOW_STOCK']),
     );
-    expect(mine.find((n) => n.type === 'CHEQUE_BOUNCED')).toMatchObject({ severity: 'CRITICAL', read: false, smsSent: true, title: 'Cheque bounced — DHA Phase 6 · 10 Marla' });
-    expect(mine.find((n) => n.type === 'SHORTAGE_CREATED')!.title).toBe('Shortage on GP-0142');
-    expect(mine.find((n) => n.type === 'TOPUP_REQUESTED')!.title).toBe('Top-up request: Rs 40,000');
+    expect(mine.find((n) => n.type === 'CHEQUE_BOUNCED')).toMatchObject({ severity: 'CRITICAL', read: false, smsSent: true, title: 'Cheque bounce — DHA Phase 6 · 10 Marla' }); // Khalid reads Roman Urdu (default)
+    expect(mine.find((n) => n.type === 'SHORTAGE_CREATED')!.title).toBe('GP-0142 mein kami');
+    expect(mine.find((n) => n.type === 'TOPUP_REQUESTED')!.title).toBe('Top-up ki darkhwast: Rs 40,000');
     expect(mine.some((n) => n.read)).toBe(true);
     const count = (await api().get('/api/v1/notifications/unread-count').set(o)).body.data;
     expect(count.critical).toBe(1);
@@ -41,6 +41,6 @@ describe('notifications seed', () => {
     // Rafaqat: only GP-0144 on the way.
     const rafaqat = (await api().get('/api/v1/notifications').set(await munshi(seeded().malik.id))).body.data as Array<{ type: string; title: string }>;
     expect(rafaqat.map((n) => n.type)).toEqual(['DISPATCH_CREATED']);
-    expect(rafaqat[0]!.title).toBe('GP-0144 on the way to DHA Phase 6 · 10 Marla');
+    expect(rafaqat[0]!.title).toBe('GP-0144 DHA Phase 6 · 10 Marla ke liye rawana');
   });
 });

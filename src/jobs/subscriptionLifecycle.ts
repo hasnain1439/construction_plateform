@@ -13,6 +13,7 @@ import { logger } from '../config/logger.js';
 import { writeAudit } from '../core/audit/audit.js';
 import { prismaAdmin } from '../core/db/prisma.js';
 import { invalidateTenantStatus } from '../core/middleware/tenantContext.js';
+import { langOf, tr } from '../core/i18n/index.js';
 import { formatDisplayDate } from '../core/utils/dates.js';
 import { maskPhone } from '../core/utils/phone.js';
 import type { Prisma, SubscriptionStatus } from '../generated/prisma/client.js';
@@ -102,12 +103,13 @@ async function remind(
 
   const owners = await prismaAdmin.user.findMany({
     where: { tenantId: sub.tenantId, role: 'THEKEDAR', status: 'ACTIVE' },
-    select: { phone: true },
+    select: { phone: true, language: true },
   });
-  const body = `Aap ka ${sub.planName} plan ${formatDisplayDate(endsAt)} ko khatam ho raha hai. Payment slip upload karein.`;
   for (const owner of owners) {
+    const lang = langOf(owner.language);
+    const body = tr(lang, 'sms.subscription.reminder', { plan: sub.planName, date: formatDisplayDate(endsAt) });
     try {
-      await smsProvider().send({ to: owner.phone, body, type: 'SUBSCRIPTION_REMINDER', tenantId: sub.tenantId });
+      await smsProvider().send({ to: owner.phone, body, type: 'SUBSCRIPTION_REMINDER', tenantId: sub.tenantId, lang });
     } catch (err) {
       logger.error({ err, phone: maskPhone(owner.phone) }, 'subscription reminder sms failed');
     }
