@@ -74,7 +74,24 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # No staging server yet (secrets empty) → skip the SSH steps instead of failing the run.
+      - name: Staging server configured?
+        id: staging
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          if [ -n "$SSH_HOST" ] && [ -n "$SSH_USER" ] && [ -n "$SSH_PRIVATE_KEY" ] && [ -n "$SSH_KNOWN_HOSTS" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Staging deploy skipped::Set SSH_HOST, SSH_USER, SSH_PRIVATE_KEY and SSH_KNOWN_HOSTS in Settings → Environments → staging to deploy (see docs/DEPLOYMENT.md)."
+          fi
+
       - name: SSH key
+        if: steps.staging.outputs.ready == 'true'
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
@@ -85,6 +102,7 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
 
       - name: Upload compose files and scripts
+        if: steps.staging.outputs.ready == 'true'
         env:
           TARGET: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
         run: |
@@ -96,6 +114,7 @@ jobs:
           $SSH "$TARGET" "chmod +x '$DEPLOY_PATH/deploy.sh' '$DEPLOY_PATH'/backup/*.sh '$DEPLOY_PATH'/postgres/init/*.sh"
 
       - name: Deploy (pull, migrate, restart, readiness)
+        if: steps.staging.outputs.ready == 'true'
         env:
           TARGET: ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}
           TAG: ${{ needs.image.outputs.tag }}
