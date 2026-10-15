@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { paginationQuery } from '../../core/http/pagination.js';
 import { isoDateSchema } from '../../core/utils/dates.js';
 import { companyPhoneSchema, paisaSchema } from '../company/company.schema.js';
+import { foundationInputSchema } from './foundation.js';
 import { SUPPLY_CATEGORY_KEYS } from './presets.js';
 
 const uuid = (label: string) => z.uuid({ error: `Invalid ${label}` });
@@ -163,6 +164,10 @@ export const updatePlotStructureBody = z
       .refine((f) => new Set(f.map((x) => x.level)).size === f.length, 'Each level may appear only once')
       .refine((f) => f.some((x) => x.level === 'GROUND'), 'A GROUND floor is required'),
     force: z.boolean().default(false).meta({ description: 'Remove floors that still have rooms (their rooms are deleted)' }),
+    foundation: foundationInputSchema
+      .nullable()
+      .optional()
+      .meta({ description: 'Foundation (bunyaad). Omitted = unchanged, null = cleared. Fields that do not apply to the type are stored as null.' }),
   })
   .refine((v) => !v.hasBasement || v.basementHeightFt !== undefined, { message: 'basementHeightFt is required with a basement', path: ['basementHeightFt'] })
   .refine((v) => v.hasBasement || !v.floors.some((f) => f.level === 'BASEMENT'), { message: 'BASEMENT floor needs hasBasement: true', path: ['floors'] });

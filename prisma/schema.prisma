@@ -611,6 +611,9 @@ model Project {
   structureType          StructureType?
   hasBasement            Boolean                 @default(false)
   basementHeightFt       Decimal?                @db.Decimal(10, 2)
+  /// Foundation (bunyaad): type, dimensions, material, soil — shape validated by zod in
+  /// src/modules/projects/foundation.ts. Null = not entered (older projects).
+  foundation             Json?
   // Tab 4 — coverage (sq ft / rft / ft)
   coveredAreaSqft        Decimal?                @db.Decimal(10, 2)
   semiCoveredSqft        Decimal                 @default(0) @db.Decimal(10, 2)
