@@ -74,6 +74,33 @@ const roomExample = {
   calculations: { floorAreaSqft: 224, grossWallAreaSqft: 660, openingsAreaSqft: 44.5, netWallAreaSqft: 615.5 },
 };
 
+const STRIP_FOUNDATION = {
+  type: 'STRIP',
+  excavationDepthFt: 5,
+  footingWidthFt: 3,
+  footingThicknessIn: 9,
+  plinthHeightFt: 2,
+  dpcThicknessIn: 1.5,
+  footingCount: null,
+  footingLengthFt: null,
+  pileCount: null,
+  pileDiameterIn: null,
+  pileDepthFt: null,
+  masonry: 'BRICK',
+  pccMix: '1:4:8',
+  pccThicknessIn: 3,
+  rccMix: null,
+  mainBarMm: null,
+  termiteTreatment: true,
+  dpcMaterial: 'PCC_WATERPROOF',
+  soilType: 'MEDIUM',
+  waterTableDepthFt: null,
+  dewateringNeeded: false,
+  soilTestDone: false,
+  soilTestNote: null,
+  notes: null,
+};
+
 const detailExample = {
   ...listRow,
   client: { id: CLIENT_ID, name: 'Ahmed Raza', phone: '+923331234567' },
@@ -89,6 +116,7 @@ const detailExample = {
   },
   plot: { plotUnit: 'MARLA', plotSize: 10, marlaStandard: 225, frontFt: 35, depthFt: 65, cornerPlot: false },
   structure: { structureType: 'FRAMED', hasBasement: false, basementHeightFt: null },
+  foundation: STRIP_FOUNDATION,
   coverage: { coveredAreaSqft: 3950, semiCoveredSqft: 180, openAreaSqft: 420, boundaryWall: true, boundaryLengthFt: 200, boundaryHeightFt: 7, boundaryThickness: 'IN_9', boundaryPlasterSides: 2 },
   supplyRules: [
     { categoryKey: 'CEMENT', label: 'Cement', suppliedBy: 'CONTRACTOR', qualityCategory: { id: CAT_A_PLUS, name: 'A Standard', code: 'A_STD' }, locked: false },
@@ -168,7 +196,7 @@ export function registerProjectsDocs(): void {
   path(P, 'get', '/api/v1/projects/{id}', {
     summary: 'Project details',
     description:
-      'Scoped (others → 404). Client, team, contract, plot, structure, coverage, supply rules, billing stages, floor summaries, ' +
+      'Scoped (others → 404). Client, team, contract, plot, structure, foundation (or null), coverage, supply rules, billing stages, floor summaries, ' +
       'calculations and wizard progress. MUNSHI gets only id, code, name, status, client name, site, dates and team. ' +
       'Financial fields only with `billing.view`.',
     request: { params: idParam('Project') },
@@ -184,7 +212,7 @@ export function registerProjectsDocs(): void {
     summary: 'Review before activation',
     description:
       'THEKEDAR, PM. `errors` block activation (missing tab fields, stages ≠ 100 %, no GROUND floor, no rooms, contract value / rate ' +
-      'missing). `warnings` don’t: plot vs front × depth > 10 %, room area vs covered area > 15 %, no PM, no Munshi, end date < 3 months after start.',
+      'missing). `warnings` don’t: plot vs front × depth > 10 %, room area vs covered area > 15 %, no foundation (bunyaad) entered, no PM, no Munshi, end date < 3 months after start. `summary.foundation` is the saved foundation or null.',
     request: { params: idParam('Project') },
     responses: {
       ...resp(200, 'Review', {
@@ -196,6 +224,7 @@ export function registerProjectsDocs(): void {
           contract: { contractType: 'FULL', billingModel: 'STAGE_SCHEDULE', contractTotalPaisa: '1100000000', retentionPercent: 5, defectPeriodMonths: 6, billingStages: 8 },
           plot: { plotUnit: 'MARLA', plotSize: 5, plotAreaSqft: 1125, frontFt: 25, depthFt: 45, cornerPlot: false },
           structure: { structureType: 'FRAMED', hasBasement: false, floors: 2 },
+          foundation: STRIP_FOUNDATION,
           coverage: { coveredAreaSqft: 2100, semiCoveredSqft: 0, openAreaSqft: 0, boundaryWall: false },
           roomsPerFloor: [{ level: 'GROUND', name: 'Ground floor', rooms: 0, totalFloorAreaSqft: 0, netWallAreaSqft: 0, wetRooms: 0 }],
           supply: { contractor: 11, owner: 0 },
@@ -318,16 +347,23 @@ export function registerProjectsDocs(): void {
     },
   });
   path(Z, 'patch', '/api/v1/projects/{id}/plot-structure', {
-    summary: 'Tab 3 — plot & structure (floors)',
+    summary: 'Tab 3 — plot & structure (floors, foundation)',
     description:
       'Plot in MARLA / KANAL (20 marla) / SQFT with the marla standard (225 or 272.25), front × depth, structure, basement. `floors` ' +
       'are upserted by level (GROUND required; BASEMENT only with `hasBasement`). Removing a floor that has rooms → 409 FLOOR_HAS_ROOMS ' +
-      'unless `force: true` (its rooms are deleted).' +
+      'unless `force: true` (its rooms are deleted).\n\n' +
+      '`foundation` (bunyaad, optional — omitted = unchanged, `null` = cleared): `type` STRIP / ISOLATED / COMBINED / RAFT / PILE; ' +
+      'excavation depth 1–30 ft, footing thickness 3–36 in, plinth above natural ground 0–6 ft, DPC 0.5–6 in, PCC (lean concrete) mix + ' +
+      '2–12 in, masonry BRICK / STONE / RCC_ONLY, termite (deemak) treatment, DPC material, soil type, water table, dewatering, soil test + note, notes. ' +
+      'Required by type: `footingWidthFt` for STRIP / ISOLATED / COMBINED; `footingCount` + `footingLengthFt` for ISOLATED / COMBINED; ' +
+      '`pileCount`, `pileDiameterIn`, `pileDepthFt` for PILE; `rccMix` + `mainBarMm` (10 / 12 / 16 / 20 = #3–#6) wherever RCC applies ' +
+      '(every type except a BRICK / STONE strip footing). Fields that don’t apply are stored as null. The excavation must be at least ' +
+      'the PCC + footing thickness deep.' +
       LOCK_NOTE,
     request: {
       params: idParam('Project'),
       body: jsonBody(updatePlotStructureBody, {
-        tenMarla: ex('10 marla, G + 1 + mumty', {
+        tenMarla: ex('10 marla, G + 1 + mumty, strip footing', {
           plotUnit: 'MARLA',
           plotSize: 10,
           frontFt: 35,
@@ -339,8 +375,22 @@ export function registerProjectsDocs(): void {
             { level: 'FIRST', ceilingHeightFt: 10 },
             { level: 'MUMTY', ceilingHeightFt: 9 },
           ],
+          foundation: {
+            type: 'STRIP',
+            excavationDepthFt: 5,
+            footingWidthFt: 3,
+            footingThicknessIn: 9,
+            plinthHeightFt: 2,
+            dpcThicknessIn: 1.5,
+            masonry: 'BRICK',
+            pccMix: '1:4:8',
+            pccThicknessIn: 3,
+            termiteTreatment: true,
+            dpcMaterial: 'PCC_WATERPROOF',
+            soilType: 'MEDIUM',
+          },
         }),
-        kanal: ex('1 kanal with basement (revenue marla)', {
+        kanal: ex('1 kanal with basement, raft foundation (revenue marla)', {
           plotUnit: 'KANAL',
           plotSize: 1,
           marlaStandard: 272.25,
@@ -355,6 +405,59 @@ export function registerProjectsDocs(): void {
             { level: 'GROUND', ceilingHeightFt: 11 },
             { level: 'FIRST', ceilingHeightFt: 10 },
           ],
+          foundation: {
+            type: 'RAFT',
+            excavationDepthFt: 14,
+            footingThicknessIn: 18,
+            plinthHeightFt: 2,
+            dpcThicknessIn: 1.5,
+            masonry: 'RCC_ONLY',
+            pccMix: '1:4:8',
+            pccThicknessIn: 4,
+            rccMix: '1:2:4',
+            mainBarMm: 16,
+            termiteTreatment: true,
+            dpcMaterial: 'BITUMEN',
+            soilType: 'SOFT',
+            waterTableDepthFt: 12,
+            dewateringNeeded: true,
+            soilTestDone: true,
+            soilTestNote: 'SBC 1.2 tsf — Lahore geotech lab, report 2026/114',
+          },
+        }),
+        isolated: ex('Isolated column footings (ground + 1, no basement)', {
+          plotUnit: 'MARLA',
+          plotSize: 5,
+          frontFt: 25,
+          depthFt: 45,
+          structureType: 'FRAMED',
+          hasBasement: false,
+          floors: [{ level: 'GROUND', ceilingHeightFt: 11 }],
+          foundation: {
+            type: 'ISOLATED',
+            excavationDepthFt: 6,
+            footingWidthFt: 5,
+            footingLengthFt: 5,
+            footingCount: 12,
+            footingThicknessIn: 12,
+            plinthHeightFt: 2,
+            dpcThicknessIn: 1.5,
+            masonry: 'BRICK',
+            pccMix: '1:4:8',
+            pccThicknessIn: 3,
+            rccMix: '1:2:4',
+            mainBarMm: 12,
+          },
+        }),
+        clearFoundation: ex('Clear the foundation', {
+          plotUnit: 'MARLA',
+          plotSize: 5,
+          frontFt: 25,
+          depthFt: 45,
+          structureType: 'LOAD_BEARING',
+          hasBasement: false,
+          floors: [{ level: 'GROUND', ceilingHeightFt: 11 }],
+          foundation: null,
         }),
       }),
     },

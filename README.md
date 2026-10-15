@@ -673,12 +673,30 @@ DRAFT ──/activate──▶ ACTIVE ──▶ CLOSEOUT ──▶ HANDED_OVER �
 | 1 Basic | `POST /projects`, `PATCH /:id/basic` | name, code (auto `<initials>-<year>-NNN` e.g. `MSB-2026-017`, editable, unique → `PROJECT_CODE_TAKEN`), `clientId` **or** `newClient`, site, city, dates (end ≥ start), optional `pmId` / `munshiId`. Defaults: marla standard from company settings, retention 5 %, defect period 6 months. |
 | Team | `PUT /:id/team` | THEKEDAR. `pmId` (null removes), `munshiIds` ([] removes); omitted = unchanged; users must be active with that role. |
 | 2 Contract | `PATCH /:id/contract` | FULL / GREY_OWNER_FINISHING need `contractValuePaisa`, LABOR_ONLY needs `ratePerSqftPaisa`; retention 0–10 %, defect 0–24 months. **Supply rules** start from the contract-type preset (`GET /supply-presets`: FULL all contractor; GREY → cement, bricks, steel, sand & bajri, pipes by contractor; LABOR_ONLY all owner) with the default quality category on contractor rows; `supplyRules` override categories (CONTRACTOR needs `qualityCategoryId`, OWNER must not have one); rows with `lockedAt` → `409 SUPPLY_RULE_LOCKED`. **Billing stages** from `billingStages`, `templateId`, or the company default template on first save; exactly 100 % (`PERCENT_TOTAL_INVALID {total}`), one retention max. |
-| 3 Plot & structure | `PATCH /:id/plot-structure` | MARLA / KANAL / SQFT, marla standard 225 / 272.25, front × depth, corner, FRAMED / LOAD_BEARING, basement (+height). Floors upserted by level (GROUND required, BASEMENT only with a basement); dropping a floor with rooms → `409 FLOOR_HAS_ROOMS` unless `force: true`. |
+| 3 Plot & structure | `PATCH /:id/plot-structure` | MARLA / KANAL / SQFT, marla standard 225 / 272.25, front × depth, corner, FRAMED / LOAD_BEARING, basement (+height). Floors upserted by level (GROUND required, BASEMENT only with a basement); dropping a floor with rooms → `409 FLOOR_HAS_ROOMS` unless `force: true`. Optional **`foundation`** (bunyaad, see below): omitted = unchanged, `null` = cleared. |
 | 4 Coverage | `PATCH /:id/coverage` | covered (> 0), semi-covered, open; boundary length / height / thickness (4.5″ / 9″) / plaster sides required with a boundary wall. |
 | 5 Rooms | `POST /floors/:id/rooms`, `PATCH·DELETE /rooms/:id`, `POST /rooms/:id/openings`, `PATCH·DELETE /openings/:id`, `POST /floors/:id/copy`, `GET /projects/:id/floors` | Height defaults to the floor ceiling; name defaults to the type ("Bedroom 2"); bath / powder room / kitchen are wet unless overridden (`isWet`, `null` = automatic). Openings larger than the walls → `400 OPENINGS_EXCEED_WALL`. Copy takes the target's ceiling height; non-empty target needs `replace: true` (`409 FLOOR_NOT_EMPTY`). |
-| 6 Review | `GET /:id/review` | `{ ready, errors[], warnings[], summary }`. Errors: missing tab fields, stages ≠ 100 %, no GROUND floor, no rooms, contract value / rate missing. Warnings: plot vs front × depth > 10 %, room area vs covered > 15 % ("walls and passages"), no PM, no Munshi, end < 3 months after start. |
+| 6 Review | `GET /:id/review` | `{ ready, errors[], warnings[], summary }`. Errors: missing tab fields, stages ≠ 100 %, no GROUND floor, no rooms, contract value / rate missing. Warnings: plot vs front × depth > 10 %, room area vs covered > 15 % ("walls and passages"), no foundation entered (`FOUNDATION_MISSING`, tab 3), no PM, no Munshi, end < 3 months after start. |
 
 Each wizard PATCH validates its section, saves, adds the tab to `wizardCompletedSteps` and returns the full project.
+
+### Foundation (bunyaad) — `projects/foundation.ts`
+
+Stored in one nullable JSONB column `Project.foundation` (migration `20261026090000_project_foundation`); `null` = not entered, so older projects stay valid. Validated with zod on the way in and normalised so every key is always present (null where it doesn't apply to the type). All values are numbers in fixed units (ft / in / mm / count) so the Phase 2 material estimate can read them. Returned as `foundation` on `GET /projects/:id` and every wizard response (not in the Munshi basic view) and as `summary.foundation` in the review. Same permission (`projects.project.edit`) and lock (DRAFT / ACTIVE, else `409 PROJECT_LOCKED`) as the rest of tab 3. Not synced to phones (the project sync row carries only the basic fields).
+
+| Field | Range / values | Applies to |
+|---|---|---|
+| `type` | STRIP (wall footing), ISOLATED (column footing), COMBINED, RAFT (mat), PILE | always |
+| `excavationDepthFt` · `footingThicknessIn` · `plinthHeightFt` · `dpcThicknessIn` | 1–30 ft · 3–36 in · 0–6 ft · 0.5–6 in; excavation ≥ PCC + footing thickness | always |
+| `footingWidthFt` | 1–20 ft (strip width, or pad W) | STRIP, ISOLATED, COMBINED |
+| `footingCount` · `footingLengthFt` | 1–500 (whole) · 1–20 ft | ISOLATED, COMBINED |
+| `pileCount` · `pileDiameterIn` · `pileDepthFt` | 1–1000 · 6–60 in · 5–150 ft | PILE |
+| `masonry` · `pccMix` · `pccThicknessIn` | BRICK / STONE / RCC_ONLY · 1:4:8 / 1:3:6 / 1:2:4 · 2–12 in | always |
+| `rccMix` · `mainBarMm` | 1:2:4 / 1:1.5:3 · 10 / 12 / 16 / 20 (#3–#6) | every type except a BRICK / STONE strip footing |
+| `termiteTreatment` · `dpcMaterial` | default true · BITUMEN / PCC_WATERPROOF (default) | always |
+| `soilType` · `waterTableDepthFt` · `dewateringNeeded` · `soilTestDone` · `soilTestNote` · `notes` | HARD / MEDIUM / SOFT / SANDY / FILLED / CLAY · 0–300 ft · bool · bool · ≤ 300 chars (kept only with a test) · ≤ 1000 chars | optional |
+
+The wizard has no attachment slot anywhere, so the soil test report is a note (lab, report number, bearing capacity) rather than a file.
 
 ### Calculations (`projects/calc.ts`, Decimal-safe, 2 dp)
 
@@ -687,7 +705,7 @@ Each wizard PATCH validates its section, saves, adds the tab to `wizardCompleted
 - **Floor / project totals:** rooms, total floor area, net wall area, wet rooms.
 - **Billing amounts:** contract value × % (labour-only: rate × covered area), each rounded to the rupee, last stage absorbs the rounding; recomputed when the contract or covered area changes.
 
-Audit actions: `client.create`, `client.update`, `project.create`, `project.delete`, `project.update_basic`, `project.team_update`, `project.update_contract`, `project.update_plot_structure`, `project.update_coverage`, `project.room_*`, `project.opening_*`, `project.floor_copy`, `project.activate`, `project.status_change`.
+Audit actions: `client.create`, `client.update`, `project.create`, `project.delete`, `project.update_basic`, `project.team_update`, `project.update_contract`, `project.update_plot_structure` (details carry `foundation: <type> | null` when it was sent), `project.update_coverage`, `project.room_*`, `project.opening_*`, `project.floor_copy`, `project.activate`, `project.status_change`.
 
 **Seed.** Malik & Sons: 6 clients; DHA Phase 6 · 10 Marla (`MSB-2026-012`, ACTIVE, grey structure, Rs 1,85,00,000, full wizard with 17 rooms on Ground / First / Mumty, PM Bilal, Munshi Rafaqat), Johar Town · 5 Marla (`MSB-2026-008`, ACTIVE, PM Bilal), Bahria Town · 1 Kanal (`MSB-2026-014`, ACTIVE, basement, Munshi **Asif Mehmood** `03224567890` OTP), Valencia · 7 Marla (`MSB-2025-031`, HANDED_OVER, labour-only Rs 450/sq ft) and a DRAFT Model Town · 1 Kanal (tabs 1–2). Ahmed Constructions: Wapda Town · 5 Marla (`AC-2026-001`, ACTIVE). Older seed rows are renamed in place, so foreign keys survive.
 

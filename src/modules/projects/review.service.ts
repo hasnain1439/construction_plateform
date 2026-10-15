@@ -7,6 +7,7 @@ import { assertWithinLimit, lockPlanUsage } from '../../core/plan/planLimits.js'
 import type { ProjectStatus } from '../../generated/prisma/client.js';
 import { siteLocation } from '../inventory/stock.js';
 import { caller, findEditableProject, findProjectFor, type Caller } from './access.js';
+import { readFoundation } from './foundation.js';
 import { contractTotalPaisa, floorTotals, num, projectCalculations } from './projects.dto.js';
 import * as repo from './projects.repository.js';
 import type { ChangeStatusInput } from './projects.schema.js';
@@ -50,6 +51,8 @@ export function reviewProject(p: repo.ProjectFull, c: Caller) {
     err(3, 'PLOT_STRUCTURE_MISSING', 'Fill in the plot size, dimensions and structure type');
   }
   if (!p.floors.some((f) => f.level === 'GROUND')) err(3, 'GROUND_FLOOR_MISSING', 'Add the ground floor');
+  const foundation = readFoundation(p.foundation);
+  if (!foundation) warn(3, 'FOUNDATION_MISSING', 'Foundation (bunyaad) details are not entered');
   if (calc.plotAreaMismatch) {
     warn(3, 'PLOT_AREA_MISMATCH', `Plot area ${calc.plotAreaSqft} sq ft differs from front × depth ${calc.frontageAreaSqft} sq ft by more than 10%`);
   }
@@ -91,6 +94,7 @@ export function reviewProject(p: repo.ProjectFull, c: Caller) {
     },
     plot: { plotUnit: p.plotUnit, plotSize: num(p.plotSize), plotAreaSqft: calc.plotAreaSqft, frontFt: num(p.frontFt), depthFt: num(p.depthFt), cornerPlot: p.cornerPlot },
     structure: { structureType: p.structureType, hasBasement: p.hasBasement, floors: p.floors.length },
+    foundation,
     coverage: { coveredAreaSqft: covered, semiCoveredSqft: Number(p.semiCoveredSqft), openAreaSqft: Number(p.openAreaSqft), boundaryWall: p.boundaryWall },
     roomsPerFloor: p.floors.map((f) => ({ level: f.level, name: f.name, ...floorTotals(f) })),
     supply: {

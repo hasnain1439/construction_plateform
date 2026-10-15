@@ -9,6 +9,7 @@ import { formatDateOnly } from '../../core/utils/dates.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import type { Caller } from './access.js';
 import { plotCalc, roomCalc, totalsCalc, laborOnlyTotal, type RoomInput } from './calc.js';
+import { readFoundation } from './foundation.js';
 import { SUPPLY_CATEGORIES } from './presets.js';
 import type { FloorWithRooms, ProjectFull, ProjectListRow, RoomWithOpenings } from './projects.repository.js';
 
@@ -134,6 +135,7 @@ export function toDetailDto(p: ProjectFull, c: Caller) {
     },
     plot: { plotUnit: p.plotUnit, plotSize: num(p.plotSize), marlaStandard: Number(p.marlaStandard), frontFt: num(p.frontFt), depthFt: num(p.depthFt), cornerPlot: p.cornerPlot },
     structure: { structureType: p.structureType, hasBasement: p.hasBasement, basementHeightFt: num(p.basementHeightFt) },
+    foundation: readFoundation(p.foundation),
     coverage: {
       coveredAreaSqft: num(p.coveredAreaSqft),
       semiCoveredSqft: Number(p.semiCoveredSqft),

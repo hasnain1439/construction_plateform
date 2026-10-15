@@ -5,7 +5,9 @@ import type { Prisma, SuppliedBy } from '../../generated/prisma/client.js';
 import type { StageDef } from '../master-data/catalog.js';
 import { checkStages } from '../master-data/labor.service.js';
 import { caller, findEditableProject } from './access.js';
+import { Prisma as P } from '../../core/db/prisma.js';
 import { stageAmounts } from './calc.js';
+import { normaliseFoundation } from './foundation.js';
 import { FLOOR_LEVELS, FLOOR_NAMES, presetFor } from './presets.js';
 import { contractTotalPaisa } from './projects.dto.js';
 import type { UpdateContractInput, UpdateCoverageInput, UpdatePlotStructureInput } from './projects.schema.js';
@@ -165,6 +167,8 @@ export async function updatePlotStructure(id: string, input: UpdatePlotStructure
         structureType: input.structureType,
         hasBasement: input.hasBasement,
         basementHeightFt: input.hasBasement ? (input.basementHeightFt ?? null) : null,
+        // foundation: omitted = unchanged, null = cleared (SQL NULL)
+        ...(input.foundation !== undefined ? { foundation: input.foundation === null ? P.DbNull : normaliseFoundation(input.foundation) } : {}),
       },
     });
     if (removed.length) await tx.floor.deleteMany({ where: { id: { in: removed.map((f) => f.id) } } }); // rooms + openings cascade
@@ -182,6 +186,7 @@ export async function updatePlotStructure(id: string, input: UpdatePlotStructure
       plotSize: input.plotSize,
       floors: input.floors.map((f) => f.level),
       removedFloors: removed.map((f) => f.level),
+      ...(input.foundation !== undefined ? { foundation: input.foundation?.type ?? null } : {}),
     });
     return detail(tx, c, id);
   });
