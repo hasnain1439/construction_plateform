@@ -320,7 +320,7 @@ export function registerBillingDocs(): void {
         readyStagesCount: 0,
         collectedPercent: 88.1,
         spentToDatePaisa: '640000000',
-        spent: { materialPaisa: '420000000', wagesPaisa: '90000000', advancesPaisa: '20000000', subcontractPaisa: '100000000', kharchaPaisa: '10000000', lossesPaisa: '0', totalPaisa: '640000000' },
+        spent: { materialPaisa: '420000000', wagesPaisa: '90000000', advancesPaisa: '20000000', subcontractPaisa: '100000000', kharchaPaisa: '10000000', lossesPaisa: '0', equipmentPaisa: '0', totalPaisa: '640000000' },
         ownMoneyInvestedPaisa: '-175000000',
         nextBillableStage: { ...stage, sortOrder: 4, label: 'Grey structure — first floor & roof', status: 'UPCOMING', invoice: null },
         stages: [{ id: B.stage, label: 'Grey structure — ground floor', percent: 20, amountPaisa: '370000000', status: 'PARTLY_PAID', isRetention: false, expectedDate: null, invoiceId: B.invoice, invoiceNumber: 'INV-2026-0010', dueDate: '2026-09-03' }],

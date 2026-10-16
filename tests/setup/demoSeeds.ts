@@ -5,6 +5,7 @@
  * `extends` starts from another demo snapshot instead of the base seed.
  */
 import { seedMalikBilling } from '../../prisma/seedBilling.js';
+import { seedMalikEquipment } from '../../prisma/seedEquipment.js';
 import { seedMalikInventory } from '../../prisma/seedInventory.js';
 import { seedMalikLabor } from '../../prisma/seedLabor.js';
 import type { seed } from '../../prisma/seed.js';
@@ -31,6 +32,12 @@ export const DEMO_SEEDS = {
     extends: 'malik_stock_labor',
     build: async (s: Seeded) => {
       await seedMalikBilling(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, projects: s.projects });
+    },
+  },
+  /** Step 16: Malik & Sons equipment & shuttering on the base seed (no stock / labour). */
+  malik_equipment: {
+    build: async (s: Seeded) => {
+      await seedMalikEquipment(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, bilalId: s.users.bilal.id, rafaqatId: s.users.rafaqatMalik.id, projects: s.projects });
     },
   },
 } satisfies Record<string, DemoSeedDef>;
