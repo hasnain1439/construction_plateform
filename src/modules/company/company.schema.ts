@@ -103,8 +103,19 @@ export const updateSettingsBody = z
     defaultMarginPercent: z.number().min(0, 'Must be between 0 and 100').max(100, 'Must be between 0 and 100').multipleOf(0.01).optional(),
     defaultFinishingAllowancePercent: z.number().min(0, 'Must be between 0 and 200').max(200, 'Must be between 0 and 200').multipleOf(0.01).optional(),
     defaultLanguage: languageSchema.optional(),
+    // Step 13 · schedule calendar
+    ramadanDayFactor: z.number().min(0.25, 'Must be between 0.25 and 1').max(1, 'Must be between 0.25 and 1').multipleOf(0.05).optional(),
+    ramadanPeriods: z
+      .array(z.object({ start: isoDateSchema, end: isoDateSchema }).refine((p) => p.end >= p.start && p.end <= dateOnlyPlus(p.start, 35), 'end must be within 35 days after start'))
+      .max(20)
+      .nullable()
+      .optional(),
   })
   .refine((value) => Object.values(value).some((v) => v !== undefined), { message: 'Nothing to update' });
+
+function dateOnlyPlus(date: string, days: number): string {
+  return new Date(dateOnly(date).getTime() + days * 86_400_000).toISOString().slice(0, 10);
+}
 
 export const settingsDto = z
   .object({
@@ -129,6 +140,11 @@ export const settingsDto = z
       .number()
       .meta({ description: 'Finishing allowance % added for FULL contracts (the estimate is grey structure only), 0–200', example: 0 }),
     defaultLanguage: languageSchema,
+    ramadanDayFactor: z.number().meta({ description: 'Share of a normal day of work during Ramadan (schedule), 0.25–1', example: 0.75 }),
+    ramadanPeriods: z
+      .array(z.object({ start: z.string(), end: z.string() }))
+      .meta({ description: 'Ramadan periods the schedule uses (the company own, else built-in approximate Pakistan dates)' }),
+    ramadanPeriodsCustom: z.boolean().meta({ description: 'false = the built-in approximate dates' }),
   })
   .meta({ id: 'CompanySettings' });
 

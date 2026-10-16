@@ -16,6 +16,7 @@ import { totalsOf } from '../cashbook/cash.js';
 import { addDays, today } from '../labor/labor.shared.js';
 import * as S from './sync.serializers.js';
 import { readerLang } from '../notifications/notifications.service.js';
+import { usedQuantities } from '../schedule/schedule.shared.js';
 
 export interface SyncActor {
   tenantId: string;
@@ -97,6 +98,9 @@ export const TABLE_PERMISSIONS: Record<string, string[]> = {
   daily_logs: ['dailylog.log.view'],
   cash_entries: ['cashbook.account.view', 'cashbook.expense.view'],
   topup_requests: ['cashbook.topup.view'],
+  // Step 13
+  milestones: ['schedule.plan.view'],
+  stoppages: ['schedule.plan.view', 'schedule.stoppage.create'],
 };
 
 /** May the caller pull this table? */
@@ -311,6 +315,28 @@ export const TABLES: TableDef[] = [
           where: { tenantId: sc.a.tenantId, ...byIds(ids), accountId: { in: sc.accountIds }, OR: [{ createdAt: { gte: since(sc, 60) } }, { status: 'PENDING' }] },
         })
       ).map(S.serializeTopup),
+  },
+  {
+    // Step 13 · every not-DONE milestone of the caller's projects + DONE in the last 14 days, with quota planned / used (no money)
+    name: 'milestones',
+    sources: ['Milestone'],
+    load: async (tx, sc, ids) => {
+      const rows = await tx.milestone.findMany({
+        where: { tenantId: sc.a.tenantId, ...byIds(ids), projectId: { in: sc.projectIds }, OR: [{ status: { not: 'DONE' } }, { actualEnd: { gte: since(sc, 14) } }, { plannedEnd: { gte: since(sc, 14) } }] },
+        include: { stage: { select: { stageKey: true, name: true } }, dependsOn: true, quotas: { orderBy: { sortOrder: 'asc' } } },
+        orderBy: [{ projectId: 'asc' }, { sortOrder: 'asc' }],
+      });
+      const used = await usedQuantities(tx, sc.a.tenantId, rows.map((r) => r.id));
+      return rows.map((m) => S.serializeMilestone(m, used.get(m.id)));
+    },
+  },
+  {
+    name: 'stoppages',
+    sources: ['StoppageDay'],
+    load: async (tx, sc, ids) =>
+      (
+        await tx.stoppageDay.findMany({ where: { tenantId: sc.a.tenantId, ...byIds(ids), projectId: { in: sc.projectIds }, OR: [{ status: 'PENDING' }, { createdAt: { gte: since(sc, 60) } }] }, orderBy: { createdAt: 'desc' } })
+      ).map(S.serializeStoppage),
   },
   {
     name: 'settings',

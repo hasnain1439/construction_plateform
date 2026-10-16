@@ -37,9 +37,18 @@ import { autoWallsBody, setWallsBody } from '../src/modules/projects/walls.js';
 import { approveEstimateBody, generateEstimateBody, lineOverrideBody } from '../src/modules/estimate/estimate.schema.js';
 import { setOverridesBody } from '../src/modules/rulebook/rulebook.schema.js';
 import { createRulebookBody, updateParameterBody, updateRulebookBody } from '../src/modules/platform-admin/rulebook.schema.js';
+import * as sch from '../src/modules/schedule/schedule.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
+  // Step 13
+  'post /api/v1/projects/{id}/schedule/generate': sch.generateScheduleBody,
+  'post /api/v1/projects/{id}/schedule/replan': sch.replanBody,
+  'patch /api/v1/milestones/{id}': sch.milestoneEditBody,
+  'post /api/v1/milestones/{id}/progress': sch.progressBody,
+  'post /api/v1/projects/{id}/stoppages': sch.stoppageBody,
+  'post /api/v1/stoppages/{id}/approve': sch.approveStoppageBody,
+  'post /api/v1/stoppages/{id}/reject': sch.rejectStoppageBody,
   // Step 11
   'post /api/v1/projects/{id}/estimates': generateEstimateBody,
   'patch /api/v1/estimates/{id}/lines/{lineId}': lineOverrideBody,
@@ -218,6 +227,7 @@ describe('API docs', () => {
       'Floors & Rooms',
       'Estimate',
       'Rulebook',
+      'Schedule',
       'Stock',
       'Purchases',
       'Purchase Orders',
@@ -251,7 +261,7 @@ describe('API docs', () => {
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(275); // +16: Step 11 (9 estimate revision / shopping list paths, 3 company rulebook, 4 admin rulebook), +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
+    expect(Object.keys(res.body.paths)).toHaveLength(289); // +14: Step 13 schedule (8 /projects/{id}/schedule…, /projects/{id}/stoppages, 3 /milestones, 3 /stoppages), +16: Step 11 (9 estimate revision / shopping list paths, 3 company rulebook, 4 admin rulebook), +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

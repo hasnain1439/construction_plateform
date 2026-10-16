@@ -39,6 +39,9 @@ import { createWorkerBody } from '../master-data/master-data.schema.js';
 import { createWorkerTx } from '../master-data/workers.service.js';
 import { createPurchaseTx, receivePurchaseTx } from '../procurement/purchases.service.js';
 import { createPurchaseBody, receivePurchaseBody } from '../procurement/procurement.schema.js';
+import { updateProgressTx } from '../schedule/progress.service.js';
+import { progressBody, stoppageBody } from '../schedule/schedule.schema.js';
+import { createStoppageTx } from '../schedule/stoppages.service.js';
 import { sessionDevice, syncActor } from './sync.pull.js';
 import type { PushInput } from './sync.schema.js';
 import { track, type AnalyticsEvent, type AnalyticsProps } from '../../core/observability/analytics.js';
@@ -75,6 +78,9 @@ export const HANDLERS: Record<string, Handler> = {
   DAILY_LOG_UPSERT: { ref: project, body: dailyLogBody, run: (tx, a, r, b) => upsertDailyLogTx(tx, a, r['projectId']!, b) },
   // A munshi's site purchase: the service makes it PENDING_RATE (no rates) and refuses the store.
   SITE_PURCHASE_CREATE: { body: createPurchaseBody, run: (tx, a, _r, b) => createPurchaseTx(tx, a, b) },
+  // Step 13 · schedule
+  MILESTONE_PROGRESS: { ref: z.object({ milestoneId: id }), body: progressBody, run: (tx, a, r, b) => updateProgressTx(tx, a, r['milestoneId']!, b) },
+  STOPPAGE_LOG: { ref: project, body: stoppageBody, run: async (tx, a, r, b) => (await createStoppageTx(tx, a, r['projectId']!, b)).stoppage },
 };
 export const MUTATION_TYPES = Object.keys(HANDLERS) as [string, ...string[]];
 
@@ -110,6 +116,8 @@ export const MUTATION_PERMISSIONS: Record<string, string> = {
   TOPUP_REQUEST_CREATE: 'cashbook.topup.create',
   DAILY_LOG_UPSERT: 'dailylog.log.create',
   SITE_PURCHASE_CREATE: 'procurement.purchase.create',
+  MILESTONE_PROGRESS: 'schedule.progress.edit',
+  STOPPAGE_LOG: 'schedule.stoppage.create',
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

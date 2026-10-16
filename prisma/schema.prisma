@@ -376,6 +376,16 @@ model Tenant {
   rulebookOverrides      CompanyRulebookOverride[]
   estimates              Estimate[]
   estimateLines          EstimateLine[]
+  // Step 13
+  schedules              Schedule[]
+  scheduleStages         ScheduleStage[]
+  milestones             Milestone[]
+  milestoneDependencies  MilestoneDependency[]
+  milestoneQuotas        MilestoneQuota[]
+  milestoneUpdates       MilestoneUpdate[]
+  scheduleBaselines      ScheduleBaseline[]
+  schedulePlanVersions   SchedulePlanVersion[]
+  stoppageDays           StoppageDay[]
   stockCounts            StockCount[]
   stockCountItems        StockCountItem[]
   projectWorkers         ProjectWorker[]
@@ -446,6 +456,10 @@ model TenantSettings {
   onboardingDismissedById          String?   @db.Uuid
   /// The owner confirmed the material / labour rates (setup checklist step).
   ratesReviewedAt                  DateTime? @db.Timestamptz(3)
+  /// Step 13: share of a normal day's output during Ramadan (0.25–1).
+  ramadanDayFactor                 Decimal   @default(0.75) @db.Decimal(3, 2)
+  /// Step 13: Ramadan periods [{ start, end }] (YYYY-MM-DD); null = built-in approximate Pakistan dates.
+  ramadanPeriods                   Json?
   createdAt                        DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt                        DateTime  @updatedAt @db.Timestamptz(3)
   tenant                           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -586,6 +600,13 @@ model User {
   estimatesApproved    Estimate[]               @relation("EstimateApprovedBy")
   estimateLineEdits    EstimateLine[]           @relation("EstimateLineOverriddenBy")
   rulebookOverrides    CompanyRulebookOverride[] @relation("RulebookOverrideUpdatedBy")
+  // Step 13 · schedule
+  schedulesGenerated   Schedule[]               @relation("ScheduleGeneratedBy")
+  milestoneUpdates     MilestoneUpdate[]        @relation("MilestoneUpdateBy")
+  scheduleBaselines    ScheduleBaseline[]       @relation("ScheduleBaselineBy")
+  schedulePlanVersions SchedulePlanVersion[]    @relation("SchedulePlanVersionBy")
+  stoppagesReported    StoppageDay[]            @relation("StoppageReportedBy")
+  stoppagesDecided     StoppageDay[]            @relation("StoppageDecidedBy")
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -683,6 +704,10 @@ model Project {
   dailyLogs                 DailyLog[]
   // Step 11
   estimates                 Estimate[]
+  // Step 13
+  schedule                  Schedule[]
+  milestones                Milestone[]
+  stoppageDays              StoppageDay[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
@@ -1384,6 +1409,8 @@ model ProjectBillingStage {
   tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   project            Project            @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade)
   invoices           Invoice[]
+  // Step 13
+  milestones         Milestone[]        @relation("MilestoneBillingStage")
 
   @@unique([tenantId, id])
   @@index([tenantId, projectId, sortOrder])
@@ -3092,6 +3119,8 @@ model Estimate {
   generatedBy       User?          @relation("EstimateGeneratedBy", fields: [tenantId, generatedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
   approvedBy        User?          @relation("EstimateApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
   lines             EstimateLine[]
+  // Step 13
+  schedules         Schedule[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, projectId, revision])
@@ -3139,4 +3168,281 @@ model EstimateLine {
   @@unique([tenantId, estimateId, lineKey])
   @@index([tenantId, estimateId, sortOrder])
   @@index([tenantId, materialId])
+}
+
+// ─── Step 13 · Schedule (milestones, curing, holidays, stoppages, delays) ───
+
+enum MilestoneStatus {
+  PLANNED
+  IN_PROGRESS
+  /// Work finished, curing (successors wait for the curing lag)
+  CURING
+  DONE
+  BLOCKED
+}
+
+enum DependencyType {
+  /// Finish → start
+  FS
+  /// Start → start
+  SS
+}
+
+enum StoppageReason {
+  RAIN
+  SMOG_BAN
+  HOLIDAY
+  OWNER_HOLD
+  MATERIAL_SHORT
+  LABOUR_SHORT
+  OTHER
+}
+
+enum StoppageStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DelayCategory {
+  OWNER
+  EXCUSABLE
+  CONTRACTOR
+}
+
+/// One schedule per project: the current plan (Milestone rows) made from the APPROVED estimate.
+model Schedule {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  tenantId        String                @db.Uuid
+  projectId       String                @db.Uuid
+  /// The APPROVED estimate the quantities / quotas came from (last generate / refresh).
+  estimateId      String                @db.Uuid
+  startDate       DateTime              @db.Date
+  /// Parallel teams per activity (effort ÷ teams).
+  teams           Int                   @default(1)
+  /// Current plan version (SchedulePlanVersion.version).
+  version         Int                   @default(1)
+  /// "Re-plan from today": nothing not started is planned before this date.
+  planFloor       DateTime?             @db.Date
+  /// Step 15 hook: working days added by approved change orders (owner-caused).
+  changeOrderDays Int                   @default(0)
+  note            String?
+  generatedById   String?               @db.Uuid
+  generatedAt     DateTime              @default(now()) @db.Timestamptz(3)
+  replannedAt     DateTime?             @db.Timestamptz(3)
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @db.Timestamptz(3)
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project         Project               @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade)
+  estimate        Estimate              @relation(fields: [tenantId, estimateId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  generatedBy     User?                 @relation("ScheduleGeneratedBy", fields: [tenantId, generatedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  stages          ScheduleStage[]
+  milestones      Milestone[]
+  baseline        ScheduleBaseline?
+  versions        SchedulePlanVersion[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, projectId])
+}
+
+model ScheduleStage {
+  id         String      @id @default(uuid(7)) @db.Uuid
+  tenantId   String      @db.Uuid
+  scheduleId String      @db.Uuid
+  projectId  String      @db.Uuid
+  /// FOUNDATION_PLINTH, GF_STRUCTURE … FINISHING (estimate stage keys)
+  stageKey   String
+  name       String
+  sortOrder  Int
+  createdAt  DateTime    @default(now()) @db.Timestamptz(3)
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  schedule   Schedule    @relation(fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Cascade)
+  milestones Milestone[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, scheduleId, stageKey])
+}
+
+/// One planned piece of work. plannedStart / plannedEnd = the current plan; the frozen baseline is ScheduleBaseline.
+model Milestone {
+  id                 String                 @id @default(uuid(7)) @db.Uuid
+  tenantId           String                 @db.Uuid
+  projectId          String                 @db.Uuid
+  scheduleId         String                 @db.Uuid
+  stageId            String                 @db.Uuid
+  /// Stable per project, e.g. GF_STRUCTURE.SLAB (survives re-plans)
+  key                String
+  name               String
+  sortOrder          Int
+  /// Effort in team-days (after ÷ teams)
+  workDays           Decimal                @db.Decimal(8, 2)
+  /// Working days the planned window spans
+  durationDays       Int
+  plannedStart       DateTime               @db.Date
+  plannedEnd         DateTime               @db.Date
+  /// Calendar days of curing after the work (successor FS lag)
+  curingDays         Int                    @default(0)
+  /// Gantt drag / manual: start no earlier than
+  startNoEarlierThan DateTime?              @db.Date
+  status             MilestoneStatus        @default(PLANNED)
+  progressPercent    Int                    @default(0)
+  actualStart        DateTime?              @db.Date
+  actualEnd          DateTime?              @db.Date
+  billingStageId     String?                @db.Uuid
+  /// How workDays was computed (human-readable lines)
+  basis              Json                   @default("[]")
+  lastProgressAt     DateTime?              @db.Timestamptz(3)
+  createdAt          DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime               @updatedAt @db.Timestamptz(3)
+  tenant             Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project            Project                @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade)
+  schedule           Schedule               @relation(fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Cascade)
+  stage              ScheduleStage          @relation(fields: [tenantId, stageId], references: [tenantId, id], onDelete: Cascade)
+  billingStage       ProjectBillingStage?   @relation("MilestoneBillingStage", fields: [tenantId, billingStageId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  dependsOn          MilestoneDependency[]  @relation("MilestoneSuccessor")
+  successors         MilestoneDependency[]  @relation("MilestonePredecessor")
+  quotas             MilestoneQuota[]
+  updates            MilestoneUpdate[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, scheduleId, key])
+  @@index([tenantId, projectId, plannedStart])
+}
+
+model MilestoneDependency {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  tenantId    String         @db.Uuid
+  milestoneId String         @db.Uuid
+  dependsOnId String         @db.Uuid
+  type        DependencyType @default(FS)
+  /// Calendar days (curing)
+  lagDays     Int            @default(0)
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  milestone   Milestone      @relation("MilestoneSuccessor", fields: [tenantId, milestoneId], references: [tenantId, id], onDelete: Cascade)
+  dependsOn   Milestone      @relation("MilestonePredecessor", fields: [tenantId, dependsOnId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, milestoneId, dependsOnId])
+}
+
+/// Material quota of a milestone from the APPROVED estimate's lines of its stage (quantity only, never money).
+model MilestoneQuota {
+  id            String     @id @default(uuid(7)) @db.Uuid
+  tenantId      String     @db.Uuid
+  milestoneId   String     @db.Uuid
+  /// Company material (snapshot reference like EstimateLine.materialId, no FK)
+  materialId    String?    @db.Uuid
+  /// Estimate material key (cement, bricks, steel …)
+  material      String
+  description   String
+  /// The material's own unit when the estimate unit converts, else the estimate unit
+  unit          String
+  plannedQty    Decimal    @db.Decimal(16, 4)
+  ownerSupplied Boolean    @default(false)
+  sortOrder     Int        @default(0)
+  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  milestone     Milestone  @relation(fields: [tenantId, milestoneId], references: [tenantId, id], onDelete: Cascade)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, milestoneId])
+}
+
+/// Progress / status updates from site (REST or sync). Append-only.
+model MilestoneUpdate {
+  id                 String           @id @default(uuid(7)) @db.Uuid
+  tenantId           String           @db.Uuid
+  milestoneId        String           @db.Uuid
+  projectId          String           @db.Uuid
+  date               DateTime         @db.Date
+  status             MilestoneStatus
+  progressPercent    Int
+  previousStatus     MilestoneStatus
+  previousProgress   Int
+  note               String?
+  photoAttachmentIds String[]         @default([]) @db.Uuid
+  clientId           String?          @db.Uuid
+  deviceCreatedAt    DateTime?        @db.Timestamptz(3)
+  createdById        String?          @db.Uuid
+  createdAt          DateTime         @default(now()) @db.Timestamptz(3)
+  tenant             Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  milestone          Milestone        @relation(fields: [tenantId, milestoneId], references: [tenantId, id], onDelete: Cascade)
+  createdBy          User?            @relation("MilestoneUpdateBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, clientId])
+  @@index([tenantId, milestoneId, createdAt])
+}
+
+/// The first plan, frozen (app_user may only SELECT / INSERT).
+model ScheduleBaseline {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  tenantId    String   @db.Uuid
+  projectId   String   @db.Uuid
+  scheduleId  String   @db.Uuid
+  estimateId  String   @db.Uuid
+  startDate   DateTime @db.Date
+  plannedEnd  DateTime @db.Date
+  /// [{ key, name, stageKey, plannedStart, plannedEnd, workDays, durationDays, curingDays, dependsOn: [{ key, type, lagDays }] }]
+  milestones  Json
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  schedule    Schedule @relation(fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Cascade)
+  createdBy   User?    @relation("ScheduleBaselineBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, scheduleId])
+}
+
+/// Every revised plan (generate, re-plan, milestone edit, approved stoppage). Append-only.
+model SchedulePlanVersion {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  tenantId    String   @db.Uuid
+  projectId   String   @db.Uuid
+  scheduleId  String   @db.Uuid
+  version     Int
+  /// GENERATED | REPLANNED | MILESTONE_EDITED | STOPPAGE_APPROVED
+  reason      String
+  note        String?
+  plannedEnd  DateTime @db.Date
+  /// [{ key, plannedStart, plannedEnd }]
+  milestones  Json
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  schedule    Schedule @relation(fields: [tenantId, scheduleId], references: [tenantId, id], onDelete: Cascade)
+  createdBy   User?    @relation("SchedulePlanVersionBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, scheduleId, version])
+}
+
+/// Days the site could not work (logged from site, approved in the office).
+model StoppageDay {
+  id                 String         @id @default(uuid(7)) @db.Uuid
+  tenantId           String         @db.Uuid
+  projectId          String         @db.Uuid
+  /// Sorted, distinct calendar days
+  dates              DateTime[]     @db.Date
+  reason             StoppageReason
+  category           DelayCategory
+  status             StoppageStatus @default(PENDING)
+  note               String?
+  photoAttachmentIds String[]       @default([]) @db.Uuid
+  clientId           String?        @db.Uuid
+  deviceCreatedAt    DateTime?      @db.Timestamptz(3)
+  reportedById       String?        @db.Uuid
+  decidedById        String?        @db.Uuid
+  decidedAt          DateTime?      @db.Timestamptz(3)
+  decisionNote       String?
+  createdAt          DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
+  tenant             Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project            Project        @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade)
+  reportedBy         User?          @relation("StoppageReportedBy", fields: [tenantId, reportedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  decidedBy          User?          @relation("StoppageDecidedBy", fields: [tenantId, decidedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, clientId])
+  @@index([tenantId, projectId, status])
 }

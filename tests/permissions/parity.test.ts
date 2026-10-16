@@ -163,6 +163,23 @@ const NEW_ROUTES: Snapshot = {
   'GET /api/v1/rulebook/overrides': { MUNSHI: 'DENIED', PM: 200, PM_FIN: 200, THEKEDAR: 200 },
   'PUT /api/v1/rulebook/overrides': owner(400),
   'DELETE /api/v1/rulebook/overrides/:key': owner(404),
+  // Step 13 · schedule: schedule.plan.view (Munshi, PM, Accountant) / .plan.manage + .stoppage.approve (PM) / .progress.edit + .stoppage.create (Munshi, PM)
+  'GET /api/v1/projects/:id/schedule': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'POST /api/v1/projects/:id/schedule/generate': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'POST /api/v1/projects/:id/schedule/replan': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'GET /api/v1/projects/:id/schedule/baseline': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/projects/:id/schedule/versions': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/projects/:id/schedule/delays': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/projects/:id/schedule/quotas': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/projects/:id/schedule/today': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/projects/:id/stoppages': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'POST /api/v1/projects/:id/stoppages': { MUNSHI: 400, PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'GET /api/v1/milestones/:id': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'PATCH /api/v1/milestones/:id': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'POST /api/v1/milestones/:id/progress': { MUNSHI: 400, PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'GET /api/v1/stoppages/:id': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'POST /api/v1/stoppages/:id/approve': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'POST /api/v1/stoppages/:id/reject': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
 };
 
 /** Template 200; preview / commit without a file 400 FILE_REQUIRED — for whoever holds the create permission. */

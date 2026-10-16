@@ -20,6 +20,7 @@ import { seedMalikNotifications } from './seedNotifications.js';
 import { seedMalikDailyLogs } from './seedDailyLogs.js';
 import { seedMalikLabor } from './seedLabor.js';
 import { seedMalikEstimates } from './seedEstimate.js';
+import { seedMalikSchedule } from './seedSchedule.js';
 import { ensureProjectRow, seedAhmedProject, seedMalikClients, seedMalikProjects } from './seedProjects.js';
 
 export const SEED = {
@@ -354,6 +355,8 @@ export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: b
     // Notifications point at stock, labour and billing records — only with the full demo, written now.
     if (!billing.skipped && opts.inventory !== false && opts.labor !== false) await seedMalikNotifications(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, projects: malikProjects });
   }
+
+  await seedMalikSchedule(db, { tenantId: malik.id, ownerId: khalid.id, rafaqatId: rafaqatMalik.id, dhaProjectId: malikProjects.dha.id }); // Step 13 (after the estimate; links the stock demo's usage)
 
   return {
     malik,
