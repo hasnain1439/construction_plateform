@@ -42,6 +42,7 @@ import { syncRouter } from './modules/sync/sync.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 import { floorsRouter, openingsRouter, projectsRouter, roomsRouter, supplyPresetsRouter } from './modules/projects/projects.routes.js';
 import { projectEstimateRouter } from './modules/estimate/estimate.routes.js';
+import { equipmentRouter, projectEquipmentRouter } from './modules/equipment/equipment.routes.js'; // Step 16
 import { dispatchesRouter, projectDispatchRouter, shortagesRouter } from './modules/dispatch/dispatch.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import {
@@ -161,6 +162,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/stores', storesRouter);
   mount('/stock', stockRouter);
   mount('/stock-counts', stockCountsRouter);
+  mount('/equipment', equipmentRouter); // Step 16
   mount('/dispatches', dispatchesRouter);
   mount('/shortages', shortagesRouter);
   mount('/projects', projectStockRouter); // /projects/:id/stock, /material-usage (per-route auth)
@@ -170,6 +172,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/projects', projectBillingRouter);
   mount('/projects', projectDailyLogsRouter); // /projects/:id/daily-logs (per-route auth) // /projects/:id/billing-stages, /invoices, /payments, /receivables, ... (per-route auth)
   mount('/projects', projectEstimateRouter); // /projects/:id/estimate, /estimate/settings (per-route auth)
+  mount('/projects', projectEquipmentRouter); // Step 16: /projects/:id/equipment (per-route auth)
   mount('/projects', projectsRouter);
   mount('/billing-stages', billingStagesRouter);
   mount('/billing-progress', billingProgressRouter);

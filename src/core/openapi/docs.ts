@@ -26,6 +26,7 @@ import { registerSubscriptionDocs } from '../../modules/subscription/subscriptio
 import { registerTeamDocs } from '../../modules/team/team.docs.js';
 import { registerOnboardingDocs } from '../../modules/onboarding/onboarding.docs.js';
 import { registerPermissionsDocs } from '../../modules/permissions/permissions.docs.js';
+import { registerEquipmentDocs } from '../../modules/equipment/equipment.docs.js'; // Step 16
 import { buildOpenApiDocument } from './registry.js';
 import { swaggerCss, swaggerFavicon } from './theme.js';
 
@@ -49,6 +50,7 @@ export function openApiDocument() {
     registerInventoryDocs();
     registerProcurementDocs();
     registerDispatchDocs();
+    registerEquipmentDocs(); // Step 16
     registerLaborDocs();
     registerCashbookDocs();
     registerBillingDocs();

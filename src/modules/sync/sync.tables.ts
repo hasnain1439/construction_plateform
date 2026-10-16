@@ -16,6 +16,7 @@ import { totalsOf } from '../cashbook/cash.js';
 import { addDays, today } from '../labor/labor.shared.js';
 import * as S from './sync.serializers.js';
 import { readerLang } from '../notifications/notifications.service.js';
+import { EQUIPMENT_TABLE_PERMISSIONS, EQUIPMENT_TABLES } from '../equipment/equipment.sync.js'; // Step 16
 
 export interface SyncActor {
   tenantId: string;
@@ -42,6 +43,8 @@ export interface TableDef {
   refresh?: boolean;
   /** Sent with full snapshots only (platform data without change tracking). */
   snapshotOnly?: boolean;
+  /** The SyncChange row id a loaded row belongs to (default: its id) — e.g. the location of a per-location table. */
+  keyOf?: (row: SyncRow) => string;
   load: (tx: Tx, sc: SyncScope, ids?: string[]) => Promise<SyncRow[]>;
 }
 
@@ -97,6 +100,7 @@ export const TABLE_PERMISSIONS: Record<string, string[]> = {
   daily_logs: ['dailylog.log.view'],
   cash_entries: ['cashbook.account.view', 'cashbook.expense.view'],
   topup_requests: ['cashbook.topup.view'],
+  ...EQUIPMENT_TABLE_PERMISSIONS, // Step 16
 };
 
 /** May the caller pull this table? */
@@ -338,4 +342,5 @@ export const TABLES: TableDef[] = [
       return rows.map((n) => S.serializeNotification(n, lang));
     },
   },
+  ...EQUIPMENT_TABLES, // Step 16
 ];

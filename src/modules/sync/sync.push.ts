@@ -42,6 +42,9 @@ import { createPurchaseBody, receivePurchaseBody } from '../procurement/procurem
 import { sessionDevice, syncActor } from './sync.pull.js';
 import type { PushInput } from './sync.schema.js';
 import { track, type AnalyticsEvent, type AnalyticsProps } from '../../core/observability/analytics.js';
+import { receiveTransferBody, reportLossBody } from '../equipment/equipment.schema.js'; // Step 16
+import { reportLossTx } from '../equipment/losses.service.js';
+import { receiveTransferTx } from '../equipment/transfers.service.js';
 
 const id = z.uuid();
 type Handler = { ref?: z.ZodObject; body: z.ZodType; run: (tx: Tx, a: Actor, ref: Record<string, string>, body: never) => Promise<unknown> };
@@ -75,6 +78,9 @@ export const HANDLERS: Record<string, Handler> = {
   DAILY_LOG_UPSERT: { ref: project, body: dailyLogBody, run: (tx, a, r, b) => upsertDailyLogTx(tx, a, r['projectId']!, b) },
   // A munshi's site purchase: the service makes it PENDING_RATE (no rates) and refuses the store.
   SITE_PURCHASE_CREATE: { body: createPurchaseBody, run: (tx, a, _r, b) => createPurchaseTx(tx, a, b) },
+  // Step 16: equipment counted at the site (gap → loss) and missing / damaged equipment with a photo.
+  EQUIPMENT_RECEIVE: { ref: z.object({ transferId: id }), body: receiveTransferBody, run: (tx, a, r, b) => receiveTransferTx(tx, a, r['transferId']!, b) },
+  EQUIPMENT_LOSS_REPORT: { body: reportLossBody, run: (tx, a, _r, b) => reportLossTx(tx, a, b) },
 };
 export const MUTATION_TYPES = Object.keys(HANDLERS) as [string, ...string[]];
 
@@ -110,6 +116,8 @@ export const MUTATION_PERMISSIONS: Record<string, string> = {
   TOPUP_REQUEST_CREATE: 'cashbook.topup.create',
   DAILY_LOG_UPSERT: 'dailylog.log.create',
   SITE_PURCHASE_CREATE: 'procurement.purchase.create',
+  EQUIPMENT_RECEIVE: 'equipment.receiving.create',
+  EQUIPMENT_LOSS_REPORT: 'equipment.loss.create',
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

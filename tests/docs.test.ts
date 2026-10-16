@@ -34,6 +34,7 @@ import * as ob from '../src/modules/onboarding/onboarding.schema.js';
 import { estimateSettingsBody } from '../src/modules/estimate/settings.js';
 import { contractFromEstimateBody } from '../src/modules/estimate/contractValue.js';
 import { autoWallsBody, setWallsBody } from '../src/modules/projects/walls.js';
+import * as eqp from '../src/modules/equipment/equipment.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
@@ -169,6 +170,20 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'put /api/v1/users/{id}/permission-overrides': pe.setOverridesBody,
   'patch /api/v1/users/{id}/role': pe.setUserRoleBody,
   'put /api/v1/users/{id}/roles': pe.setUserRolesBody,
+  // Step 16 — equipment
+  'post /api/v1/equipment': eqp.createEquipmentBody,
+  'patch /api/v1/equipment/{id}': eqp.updateEquipmentBody,
+  'post /api/v1/equipment/{id}/stock-in': eqp.stockInBody,
+  'post /api/v1/equipment/{id}/adjust': eqp.adjustBody,
+  'post /api/v1/equipment/transfers': eqp.createTransferBody,
+  'post /api/v1/equipment/transfers/{id}/receive': eqp.receiveTransferBody,
+  'post /api/v1/equipment/rentals': eqp.createRentalBody,
+  'post /api/v1/equipment/rentals/{id}/extend': eqp.extendRentalBody,
+  'post /api/v1/equipment/rentals/{id}/return': eqp.returnRentalBody,
+  'post /api/v1/equipment/rentals/{id}/close': eqp.closeRentalBody,
+  'post /api/v1/equipment/losses': eqp.reportLossBody,
+  'post /api/v1/equipment/losses/{id}/charge': eqp.chargeLossBody,
+  'post /api/v1/equipment/accruals/run': eqp.accrualBody,
 };
 
 type Spec = {
@@ -216,6 +231,7 @@ describe('API docs', () => {
       'Owner Deliveries',
       'Material Usage',
       'Stock Counts',
+      'Equipment',
       'Labor Assignments',
       'Attendance',
       'Work Measurements',
@@ -239,7 +255,7 @@ describe('API docs', () => {
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(259); // +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
+    expect(Object.keys(res.body.paths)).toHaveLength(280); // +21: Step 16 equipment, +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

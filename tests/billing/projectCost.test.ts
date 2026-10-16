@@ -9,7 +9,7 @@ const cost = () => prismaAdmin.$transaction((tx) => projectCost(tx, seeded().mal
 
 describe('projectCost', () => {
   it('nothing spent → all zero', async () => {
-    expect(await cost()).toEqual({ materialPaisa: 0n, wagesPaisa: 0n, advancesPaisa: 0n, subcontractPaisa: 0n, kharchaPaisa: 0n, lossesPaisa: 0n, totalPaisa: 0n });
+    expect(await cost()).toEqual({ materialPaisa: 0n, wagesPaisa: 0n, advancesPaisa: 0n, subcontractPaisa: 0n, kharchaPaisa: 0n, lossesPaisa: 0n, equipmentPaisa: 0n, totalPaisa: 0n });
   });
 
   it('adds site material (not owner-supplied), paid wages, peshgi, sub-contract payments, kharcha (not recoverable / rejected) and written-off losses', async () => {
@@ -49,6 +49,7 @@ describe('projectCost', () => {
       subcontractPaisa: 3100000n,
       kharchaPaisa: 565000n,
       lossesPaisa: 0n,
+      equipmentPaisa: 0n,
       totalPaisa: 14500000n + 760000n + 200000n + 3100000n + 565000n,
     });
   });

@@ -54,3 +54,4 @@ Each backend agent writes its step's endpoints (method, path, permission, reques
 
 ## Log
 - 2026-10-16: Wave 0 set up. Test storage folder now named after the test database (vitest.config.ts) so parallel checkouts don't delete each other's files.
+- 2026-10-16: Step 16 part 1 (API, agent C, branch p23/s16api): equipment register + ledger, transfers with counted receiving (gap → loss), yard rentals → supplier ledger, losses, daily internal hire + rent → P&L EQUIPMENT, sync tables + 2 push mutations, migration 20261102090000_equipment, keys equipment.view|manage, equipment.transfer.create, equipment.receiving.create, equipment.rental.manage, equipment.loss.create|approve (brief names move / loss.report / loss.charge mapped to catalogue actions). Tests 698 → 707. Contract: PHASE_2_3_CONTRACTS.md → Step 16 (demand planner + idle alert proposed for Wave 3).

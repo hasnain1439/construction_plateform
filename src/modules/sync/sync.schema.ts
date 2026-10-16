@@ -30,6 +30,8 @@ export const SYNC_MUTATION_TYPES = [
   'TOPUP_REQUEST_CREATE',
   'DAILY_LOG_UPSERT',
   'SITE_PURCHASE_CREATE',
+  'EQUIPMENT_RECEIVE', // Step 16
+  'EQUIPMENT_LOSS_REPORT', // Step 16
 ] as const;
 
 export const pushBody = z.object({

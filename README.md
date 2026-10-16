@@ -889,6 +889,31 @@ Audit actions: `stock.low_levels_update`, `stock.usage_record`, `stock.count`, `
 
 **Seed (`prisma/seedInventory.ts`, Malik & Sons, skipped when purchases exist; tests seed it on demand).** Store: CH-2198 200 cement @ 1,500 (15 Sep, cash), CB-1150 17,000 bricks @ 17 (Chaudhry, udhaar), store count SC-0001 on 28 Sep (cement −4 hardened in rain, bricks −50 breakage), CH-2231 400 cement @ 1,430 (Al-Madina, udhaar, 2 Oct → average ≈ 1,453), IT-8812 2 ton steel #4 @ 2,85,000 (part paid Rs 2,00,000). Direct to site: BT-451 400 cft Chenab sand @ 70 → DHA (cash, RECEIVED), CB-1190 10,000 bricks → Bahria (PENDING_RECEIPT). Gate passes: GP-0140 Johar 80 cement (RECEIVED), GP-0141 (cancelled), GP-0142 DHA 200 cement + 5,000 bricks, LES-4521, driver Nadeem 0300-1112233 (RECEIVED_WITH_SHORTAGE: cement 190, 200 bricks damaged → two OPEN shortages), GP-0143 Bahria 1 ton steel (ON_THE_WAY), GP-0144 DHA 100 cement (ON_THE_WAY). Supplier balances: Al-Madina 7,40,000 · Ittefaq 12,10,000 (with a bounced Rs 1,50,000 cheque) · Chaudhry 3,25,000 · Bilal Traders 1,15,000 · Punjab Shuttering 86,000 (OPENING entries as needed). DHA usage on the last three days. Store low-stock levels: cement 200, sand 500, PPR 100.
 
+## Equipment
+
+`src/modules/equipment` (Step 16, part 1). Owned machines (mixer, vibrator) and bulk items (shuttering plates, props, scaffold) and equipment hired from yards. API contract: `PHASE_2_3_CONTRACTS.md` → Step 16.
+
+### Ledger and locations
+- Locations are the stock locations: the **Central Store is the equipment yard**, one TRANSIT bucket, one SITE per non-draft project.
+- Every change is one append-only `EquipmentMovement` (app_user SELECT + INSERT only): OPENING_IN / PURCHASE_IN (stock in), TRANSFER_OUT → TRANSIT_IN → TRANSIT_OUT → RECEIPT_IN (transfers), RENTAL_IN / RENTAL_RETURN_OUT (rentals), LOSS_OUT (missing), ADJUSTMENT. Quantity at a location = SUM per (equipment, rentalId); owned units have no rental. Per-location advisory locks stop two transfers taking the same plates (`400 INSUFFICIENT_EQUIPMENT` with `details.items`).
+- Transfers: DISPATCH (yard → site), TRANSFER (site → site), RETURN (site → yard). The receiver counts every item; sent − received → MISSING loss, damaged → DAMAGED loss (`source TRANSFER_GAP`), status RECEIVED_WITH_GAP. Blind count (company setting) hides `sentQty` from a Munshi while on the way.
+
+### Rentals
+Supplier (yard) + items × rate per day + deposit, delivered to a project site (rent charged to the project) or the yard. Return partly or fully; `missingQty` must already be reported as a MISSING loss. Supplier ledger (type ADJUSTMENT): `RENTAL_DEPOSIT` −deposit at create, `RENTAL_DAMAGE` +damage at each return, `RENTAL_CHARGE` +rent on the full return (= Σ daily RENTAL charges, so the project cost and the yard bill agree), `RENTAL_DEPOSIT_REFUND` +refund at close. ACTIVE → RETURNED → CLOSED.
+
+### Losses
+REPORTED → CHARGED: PROJECT (project P&L **LOSSES**), SUBCONTRACTOR (sub-contract ledger DEDUCTION, refType `EQUIPMENT_LOSS`) or WRITE_OFF (company; not in a project's cost). Default value = qty × replacement value. Yard damage charges on a rental are a supplier payable; who bears them inside the company is decided by charging the loss.
+
+### Daily cost (`accrual.ts`)
+`EquipmentCharge` per Karachi day: INTERNAL_HIRE = owned units on a SITE at the end of the day × `hireRatePaisaPerDay` → that project; RENTAL = outstanding rented units × item rate → the rental's project. Start day charged, return day not; only complete days (≤ yesterday). Each run appends only the difference between what a (day, key) should be and what is posted (correction rows `seq` 1, 2, …; posted days keep their rate), so it is idempotent and back-dated changes in the last 31 days are corrected. Daily job 01:30 PKT (`src/jobs/equipmentAccrual.ts`), `POST /equipment/accruals/run` (equipment.manage). Days are bucketed in code, not SQL, so the database session time zone never matters. Project cost: `EQUIPMENT_HIRE` + `EQUIPMENT_RENTAL` → bucket EQUIPMENT (`ProjectCost.equipmentPaisa`), charged project losses → LOSSES.
+
+### Access
+`equipment.view` (scoped; the yard and transit only with `equipment.manage`, `equipment.transfer.create` or ALL_PROJECTS), `equipment.manage` (register, stock in, adjust, send from the yard, accrual), `equipment.transfer.create`, `equipment.receiving.create`, `equipment.rental.manage`, `equipment.loss.create`, `equipment.loss.approve`. Rates, values and amounts need `fields.rates` (REST and sync). Offline: pull `equipment`, `equipment_stock`, `equipment_transfers`, `equipment_rentals`, `equipment_losses`; push `EQUIPMENT_RECEIVE`, `EQUIPMENT_LOSS_REPORT`.
+
+### Endpoints
+`/equipment` (GET, POST), `/equipment/:id` (GET, PATCH), `/equipment/:id/stock-in`, `/equipment/:id/adjust`, `/equipment/balances`, `/equipment/movements`, `/equipment/charges`, `/equipment/accruals/run`, `/equipment/transfers` (GET, POST), `/equipment/transfers/:id` (+ `/receive`, `/cancel`), `/equipment/rentals` (GET, POST), `/equipment/rentals/:id` (+ `/extend`, `/return`, `/close`), `/equipment/losses` (GET, POST), `/equipment/losses/:id` (+ `/charge`), `/projects/:id/equipment`. Not built yet (Wave 3): shuttering demand planner, idle-rent alert.
+
+
 ## Labor & Cash Book
 
 `src/modules/labor` (team on site, hazri, work measurements, peshgi, weekly settlements, sub-contractor accounts) and `src/modules/cashbook` (cash accounts, floats, kharcha, top-ups, counts, handovers). Every new table has RLS, grants and composite FKs; money is BigInt paisa, quantities Decimal; every write is audited. `SubcontractLedgerEntry` is append-only (app_user SELECT + INSERT); `CashEntry` rows are never deleted (UPDATE only for status / acknowledgement / approval).

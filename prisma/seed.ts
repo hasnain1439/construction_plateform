@@ -15,6 +15,7 @@ import { provisionMasterData } from '../src/modules/master-data/provision.js';
 import { provisionPermissions } from '../src/modules/permissions/provision.js';
 import { seedMalikMasterData } from './seedMasterData.js';
 import { seedMalikInventory } from './seedInventory.js';
+import { seedMalikEquipment } from './seedEquipment.js';
 import { seedMalikBilling } from './seedBilling.js';
 import { seedMalikNotifications } from './seedNotifications.js';
 import { seedMalikDailyLogs } from './seedDailyLogs.js';
@@ -342,6 +343,7 @@ export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: b
   const ahmedProject = await seedAhmedProject(db, ahmed.id, ahmedOwner.id, rafaqatAhmed.id);
   if (opts.inventory !== false) {
     await seedMalikInventory(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, projects: malikProjects });
+    await seedMalikEquipment(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, projects: malikProjects }); // Step 16
   }
   if (opts.labor !== false) {
     await seedMalikLabor(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, asifId: asif.id, projects: malikProjects });

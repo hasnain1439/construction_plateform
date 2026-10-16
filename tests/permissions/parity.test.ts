@@ -147,6 +147,33 @@ const NEW_ROUTES: Snapshot = {
   // Walls per room side: projects.project.edit like the other room routes (body {} → 400 walls missing; auto with {} → 404 unknown floor)
   'PUT /api/v1/rooms/:id/walls': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
   'POST /api/v1/floors/:id/walls/auto': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  // Step 16 — equipment: view / receiving.create / loss.create (Munshi, PM, Store Keeper), transfer.create + rental.manage (PM), manage + loss.approve (owner / Administrator)
+  'GET /api/v1/equipment/balances': { MUNSHI: 200, PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'GET /api/v1/equipment/movements': { MUNSHI: 200, PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'GET /api/v1/equipment/charges': { MUNSHI: 200, PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'POST /api/v1/equipment/accruals/run': owner(200),
+  'GET /api/v1/equipment/transfers': { MUNSHI: 200, PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'POST /api/v1/equipment/transfers': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'GET /api/v1/equipment/transfers/:id': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'POST /api/v1/equipment/transfers/:id/receive': { MUNSHI: 400, PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'POST /api/v1/equipment/transfers/:id/cancel': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/equipment/rentals': { MUNSHI: 200, PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'POST /api/v1/equipment/rentals': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'GET /api/v1/equipment/rentals/:id': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'POST /api/v1/equipment/rentals/:id/extend': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'POST /api/v1/equipment/rentals/:id/return': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'POST /api/v1/equipment/rentals/:id/close': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/equipment/losses': { MUNSHI: 200, PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'POST /api/v1/equipment/losses': { MUNSHI: 400, PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'GET /api/v1/equipment/losses/:id': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'POST /api/v1/equipment/losses/:id/charge': owner(400),
+  'GET /api/v1/equipment': { MUNSHI: 200, PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'POST /api/v1/equipment': owner(400),
+  'GET /api/v1/equipment/:id': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'PATCH /api/v1/equipment/:id': owner(400),
+  'POST /api/v1/equipment/:id/stock-in': owner(400),
+  'POST /api/v1/equipment/:id/adjust': owner(400),
+  'GET /api/v1/projects/:id/equipment': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
 };
 
 /** Template 200; preview / commit without a file 400 FILE_REQUIRED — for whoever holds the create permission. */

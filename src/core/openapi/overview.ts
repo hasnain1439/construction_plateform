@@ -130,6 +130,7 @@ export const TAGS = [
   { name: 'Owner Deliveries', description: 'Material the client delivers himself (owner-supplied categories only, cost 0)' },
   { name: 'Material Usage', description: 'Material used on site each day (all roles with project access)' },
   { name: 'Stock Counts', description: 'Physical counts; differences become stock adjustments with a reason' },
+  { name: 'Equipment', description: 'Equipment & shuttering (Step 16): register, allocation map, transfers with counted receiving (gap → loss), yard rentals with daily rent, loss & damage, daily internal hire into project cost' },
   { name: 'Labor Assignments', description: 'Team on site: daily-wage workers (with the project rate) and sub-contracts on a project' },
   { name: 'Attendance', description: 'Hazri: bulk marking per day (offline-safe), the weekly register and today’s summary. Submitted / approved weeks are locked' },
   { name: 'Work Measurements', description: 'Work measured for piece-rate sub-contracts; verifying adds its value to the sub-contractor’s account' },

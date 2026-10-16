@@ -396,6 +396,17 @@ model Tenant {
   notifications          Notification[]
   dailyLogs              DailyLog[]
   openingBalances        OpeningBalance[]
+  // Step 16 · equipment
+  equipment Equipment[]
+  equipmentMovements EquipmentMovement[]
+  equipmentTransfers EquipmentTransfer[]
+  equipmentTransferItems EquipmentTransferItem[]
+  equipmentRentals EquipmentRental[]
+  equipmentRentalItems EquipmentRentalItem[]
+  equipmentRentalReturns EquipmentRentalReturn[]
+  equipmentReturnItems EquipmentRentalReturnItem[]
+  equipmentLosses EquipmentLoss[]
+  equipmentCharges EquipmentCharge[]
 }
 
 model TenantSettings {
@@ -577,6 +588,14 @@ model User {
   permissionOverrides  UserPermissionOverride[] @relation("UserPermissionOverrides")
   /// Permission roles of the member (several allowed; effective = union + overrides). roleId = the first.
   roleAssignments      UserRoleAssignment[]     @relation("UserRoleAssignments")
+  // Step 16 · equipment
+  equipmentMovements EquipmentMovement[] @relation("EquipmentMovementCreatedBy")
+  equipmentTransfersCreated EquipmentTransfer[] @relation("EquipmentTransferCreatedBy")
+  equipmentTransfersReceived EquipmentTransfer[] @relation("EquipmentTransferReceivedBy")
+  equipmentRentals EquipmentRental[] @relation("EquipmentRentalCreatedBy")
+  equipmentRentalReturns EquipmentRentalReturn[] @relation("EquipmentRentalReturnCreatedBy")
+  equipmentLossesReported EquipmentLoss[] @relation("EquipmentLossReportedBy")
+  equipmentLossesCharged EquipmentLoss[] @relation("EquipmentLossChargedBy")
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -672,6 +691,10 @@ model Project {
   cashEntries               CashEntry[]
   notifications             Notification[]
   dailyLogs                 DailyLog[]
+  // Step 16 · equipment
+  equipmentRentals EquipmentRental[]
+  equipmentLosses EquipmentLoss[]
+  equipmentCharges EquipmentCharge[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
@@ -913,6 +936,9 @@ model Attachment {
   returnDocs   PurchaseReturn[]      @relation("PurchaseReturnAttachment")
   loadPhotos   Dispatch[]            @relation("DispatchLoadPhoto")
   itemPhotos   DispatchItem[]        @relation("DispatchItemPhoto")
+  // Step 16 · equipment
+  equipmentTransferItems EquipmentTransferItem[] @relation("EquipmentTransferItemPhoto")
+  equipmentLosses EquipmentLoss[] @relation("EquipmentLossPhoto")
 
   @@unique([tenantId, id])
   @@unique([tenantId, clientId])
@@ -1141,6 +1167,8 @@ model Supplier {
   purchaseReturns PurchaseReturn[]
   ledgerEntries   SupplierLedgerEntry[]
   payments        SupplierPayment[]
+  // Step 16 · equipment
+  equipmentRentals EquipmentRental[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, name])
@@ -1612,6 +1640,14 @@ model StockLocation {
   dispatchesTo   Dispatch[]        @relation("DispatchTo")
   shortages      Shortage[]
   stockCounts    StockCount[]
+  // Step 16 · equipment
+  equipmentMovements EquipmentMovement[]
+  equipmentTransfersFrom EquipmentTransfer[] @relation("EquipmentTransferFrom")
+  equipmentTransfersTo EquipmentTransfer[] @relation("EquipmentTransferTo")
+  equipmentRentals EquipmentRental[]
+  equipmentRentalReturns EquipmentRentalReturn[] @relation("EquipmentRentalReturnFrom")
+  equipmentLosses EquipmentLoss[]
+  equipmentCharges EquipmentCharge[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, projectId])
@@ -2280,6 +2316,8 @@ model SubcontractAssignment {
   measurements       WorkMeasurement[]
   advances           Advance[]
   ledger             SubcontractLedgerEntry[]
+  // Step 16 · equipment
+  equipmentLosses EquipmentLoss[]
 
   @@unique([tenantId, id])
   @@index([tenantId, projectId])
@@ -2961,4 +2999,383 @@ model OpeningBalance {
 
   @@unique([tenantId, kind, entityId])
   @@index([tenantId, createdAt])
+}
+
+// ─── Step 16 · Equipment & shuttering ───────────────────────────────────────
+// Owned machines and bulk items (plates, props, scaffold) live in StockLocations (the Central
+// Store is the yard; sites; transit). Quantities per location come from the append-only
+// EquipmentMovement ledger (app_user SELECT + INSERT only), owned and rented (rentalId) apart.
+
+enum EquipmentKind {
+  MACHINE
+  BULK
+}
+
+enum EquipmentCategory {
+  SHUTTERING_PLATE
+  PROP
+  SCAFFOLDING
+  MIXER
+  VIBRATOR
+  GENERATOR
+  PUMP
+  TOOL
+  OTHER
+}
+
+enum EquipmentMovementType {
+  OPENING_IN
+  PURCHASE_IN
+  TRANSFER_OUT
+  TRANSIT_IN
+  TRANSIT_OUT
+  RECEIPT_IN
+  RENTAL_IN
+  RENTAL_RETURN_OUT
+  LOSS_OUT
+  ADJUSTMENT
+}
+
+enum EquipmentTransferKind {
+  DISPATCH
+  TRANSFER
+  RETURN
+}
+
+enum EquipmentTransferStatus {
+  ON_THE_WAY
+  RECEIVED
+  RECEIVED_WITH_GAP
+  CANCELLED
+}
+
+enum EquipmentRentalStatus {
+  ACTIVE
+  RETURNED
+  CLOSED
+}
+
+enum EquipmentLossKind {
+  MISSING
+  DAMAGED
+}
+
+enum EquipmentLossStatus {
+  REPORTED
+  CHARGED
+}
+
+enum EquipmentLossSource {
+  REPORT
+  TRANSFER_GAP
+}
+
+enum EquipmentLossChargeTo {
+  PROJECT
+  SUBCONTRACTOR
+  WRITE_OFF
+}
+
+enum EquipmentChargeKind {
+  INTERNAL_HIRE
+  RENTAL
+}
+
+/// An equipment type in the company register: a machine (mixer, vibrator) or a bulk item counted
+/// in units (shuttering plates, props, scaffold). Owned quantity = ledger balance without a rental.
+model Equipment {
+  id                    String                  @id @default(uuid(7)) @db.Uuid
+  tenantId              String                  @db.Uuid
+  name                  String
+  code                  String?
+  kind                  EquipmentKind
+  category              EquipmentCategory
+  unit                  String                  @default("nos")
+  serialNo              String?
+  /// Internal hire charged to a project per unit per day on site (paisa).
+  hireRatePaisaPerDay   BigInt                  @default(0)
+  /// Value of one unit when lost (default loss value, paisa).
+  replacementValuePaisa BigInt                  @default(0)
+  /// Shuttering plates: face area of one unit (sq ft), for the demand planner.
+  coverageSqftPerUnit   Decimal?                @db.Decimal(10, 3)
+  notes                 String?
+  isActive              Boolean                 @default(true)
+  createdAt             DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime                @updatedAt @db.Timestamptz(3)
+  tenant                Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  movements             EquipmentMovement[]
+  transferItems         EquipmentTransferItem[]
+  rentalItems           EquipmentRentalItem[]
+  losses                EquipmentLoss[]
+  charges               EquipmentCharge[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, name])
+  @@index([tenantId, category])
+}
+
+/// Append-only equipment ledger. Balance at a location = SUM(quantity) per (equipment, rentalId).
+model EquipmentMovement {
+  id          String                @id @default(uuid(7)) @db.Uuid
+  tenantId    String                @db.Uuid
+  locationId  String                @db.Uuid
+  equipmentId String                @db.Uuid
+  /// Rented units carry their rental; null = owned.
+  rentalId    String?               @db.Uuid
+  /// Signed: + in, - out
+  quantity    Decimal               @db.Decimal(14, 3)
+  type        EquipmentMovementType
+  /// EQUIPMENT_STOCK_IN / EQUIPMENT_ADJUSTMENT / EQUIPMENT_TRANSFER / EQUIPMENT_RENTAL / EQUIPMENT_RENTAL_RETURN / EQUIPMENT_LOSS
+  refType     String
+  refId       String                @db.Uuid
+  note        String?
+  occurredAt  DateTime              @db.Timestamptz(3)
+  createdById String?               @db.Uuid
+  createdAt   DateTime              @default(now()) @db.Timestamptz(3)
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  location    StockLocation         @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  equipment   Equipment             @relation(fields: [tenantId, equipmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  rental      EquipmentRental?      @relation(fields: [tenantId, rentalId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy   User?                 @relation("EquipmentMovementCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, locationId, equipmentId, occurredAt])
+  @@index([tenantId, equipmentId, occurredAt])
+  @@index([tenantId, rentalId])
+  @@index([tenantId, refType, refId])
+}
+
+/// Equipment sent from one location to another through transit (dispatch / transfer / return).
+model EquipmentTransfer {
+  id             String                  @id @default(uuid(7)) @db.Uuid
+  tenantId       String                  @db.Uuid
+  /// ET-0001
+  number         String
+  kind           EquipmentTransferKind
+  fromLocationId String                  @db.Uuid
+  toLocationId   String                  @db.Uuid
+  status         EquipmentTransferStatus @default(ON_THE_WAY)
+  vehicleNo      String?
+  driverName     String?
+  note           String?
+  sentAt         DateTime                @db.Timestamptz(3)
+  receivedById   String?                 @db.Uuid
+  receivedAt     DateTime?               @db.Timestamptz(3)
+  receiveNote    String?
+  cancelledAt    DateTime?               @db.Timestamptz(3)
+  createdById    String?                 @db.Uuid
+  createdAt      DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime                @updatedAt @db.Timestamptz(3)
+  tenant         Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  fromLocation   StockLocation           @relation("EquipmentTransferFrom", fields: [tenantId, fromLocationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  toLocation     StockLocation           @relation("EquipmentTransferTo", fields: [tenantId, toLocationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy      User?                   @relation("EquipmentTransferCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  receivedBy     User?                   @relation("EquipmentTransferReceivedBy", fields: [tenantId, receivedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  items          EquipmentTransferItem[]
+  losses         EquipmentLoss[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@index([tenantId, toLocationId, status])
+  @@index([tenantId, fromLocationId, status])
+}
+
+model EquipmentTransferItem {
+  id                String            @id @default(uuid(7)) @db.Uuid
+  tenantId          String            @db.Uuid
+  transferId        String            @db.Uuid
+  equipmentId       String            @db.Uuid
+  rentalId          String?           @db.Uuid
+  sentQty           Decimal           @db.Decimal(14, 3)
+  receivedQty       Decimal?          @db.Decimal(14, 3)
+  damagedQty        Decimal?          @db.Decimal(14, 3)
+  note              String?
+  photoAttachmentId String?           @db.Uuid
+  sortOrder         Int               @default(0)
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  transfer          EquipmentTransfer @relation(fields: [tenantId, transferId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
+  equipment         Equipment         @relation(fields: [tenantId, equipmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  rental            EquipmentRental?  @relation(fields: [tenantId, rentalId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  photo             Attachment?       @relation("EquipmentTransferItemPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, transferId])
+}
+
+/// Equipment hired from a yard (an existing Supplier). Rent accrues daily per outstanding unit.
+model EquipmentRental {
+  id                   String                  @id @default(uuid(7)) @db.Uuid
+  tenantId             String                  @db.Uuid
+  /// RNT-0001
+  number               String
+  supplierId           String                  @db.Uuid
+  /// The project the rent is charged to (null = held at the yard, company overhead).
+  projectId            String?                 @db.Uuid
+  /// Where the items arrived.
+  locationId           String                  @db.Uuid
+  status               EquipmentRentalStatus   @default(ACTIVE)
+  startDate            DateTime                @db.Date
+  expectedEndDate      DateTime?               @db.Date
+  returnedDate         DateTime?               @db.Date
+  closedAt             DateTime?               @db.Timestamptz(3)
+  depositPaisa         BigInt                  @default(0)
+  depositRefundedPaisa BigInt                  @default(0)
+  damageChargesPaisa   BigInt                  @default(0)
+  /// Rent posted to the supplier ledger on the full return.
+  rentChargedPaisa     BigInt                  @default(0)
+  reference            String?
+  note                 String?
+  createdById          String?                 @db.Uuid
+  createdAt            DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime                @updatedAt @db.Timestamptz(3)
+  tenant               Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  supplier             Supplier                @relation(fields: [tenantId, supplierId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  project              Project?                @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  location             StockLocation           @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy            User?                   @relation("EquipmentRentalCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  items                EquipmentRentalItem[]
+  returns              EquipmentRentalReturn[]
+  movements            EquipmentMovement[]
+  transferItems        EquipmentTransferItem[]
+  losses               EquipmentLoss[]
+  charges              EquipmentCharge[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, projectId])
+}
+
+model EquipmentRentalItem {
+  id              String                      @id @default(uuid(7)) @db.Uuid
+  tenantId        String                      @db.Uuid
+  rentalId        String                      @db.Uuid
+  equipmentId     String                      @db.Uuid
+  qty             Decimal                     @db.Decimal(14, 3)
+  ratePaisaPerDay BigInt
+  /// Handed back to the yard (sum of returns).
+  returnedQty     Decimal                     @default(0) @db.Decimal(14, 3)
+  /// Never handed back (lost, paid for through damage charges).
+  missingQty      Decimal                     @default(0) @db.Decimal(14, 3)
+  sortOrder       Int                         @default(0)
+  tenant          Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rental          EquipmentRental             @relation(fields: [tenantId, rentalId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
+  equipment       Equipment                   @relation(fields: [tenantId, equipmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  returnItems     EquipmentRentalReturnItem[]
+  charges         EquipmentCharge[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, rentalId, equipmentId])
+}
+
+model EquipmentRentalReturn {
+  id                 String                      @id @default(uuid(7)) @db.Uuid
+  tenantId           String                      @db.Uuid
+  rentalId           String                      @db.Uuid
+  returnDate         DateTime                    @db.Date
+  fromLocationId     String                      @db.Uuid
+  damageChargesPaisa BigInt                      @default(0)
+  note               String?
+  createdById        String?                     @db.Uuid
+  createdAt          DateTime                    @default(now()) @db.Timestamptz(3)
+  tenant             Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  rental             EquipmentRental             @relation(fields: [tenantId, rentalId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
+  fromLocation       StockLocation               @relation("EquipmentRentalReturnFrom", fields: [tenantId, fromLocationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy          User?                       @relation("EquipmentRentalReturnCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  items              EquipmentRentalReturnItem[]
+
+  @@unique([tenantId, id])
+  @@index([tenantId, rentalId])
+}
+
+model EquipmentRentalReturnItem {
+  id           String                @id @default(uuid(7)) @db.Uuid
+  tenantId     String                @db.Uuid
+  returnId     String                @db.Uuid
+  rentalItemId String                @db.Uuid
+  qty          Decimal               @db.Decimal(14, 3)
+  damagedQty   Decimal               @default(0) @db.Decimal(14, 3)
+  missingQty   Decimal               @default(0) @db.Decimal(14, 3)
+  tenant       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  return       EquipmentRentalReturn @relation(fields: [tenantId, returnId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
+  rentalItem   EquipmentRentalItem   @relation(fields: [tenantId, rentalItemId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tenantId, returnId])
+}
+
+/// Missing or damaged equipment, charged to the project, a sub-contractor or written off.
+model EquipmentLoss {
+  id                      String                 @id @default(uuid(7)) @db.Uuid
+  tenantId                String                 @db.Uuid
+  /// EL-0001
+  number                  String
+  kind                    EquipmentLossKind
+  source                  EquipmentLossSource    @default(REPORT)
+  status                  EquipmentLossStatus    @default(REPORTED)
+  equipmentId             String                 @db.Uuid
+  rentalId                String?                @db.Uuid
+  locationId              String                 @db.Uuid
+  projectId               String?                @db.Uuid
+  transferId              String?                @db.Uuid
+  qty                     Decimal                @db.Decimal(14, 3)
+  /// Estimate at report time (qty x replacement value); the charged amount once CHARGED.
+  valuePaisa              BigInt                 @default(0)
+  chargedTo               EquipmentLossChargeTo?
+  subcontractAssignmentId String?                @db.Uuid
+  photoAttachmentId       String?                @db.Uuid
+  note                    String?
+  reportedById            String?                @db.Uuid
+  reportedAt              DateTime               @db.Timestamptz(3)
+  chargedById             String?                @db.Uuid
+  chargedAt               DateTime?              @db.Timestamptz(3)
+  chargeNote              String?
+  createdAt               DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime               @updatedAt @db.Timestamptz(3)
+  tenant                  Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  equipment               Equipment              @relation(fields: [tenantId, equipmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  rental                  EquipmentRental?       @relation(fields: [tenantId, rentalId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  location                StockLocation          @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  project                 Project?               @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  transfer                EquipmentTransfer?     @relation(fields: [tenantId, transferId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  subcontractAssignment   SubcontractAssignment? @relation(fields: [tenantId, subcontractAssignmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  photo                   Attachment?            @relation("EquipmentLossPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  reportedBy              User?                  @relation("EquipmentLossReportedBy", fields: [tenantId, reportedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  chargedBy               User?                  @relation("EquipmentLossChargedBy", fields: [tenantId, chargedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, projectId])
+}
+
+/// Daily equipment cost (append-only): internal hire of owned equipment on a site and rent of
+/// rented equipment. One row per (day, baseKey); later corrections add rows with seq 1, 2, ...
+model EquipmentCharge {
+  id           String               @id @default(uuid(7)) @db.Uuid
+  tenantId     String               @db.Uuid
+  date         DateTime             @db.Date
+  kind         EquipmentChargeKind
+  /// INTERNAL_HIRE:<locationId>:<equipmentId> or RENTAL:<rentalItemId>
+  baseKey      String
+  seq          Int                  @default(0)
+  projectId    String?              @db.Uuid
+  locationId   String?              @db.Uuid
+  equipmentId  String               @db.Uuid
+  rentalId     String?              @db.Uuid
+  rentalItemId String?              @db.Uuid
+  /// Signed for corrections
+  qty          Decimal              @db.Decimal(14, 3)
+  ratePaisa    BigInt
+  amountPaisa  BigInt
+  createdAt    DateTime             @default(now()) @db.Timestamptz(3)
+  tenant       Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project      Project?             @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  location     StockLocation?       @relation(fields: [tenantId, locationId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  equipment    Equipment            @relation(fields: [tenantId, equipmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  rental       EquipmentRental?     @relation(fields: [tenantId, rentalId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  rentalItem   EquipmentRentalItem? @relation(fields: [tenantId, rentalItemId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, date, baseKey, seq])
+  @@index([tenantId, projectId, date])
+  @@index([tenantId, kind, date])
+  @@index([tenantId, rentalId])
 }

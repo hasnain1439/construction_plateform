@@ -51,6 +51,7 @@ export const PERMISSION_MODULES = {
   team: { en: 'Team', roman: 'Team', urdu: 'ٹیم' },
   company: { en: 'Company', roman: 'Company', urdu: 'کمپنی' },
   subscription: { en: 'Subscription', roman: 'Subscription', urdu: 'سبسکرپشن' },
+  equipment: { en: 'Equipment & shuttering', roman: 'Machinery aur shuttering', urdu: 'مشینری اور شٹرنگ' },
   fields: { en: 'Data visibility', roman: 'Kya nazar aaye', urdu: 'کیا نظر آئے' },
 } as const satisfies Record<string, PermissionLabel>;
 
@@ -203,6 +204,15 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   def('company.holiday.manage', L('Manage holidays', 'Chhuttiyon ka intezam', 'چھٹیوں کا انتظام'), 'Add or delete company holidays.'),
   def('subscription.manage', L('Subscription & payments', 'Subscription aur adayegi', 'سبسکرپشن اور ادائیگی'), 'Plan, subscription payments, plan changes.', { ownerOnly: true }),
 
+  // ─── Step 16 · Equipment & shuttering ──────────────────────────────────────
+  def('equipment.view', L('View equipment', 'Machinery / shuttering dekhna', 'مشینری / شٹرنگ دیکھنا'), 'Equipment register, where everything is (allocation map), movements, transfers, rentals, losses, hire charges (rates and amounts need fields.rates).', S),
+  def('equipment.manage', L('Manage equipment', 'Machinery ka intezam', 'مشینری کا انتظام'), 'Add / edit equipment and hire rates, stock in (opening / purchase), adjustments, send from the yard, run the hire accrual.'),
+  def('equipment.transfer.create', L('Send equipment', 'Machinery / shuttering bhejna', 'مشینری / شٹرنگ بھیجنا'), 'Dispatch, transfer between sites and return equipment to the yard; cancel a transfer on the way.', S),
+  def('equipment.receiving.create', L('Receive equipment', 'Machinery / shuttering wasool karna', 'مشینری / شٹرنگ وصول کرنا'), 'Count equipment arriving at a site or the yard (a gap becomes a loss).', S),
+  def('equipment.rental.manage', L('Manage equipment rentals', 'Kiraye ki shuttering ka intezam', 'کرائے کی شٹرنگ کا انتظام'), 'Hire from yards: create, extend, return with damage charges, close (supplier ledger).', S),
+  def('equipment.loss.create', L('Report equipment loss', 'Gum / toota saman report karna', 'گم / ٹوٹا سامان رپورٹ کرنا'), 'Report missing or damaged equipment with a photo.', S),
+  def('equipment.loss.approve', L('Charge equipment loss', 'Nuqsan ka faisla', 'نقصان کا فیصلہ'), 'Charge a loss to the project, a sub-contractor or write it off.', S),
+
   // ─── Field permissions (data visibility) ───────────────────────────────────
   def('fields.rates', L('See rates & stock values', 'Rates aur stock ki qeemat dekhna', 'ریٹس اور اسٹاک کی قیمت دیکھنا'), 'Material / supplier / sub-contract rates, purchase amounts, stock values, supplier balances.', { field: true }),
   def('fields.amounts', L('See billing & money amounts', 'Billing aur raqam dekhna', 'بلنگ اور رقم دیکھنا'), 'Billing amounts, invoices, receivables, money KPIs.', { field: true }),
@@ -277,6 +287,9 @@ const MUNSHI_KEYS = [
   'masterdata.worker.view',
   'masterdata.worker.create',
   'masterdata.subcontractor.view',
+  'equipment.view', // Step 16
+  'equipment.receiving.create', // Step 16
+  'equipment.loss.create', // Step 16
 ];
 
 /** What a PM could do before permissions existed, WITHOUT canSeeFinancials. */
@@ -326,6 +339,8 @@ const PM_KEYS = [
   'team.member.view',
   'company.profile.view',
   'fields.rates',
+  'equipment.transfer.create', // Step 16
+  'equipment.rental.manage', // Step 16
 ];
 
 /**
@@ -427,6 +442,10 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'dailylog.log.view',
       'dailylog.log.create',
       'masterdata.material.view',
+      'equipment.view', // Step 16
+      'equipment.manage', // Step 16
+      'equipment.transfer.create', // Step 16
+      'equipment.receiving.create', // Step 16
     ].map((key) => ({ key })),
   },
 ];
