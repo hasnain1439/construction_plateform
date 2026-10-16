@@ -43,9 +43,14 @@ import { createRulebookBody, updateParameterBody, updateRulebookBody } from '../
 import * as sch from '../src/modules/schedule/schedule.schema.js';
 import * as cho from '../src/modules/change-orders/changeOrders.schema.js';
 import * as ctl from '../src/modules/control/control.schema.js';
+import * as tax from '../src/modules/tax/tax.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
+  // Step 18 · Tax
+  'patch /api/v1/tax/settings': tax.taxSettingsBody,
+  'patch /api/v1/projects/{id}/tax': tax.projectTaxBody,
+  'patch /api/v1/payments/{id}/wht-certificate': bl.whtCertificateBody,
   // Step 15 · Change orders
   'post /api/v1/projects/{id}/change-orders': cho.createChangeOrderBody,
   'patch /api/v1/change-orders/{id}': cho.updateChangeOrderBody,
@@ -321,7 +326,7 @@ describe('API docs', () => {
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(367); // +10: Step 14 control (4 /projects/{id}/control/…, /projects/{id}/control/alerts, /control/summary, /control/alerts, /control/alerts/rules, /control/alerts/run, /control/settings), +4: Step 16 part 2 (shuttering demand, project shuttering demand, idle list, idle check), +16: Step 15 change orders (2 /projects/{id}/change-orders…, 9 /change-orders/{id}…, /projects/{id}/site-instructions, 3 /site-instructions/{id}…, /snags/{id}/change-order), +11: Step 12 quotes (assumptions, preview, insights, list/create, detail, revisions, send, negotiation, lost, won, pdf), +14: Step 13 schedule (8 /projects/{id}/schedule…, /projects/{id}/stoppages, 3 /milestones, 3 /stoppages), +16: Step 11 (9 estimate revision / shopping list paths, 3 company rulebook, 4 admin rulebook), +21: Step 16 equipment, +16: Step 17 closeout (drawings, snags, handover, retention), +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
+    expect(Object.keys(res.body.paths)).toHaveLength(372); // +5: Step 18 tax (/tax/settings, /projects/{id}/tax, /payments/{id}/wht-certificate, /reports/wht-summary, /reports/tax-invoice-register), +10: Step 14 control (4 /projects/{id}/control/…, /projects/{id}/control/alerts, /control/summary, /control/alerts, /control/alerts/rules, /control/alerts/run, /control/settings), +4: Step 16 part 2 (shuttering demand, project shuttering demand, idle list, idle check), +16: Step 15 change orders (2 /projects/{id}/change-orders…, 9 /change-orders/{id}…, /projects/{id}/site-instructions, 3 /site-instructions/{id}…, /snags/{id}/change-order), +11: Step 12 quotes (assumptions, preview, insights, list/create, detail, revisions, send, negotiation, lost, won, pdf), +14: Step 13 schedule (8 /projects/{id}/schedule…, /projects/{id}/stoppages, 3 /milestones, 3 /stoppages), +16: Step 11 (9 estimate revision / shopping list paths, 3 company rulebook, 4 admin rulebook), +21: Step 16 equipment, +16: Step 17 closeout (drawings, snags, handover, retention), +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

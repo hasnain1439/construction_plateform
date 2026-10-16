@@ -30,6 +30,7 @@ export function toClientDto(c: Client) {
     email: c.email,
     address: c.address,
     notes: c.notes,
+    ntn: c.ntn,
     isDemo: c.isDemo,
     createdAt: c.createdAt.toISOString(),
   };
@@ -52,6 +53,7 @@ export async function createClientTx(tx: Tx, input: CreateClientInput) {
       email: input.email ?? null,
       address: input.address ?? null,
       notes: input.notes ?? null,
+      ntn: input.ntn ?? null,
       createdById: userId,
     },
   });

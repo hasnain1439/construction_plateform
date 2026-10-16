@@ -502,6 +502,12 @@ model TenantSettings {
   spendAheadAlertPoints            Int       @default(10)
   /// Step 14: false = the control alert engine stores / sends nothing.
   controlAlertsEnabled             Boolean   @default(true)
+  /// Step 18: sales tax authority of the company (PRA / SRB / KPRA / ICT); null = not chosen.
+  taxAuthority                     TaxAuthority?
+  /// Step 18: sales tax registration number (STRN) printed on invoices.
+  taxStrn                          String?
+  /// Step 18: WHT % pre-filled on the payment form (client withholding; verify with a tax adviser).
+  whtDefaultRatePercent            Decimal   @default(8) @db.Decimal(5, 2)
   createdAt                        DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt                        DateTime  @updatedAt @db.Timestamptz(3)
   tenant                           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -720,6 +726,11 @@ model Project {
   wizardCompletedSteps      Int[]                   @default([])
   /// Set by the quotations module (Phase 2).
   createdFromQuoteId        String?                 @db.Uuid
+  /// Step 18: INHERIT = company tax setting, ON / OFF = this project only.
+  taxMode                   ProjectTaxMode          @default(INHERIT)
+  /// Step 18: authority / rate for a project in another province (null = the company's).
+  taxAuthority              TaxAuthority?
+  taxRatePercent            Decimal?                @db.Decimal(5, 2)
   /// Sample project from "Try with demo data": never counts against the plan, removed by DELETE /demo.
   isDemo                    Boolean                 @default(false)
   activatedAt               DateTime?               @db.Timestamptz(3)
@@ -1352,6 +1363,8 @@ model Client {
   email       String?
   address     String?
   notes       String?
+  /// Step 18: NTN / CNIC of the client (tax-wise invoice register, WHT summary).
+  ntn         String?
   /// Sample data from "Try with demo data" (removed by DELETE /demo).
   isDemo      Boolean         @default(false)
   createdById String?         @db.Uuid
@@ -2790,6 +2803,12 @@ model Invoice {
   cancelledAt     DateTime?            @db.Timestamptz(3)
   cancelledById   String?              @db.Uuid
   pdfAttachmentId String?              @db.Uuid
+  /// Step 18: tax snapshot (set on every draft change, frozen at issue)
+  taxableBasePaisa BigInt              @default(0)
+  taxAuthority    TaxAuthority?
+  sellerNtn       String?
+  sellerStrn      String?
+  buyerNtn        String?
   createdById     String?              @db.Uuid
   issuedById      String?              @db.Uuid
   issuedAt        DateTime?            @db.Timestamptz(3)
@@ -2848,6 +2867,11 @@ model ClientPayment {
   receivedById        String?             @db.Uuid
   attachmentId        String?             @db.Uuid
   receiptAttachmentId String?             @db.Uuid
+  /// Step 18: WHT % of the gross (cash + WHT) and the client's withholding certificate
+  whtRatePercent      Decimal?            @db.Decimal(5, 2)
+  whtCertificateNo    String?
+  whtCertificateDate  DateTime?           @db.Date
+  whtCertificateAttachmentId String?      @db.Uuid
   note                String?
   bounceReason        String?
   clearedAt           DateTime?           @db.Timestamptz(3)
@@ -4406,4 +4430,20 @@ model ControlAlert {
   @@unique([tenantId, dedupeKey])
   @@index([tenantId, status, lastSeenAt])
   @@index([tenantId, projectId, rule])
+}
+
+// ─── Step 18 · Tax ──────────────────────────────────────────────────────────
+
+/// Provincial / federal sales tax on services authority.
+enum TaxAuthority {
+  PRA
+  SRB
+  KPRA
+  ICT
+}
+
+enum ProjectTaxMode {
+  INHERIT
+  ON
+  OFF
 }

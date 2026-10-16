@@ -65,6 +65,8 @@ export const PERMISSION_MODULES = {
   changeorder: { en: 'Change orders', roman: 'Tabdeeli orders', urdu: 'تبدیلی آرڈرز' },
   // Step 14
   control: { en: 'Control & alerts', roman: 'Control aur alerts', urdu: 'کنٹرول اور الرٹس' },
+  // Step 18
+  tax: { en: 'Tax', roman: 'Tax', urdu: 'ٹیکس' },
 } as const satisfies Record<string, PermissionLabel>;
 
 export type PermissionModule = keyof typeof PERMISSION_MODULES;
@@ -263,6 +265,10 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   // ─── Step 14 · Control & alerts ────────────────────────────────────────────
   def('control.view', L('View control (variance & alerts)', 'Control dekhna (farq aur alerts)', 'کنٹرول دیکھنا (فرق اور الرٹس)'), 'Material and cost variance, burn rate vs progress, delay analysis, projected margin and control alerts of a project (rupee values follow the data-visibility permissions).', S),
   def('control.manage', L('Manage alert thresholds', 'Alert ki hadein badalna', 'الرٹ کی حدیں بدلنا'), 'Change the control alert thresholds (overuse %, behind-plan points, quota %, spend-ahead points) and run the alert check now.'),
+
+  // ─── Step 18 · Tax ─────────────────────────────────────────────────────────
+  def('tax.view', L('View tax & tax reports', 'Tax aur tax reports dekhna', 'ٹیکس اور ٹیکس رپورٹس دیکھنا'), 'Tax settings (read), the yearly WHT summary and the tax-wise invoice register (amounts also need fields.amounts).'),
+  def('tax.settings.manage', L('Manage tax settings', 'Tax settings badalna', 'ٹیکس سیٹنگز بدلنا'), 'Switch sales tax on / off, authority (PRA / SRB / KPRA / ICT), rate, NTN / STRN, default WHT %, and the tax override of a project.'),
 
   // ─── Field permissions (data visibility) ───────────────────────────────────
   def('fields.rates', L('See rates & stock values', 'Rates aur stock ki qeemat dekhna', 'ریٹس اور اسٹاک کی قیمت دیکھنا'), 'Material / supplier / sub-contract rates, purchase amounts, stock values, supplier balances.', { field: true }),
@@ -496,6 +502,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'changeorder.view', // Step 15
       'changeorder.manage', // Step 15
       'control.view', // Step 14
+      'tax.view', // Step 18
     ].map((key) => ({ key, ...(CATALOG_BY_KEY.get(key)?.scoped ? { scope: 'ALL_PROJECTS' as const } : {}) })),
   },
   {

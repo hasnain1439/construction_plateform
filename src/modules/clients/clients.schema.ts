@@ -14,6 +14,8 @@ const fields = {
   email: z.email('Invalid email').trim().toLowerCase().max(120),
   address: z.string().trim().max(300),
   notes: z.string().trim().max(1000),
+  /** Step 18: NTN (1234567-8) or CNIC — printed on taxed invoices, tax-wise invoice register. */
+  ntn: z.string().trim().regex(/^[0-9A-Za-z-]{5,20}$/, 'Enter the NTN / CNIC (digits and dashes)').meta({ example: '1234567-8' }),
 };
 
 export const createClientBody = z.object({
@@ -22,6 +24,7 @@ export const createClientBody = z.object({
   email: fields.email.optional(),
   address: fields.address.optional(),
   notes: fields.notes.optional(),
+  ntn: fields.ntn.optional(),
 });
 
 export const updateClientBody = z
@@ -31,6 +34,7 @@ export const updateClientBody = z
     email: fields.email.nullable().optional(),
     address: fields.address.nullable().optional(),
     notes: fields.notes.nullable().optional(),
+    ntn: fields.ntn.nullable().optional(),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'Nothing to update' });
 

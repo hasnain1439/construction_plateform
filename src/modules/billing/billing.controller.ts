@@ -14,6 +14,7 @@ import type {
   UpdateInvoiceInput,
   UpdateProgressInput,
   UpdateStageInput,
+  WhtCertificateInput,
 } from './billing.schema.js';
 import * as events from './events.service.js';
 import * as invoices from './invoices.service.js';
@@ -49,6 +50,7 @@ export const invoicePdf = async (req: Request, res: Response) => ok(res, await i
 export const recordPayment = async (req: Request, res: Response) => created(res, await payments.recordPayment(param(req, 'id'), req.body as PaymentInput));
 export const listPayments = async (req: Request, res: Response) => paged(res, await payments.listPayments(param(req, 'id'), query<PaymentsQuery>(req)));
 export const getPayment = async (req: Request, res: Response) => ok(res, await payments.getPayment(param(req, 'id')));
+export const whtCertificate = async (req: Request, res: Response) => ok(res, await payments.whtCertificate(param(req, 'id'), req.body as WhtCertificateInput)); // Step 18
 export const chequeStatus = async (req: Request, res: Response) => ok(res, await payments.chequeStatus(param(req, 'id'), req.body as ChequeStatusInput));
 export const receiptPdf = async (req: Request, res: Response) => ok(res, await payments.receiptPdf(param(req, 'id'), query<{ lang?: Lang }>(req).lang));
 

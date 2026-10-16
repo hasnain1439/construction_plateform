@@ -14,7 +14,9 @@ import { receiptHtml, rs } from '../../core/pdf/templates.js';
 import { dateOnly } from '../../core/utils/dates.js';
 import type { Prisma as P } from '../../generated/prisma/client.js';
 import * as alerts from '../notifications/alerts.js';
-import type { ChequeStatusInput, PaymentInput, PaymentsQuery } from './billing.schema.js';
+import type { ChequeStatusInput, PaymentInput, PaymentsQuery, WhtCertificateInput } from './billing.schema.js';
+import { effectiveTax, whtFromRate, whtRateOf } from '../tax/tax.rules.js'; // Step 18
+import { Prisma } from '../../core/db/prisma.js';
 import { actor, audit, billingProject, billingSettings, NUMBER, today, ymd, type BillingActor } from './billing.shared.js';
 import { documentLang, letterhead, pdfFileName, salutation, shareOf, storePdf, withinOrBackground } from './documents.js';
 import { enumLabel, tr, type Lang } from '../../core/i18n/index.js';
@@ -46,6 +48,10 @@ export function paymentDto(p: Row) {
     receivedOn: ymd(p.receivedOn),
     amountPaisa: p.amountPaisa.toString(),
     whtDeductedPaisa: p.whtDeductedPaisa.toString(),
+    // Step 18 · client WHT
+    grossPaisa: (p.amountPaisa + p.whtDeductedPaisa).toString(),
+    whtRatePercent: p.whtRatePercent === null ? null : Number(p.whtRatePercent),
+    whtCertificate: p.whtCertificateNo || p.whtCertificateAttachmentId ? { number: p.whtCertificateNo, date: ymd(p.whtCertificateDate), attachmentId: p.whtCertificateAttachmentId } : null,
     method: p.method,
     bankName: p.bankName,
     reference: p.reference,
@@ -84,8 +90,7 @@ export async function recordPaymentTx(tx: Tx, a: BillingActor, projectId: string
   if (a.role !== 'THEKEDAR' && !s.pmCanRecordPayments) throw permissionDenied('billing.payment.create', 'Only the owner records owner payments (a company setting can allow project managers)');
   const project = await billingProject(tx, a, projectId);
   if (input.receivedOn > today()) throw new BadRequest('FUTURE_DATE', "A payment can't be dated in the future");
-  const wht = input.whtDeductedPaisa ?? 0n;
-  if (wht > 0n && !s.taxEnabled) throw new BadRequest('WHT_NOT_ENABLED', 'Withholding tax applies only when tax is switched on in settings');
+  const { wht, whtRate } = await whtOf(tx, a.tenantId, project.id, input);
   if (input.attachmentId && !(await tx.attachment.count({ where: { tenantId: a.tenantId, id: input.attachmentId } }))) throw new BadRequest('INVALID_ATTACHMENT', 'The slip photo was not found');
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`billing:${project.id}`}))`;
 
@@ -133,6 +138,10 @@ export async function recordPaymentTx(tx: Tx, a: BillingActor, projectId: string
       chequeDate: input.chequeDate ? dateOnly(input.chequeDate) : null,
       status: cheque ? 'PENDING' : 'CLEARED',
       whtDeductedPaisa: wht,
+      whtRatePercent: whtRate,
+      whtCertificateNo: input.whtCertificateNo ?? null,
+      whtCertificateDate: input.whtCertificateDate ? dateOnly(input.whtCertificateDate) : null,
+      whtCertificateAttachmentId: input.whtCertificateAttachmentId ?? null,
       receivedById: a.userId,
       attachmentId: input.attachmentId ?? null,
       note: input.note ?? null,
@@ -148,10 +157,72 @@ export async function recordPaymentTx(tx: Tx, a: BillingActor, projectId: string
     amountPaisa: input.amountPaisa.toString(),
     method: input.method,
     whtPaisa: wht.toString(),
+    ...(whtRate ? { whtRatePercent: whtRate.toString() } : {}),
+    ...(input.whtCertificateNo ? { whtCertificateNo: input.whtCertificateNo } : {}),
     allocatedPaisa: allocated.toString(),
     creditPaisa: (settles - allocated).toString(),
   });
   return paymentDto(await load(tx, payment.id));
+}
+
+/**
+ * Step 18 — the client's WHT on a payment. Only when tax is on for the project (company setting
+ * or project override). WHT is r % of the gross (cash + WHT): rate alone → amount worked out;
+ * amount alone → rate stored; both → must agree within Rs 1.
+ */
+async function whtOf(tx: Tx, tenantId: string, projectId: string, input: PaymentInput): Promise<{ wht: bigint; whtRate: Prisma.Decimal | null }> {
+  const given = input.whtDeductedPaisa ?? 0n;
+  const rate = input.whtRatePercent;
+  const certificate = !!(input.whtCertificateNo || input.whtCertificateDate || input.whtCertificateAttachmentId);
+  if (given === 0n && rate === undefined) {
+    if (certificate) throw new BadRequest('WHT_CERTIFICATE_WITHOUT_WHT', 'A WHT certificate needs a WHT amount or rate');
+    return { wht: 0n, whtRate: null };
+  }
+  if (!(await effectiveTax(tx, tenantId, projectId)).taxOn) throw new BadRequest('WHT_NOT_ENABLED', 'Withholding tax applies only when tax is switched on in settings');
+  let wht = given;
+  if (rate !== undefined) {
+    const expected = whtFromRate(input.amountPaisa, rate);
+    if (given === 0n) wht = expected;
+    else {
+      const fromGross = BigInt(new Prisma.Decimal((input.amountPaisa + given).toString()).mul(rate).div(100).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP).toFixed(0));
+      const diff = fromGross > given ? fromGross - given : given - fromGross;
+      if (diff > 100n) throw new BadRequest('WHT_RATE_MISMATCH', `WHT at ${rate}% of the gross would be ${rs(expected)}`, { expectedPaisa: expected.toString() });
+    }
+  }
+  if (wht > input.amountPaisa) throw new BadRequest('WHT_TOO_HIGH', 'The WHT is more than the amount received');
+  if (input.whtCertificateDate && input.whtCertificateDate > today()) throw new BadRequest('FUTURE_DATE', "A certificate can't be dated in the future");
+  if (input.whtCertificateAttachmentId && !(await tx.attachment.count({ where: { tenantId, id: input.whtCertificateAttachmentId } }))) {
+    throw new BadRequest('INVALID_ATTACHMENT', 'The certificate file was not found');
+  }
+  return { wht, whtRate: rate !== undefined ? new Prisma.Decimal(rate) : whtRateOf(input.amountPaisa, wht) };
+}
+
+/** Step 18 — records (or clears) the client's WHT certificate on a payment. */
+export async function whtCertificate(id: string, input: WhtCertificateInput) {
+  const a = actor();
+  return withTenant(a.tenantId, async (tx) => {
+    assertPerm('billing.payment.create', a);
+    const p = await find(tx, a, id);
+    if (p.whtDeductedPaisa <= 0n) throw new Conflict('NO_WHT', 'No WHT was deducted on this payment');
+    if (p.status === 'BOUNCED') throw new Conflict('PAYMENT_BOUNCED', 'This cheque bounced — there is no WHT to certify');
+    if (input.certificateDate && input.certificateDate > today()) throw new BadRequest('FUTURE_DATE', "A certificate can't be dated in the future");
+    if (input.attachmentId && !(await tx.attachment.count({ where: { tenantId: a.tenantId, id: input.attachmentId } }))) throw new BadRequest('INVALID_ATTACHMENT', 'The certificate file was not found');
+    const clear = input.certificateNo === null;
+    const before = { certificateNo: p.whtCertificateNo, certificateDate: ymd(p.whtCertificateDate), attachmentId: p.whtCertificateAttachmentId };
+    await tx.clientPayment.update({
+      where: { id: p.id },
+      data: clear
+        ? { whtCertificateNo: null, whtCertificateDate: null, whtCertificateAttachmentId: null }
+        : {
+            whtCertificateNo: input.certificateNo,
+            ...(input.certificateDate !== undefined ? { whtCertificateDate: input.certificateDate ? dateOnly(input.certificateDate) : null } : {}),
+            ...(input.attachmentId !== undefined ? { whtCertificateAttachmentId: input.attachmentId } : {}),
+          },
+    });
+    const dto = paymentDto(await load(tx, p.id));
+    await audit(tx, a, 'payment.wht_certificate', 'ClientPayment', p.id, { number: p.number, before, after: dto.whtCertificate });
+    return dto;
+  });
 }
 
 export async function recordPayment(projectId: string, input: PaymentInput) {
@@ -239,6 +310,7 @@ export async function makeReceiptPdf(tx: Tx, a: BillingActor, id: string, lang: 
     project: p.project,
     amountPaisa: p.amountPaisa,
     whtPaisa: p.whtDeductedPaisa,
+    whtCertificateNo: p.whtCertificateNo,
     method: p.method,
     bankName: p.bankName,
     chequeNo: p.chequeNo,
