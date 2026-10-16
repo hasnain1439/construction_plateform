@@ -37,6 +37,7 @@ import {
   type EstimateQuantities,
 } from './engine.js';
 import { assertProjectOverrides, loadRulebook, settingsBase, withProject, type ParamSource, type ResolvedRulebook } from './rulebook.js';
+import { lineTexts, visibleParameters } from './rateRedaction.js';
 import { PARAM_BY_KEY, fromSettingValue } from './rulebookDefs.js';
 import { effectiveSettings, readOverrides, type EstimateSettings, type EstimateSettingsInput } from './settings.js';
 
@@ -492,8 +493,7 @@ export function boqLineDto(l: BoqLine, fa: FieldAccess) {
     wastagePercent: l.wastagePercent,
     quantityWithWastage: l.quantityWithWastage,
     suppliedBy: l.suppliedBy,
-    formula: l.formula,
-    trace: l.trace,
+    ...lineTexts(l.formula, l.trace, fa.rates),
     override: null,
     effectiveQuantity: l.quantityWithWastage,
     ...(fa.rates
@@ -510,7 +510,7 @@ function boqDto(ctx: EstimateContext, fa: FieldAccess) {
     rulebook: ctx.rb.rulebook ? { id: ctx.rb.rulebook.id, region: ctx.rb.region, version: ctx.rb.rulebook.version } : null,
     region: ctx.rb.region,
     coveredAreaSqft: boq.coveredAreaSqft,
-    parameters: ctx.sources,
+    parameters: visibleParameters(ctx.sources, fa.rates),
     sections: BOQ_SECTIONS.map((section) => ({
       section,
       lines: boq.lines.filter((l) => l.section === section).map((l) => boqLineDto(l, fa)),

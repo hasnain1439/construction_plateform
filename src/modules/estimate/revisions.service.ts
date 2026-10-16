@@ -28,6 +28,7 @@ import { contractTotalPaisa } from '../projects/projects.dto.js';
 import * as repo from '../projects/projects.repository.js';
 import { BOQ_SECTIONS, BUILD_STAGES, priceQuantity, summarize, type BoqLine, type BuildStageKey, type TotalsLine } from './boq.js';
 import { computeEstimate, ratesSnapshot, type EstimateContext } from './estimate.service.js';
+import { lineTexts, visibleParameters } from './rateRedaction.js';
 
 const str = (v: bigint | null | undefined) => (v === null || v === undefined ? null : v.toString());
 const num = (d: Prisma.Decimal | null) => (d === null ? null : Number(d));
@@ -90,8 +91,7 @@ function lineDto(l: LineRow, fa: FieldAccess) {
     wastagePercent: Number(l.wastagePercent),
     quantityWithWastage,
     suppliedBy: l.suppliedBy,
-    formula: l.formula,
-    trace: l.trace as string[],
+    ...lineTexts(l.formula, l.trace as string[], fa.rates),
     override,
     effectiveQuantity: l.overrideQuantity !== null ? Number(l.overrideQuantity) : quantityWithWastage,
     ...(fa.rates
@@ -159,7 +159,7 @@ function detailDto(e: EstimateRow, p: ProjectInfo, lines: LineRow[], fa: FieldAc
       ...(fa.rates ? { amountPaisa: amountOf((l) => l.section === section).toString() } : {}),
     })).filter((s) => s.lines.length),
     stages: BUILD_STAGES.map((stageKey) => ({ stageKey, ...(fa.rates ? { amountPaisa: amountOf((l) => l.stageKey === stageKey && l.kind !== 'PERCENT').toString() } : {}) })),
-    parameters: snap.parameters ?? {},
+    parameters: visibleParameters(snap.parameters ?? {}, fa.rates),
     warnings: (warnings ?? []).filter((w) => fa.rates || !String((w as { code?: string }).code ?? '').includes('RATES')),
     basis: rest,
   };
