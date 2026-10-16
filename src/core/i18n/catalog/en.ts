@@ -362,6 +362,27 @@ export const en = {
   'pdf.internalOnly': 'Internal document — not for the client',
   'share.estimate': 'Estimate {project} · Rev {revision}: {url}',
   'share.ownerShoppingList': '{salutation}, these materials for {project} are to be bought by you: {items}. Full list: {url}',
+  // Step 15 · change orders
+  'notif.siteInstructionCreated.title': 'Site instruction {code} — {project}',
+  'notif.siteInstructionCreated.body': 'The owner asked on site: “{note}”. Turn it into a change order or dismiss it.',
+  'pdf.changeOrder': 'CHANGE ORDER',
+  'pdf.changeOrderKind': 'Change',
+  'pdf.changeOrderType.ADDITION': 'Extra work',
+  'pdf.changeOrderType.DEDUCTION': 'Work left out (deduction)',
+  'pdf.changeOrderIntro': 'The owner asked for the following change to the agreed work. Once approved, this amount is added to the contract and billed with the next payment.',
+  'pdf.changeOrderIntroDeduction': 'The owner asked to leave out the following work. Once approved, this amount is deducted from the contract.',
+  'pdf.changeOrderTotal': 'Change order total',
+  'pdf.changeOrderDeduction': 'Deduction from the contract',
+  'pdf.daysImpact': 'Time impact',
+  'pdf.daysImpactValue': '+{days} working days',
+  'pdf.noDaysImpact': 'No change to the completion date',
+  'pdf.changeOrderApproved': 'Approved by the owner on {date}',
+  'pdf.proofType.WHATSAPP_SCREENSHOT': 'WhatsApp message',
+  'pdf.proofType.SIGNED_SLIP': 'Signed slip',
+  'pdf.proofType.VERBAL': 'Verbal (noted by the contractor)',
+  'pdf.ownerApproval': 'Approved by the owner',
+  'share.changeOrder': '{salutation}, change order {code} for {project}: {title} — {amount}. Please reply OK to approve. Details: {url}',
+  'share.changeOrderDays': '{salutation}, change order {code} for {project}: {title} — {amount}, {days} extra working days. Please reply OK to approve. Details: {url}',
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

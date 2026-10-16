@@ -46,6 +46,7 @@ import { estimatesRouter, projectEstimateRouter } from './modules/estimate/estim
 import { rulebookRouter } from './modules/rulebook/rulebook.routes.js';
 import { equipmentRouter, projectEquipmentRouter } from './modules/equipment/equipment.routes.js'; // Step 16
 import { milestonesRouter, projectScheduleRouter, stoppagesRouter } from './modules/schedule/schedule.routes.js';
+import { changeOrdersRouter, projectChangeOrdersRouter, siteInstructionsRouter, snagChangeOrderRouter } from './modules/change-orders/changeOrders.routes.js'; // Step 15
 import { dispatchesRouter, projectDispatchRouter, shortagesRouter } from './modules/dispatch/dispatch.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import {
@@ -177,6 +178,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/projects', projectEstimateRouter); // /projects/:id/estimate, /estimate/settings (per-route auth)
   mount('/projects', projectEquipmentRouter); // Step 16: /projects/:id/equipment (per-route auth)
   mount('/projects', projectCloseoutRouter); // Step 17: /projects/:id/drawings, /snags, /handover, /retention (per-route auth)
+  mount('/projects', projectChangeOrdersRouter); // Step 15: /projects/:id/change-orders, /projects/:id/site-instructions (per-route auth)
   mount('/projects', projectScheduleRouter); // Step 13: /projects/:id/schedule/*, /projects/:id/stoppages (per-route auth)
   mount('/projects', projectsRouter);
   mount('/billing-stages', billingStagesRouter);
@@ -194,6 +196,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/drawings', drawingsRouter);
   mount('/drawing-revisions', drawingRevisionsRouter);
   mount('/snags', snagsRouter);
+  mount('/snags', snagChangeOrderRouter); // Step 15: POST /snags/:id/change-order
   mount('/sync', syncRouter);
   mount('/project-workers', projectWorkersRouter);
   mount('/subcontract-assignments', subcontractAssignmentsRouter);
@@ -213,6 +216,8 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/rulebook', rulebookRouter); // Step 11: company estimation rulebook (per-route auth)
   mount('/milestones', milestonesRouter); // Step 13: milestone detail / edit / progress (per-route auth)
   mount('/stoppages', stoppagesRouter); // Step 13: stoppage days (per-route auth)
+  mount('/change-orders', changeOrdersRouter); // Step 15 (per-route auth)
+  mount('/site-instructions', siteInstructionsRouter); // Step 15 (per-route auth)
   mount('/openings', openingsRouter);
   mount('/onboarding', onboardingRouter);
   mount('/imports', importsRouter);

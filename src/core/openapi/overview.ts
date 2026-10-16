@@ -152,6 +152,7 @@ export const TAGS = [
   { name: 'Finance', description: 'Receivables ageing, cash-flow outlook (estimate), profit & loss to date and cash with site staff' },
   { name: 'Daily Logs', description: 'Site diary: one log per person per project per day (conditions, work done, photos, voice notes) with the day’s hazri, usage and kharcha' },
   { name: 'Closeout', description: 'Step 17: drawings (folders, revisions), snag list (photos, status flow, who pays), handover checklist + owner sign-off + certificate PDF, retention after the defect period' },
+  { name: 'Change Orders', description: 'Step 15: change orders (extra / omitted work as a mini BoQ with markup, days impact, owner approval proof, status flow, billing on the next stage or a VARIATION invoice, owner slip PDF + WhatsApp), site instructions from the Munshi, snag → change order' },
   { name: 'Sync', description: 'Offline sync for the mobile app: pull the read model since a cursor, push queued mutations, device sync status' },
   { name: 'Reports', description: 'Seven reports as JSON for screens, or CSV / Excel / PDF via a signed link' },
   { name: 'Platform admin auth', description: 'Platform owners only — separate accounts and tokens' },

@@ -231,6 +231,27 @@ const NEW_ROUTES: Snapshot = {
   'GET /api/v1/stoppages/:id': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
   'POST /api/v1/stoppages/:id/approve': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
   'POST /api/v1/stoppages/:id/reject': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  // Step 15 · change orders: view / create / edit / approve (PM), manage = billing (owner / Admin / Accountant); site instructions: instruction.create (Munshi, PM; own only) / .view (PM)
+  'GET /api/v1/projects/:id/change-orders': office(404),
+  'POST /api/v1/projects/:id/change-orders': office(400),
+  'GET /api/v1/projects/:id/change-orders/rates': office(404),
+  'GET /api/v1/projects/:id/site-instructions': all(404),
+  'POST /api/v1/projects/:id/site-instructions': all(400),
+  'GET /api/v1/change-orders/:id': office(404),
+  'PATCH /api/v1/change-orders/:id': office(400),
+  'DELETE /api/v1/change-orders/:id': office(404),
+  'POST /api/v1/change-orders/:id/send': office(404),
+  'POST /api/v1/change-orders/:id/approve': office(404),
+  'POST /api/v1/change-orders/:id/reject': office(400),
+  'POST /api/v1/change-orders/:id/reopen': office(404),
+  'POST /api/v1/change-orders/:id/start': office(404),
+  'POST /api/v1/change-orders/:id/complete': office(404),
+  'POST /api/v1/change-orders/:id/bill': owner(400),
+  'GET /api/v1/change-orders/:id/pdf': office(404),
+  'GET /api/v1/site-instructions/:id': all(404),
+  'POST /api/v1/site-instructions/:id/convert': office(404),
+  'POST /api/v1/site-instructions/:id/dismiss': office(400),
+  'POST /api/v1/snags/:id/change-order': office(404),
 };
 
 function all(status: Outcome): Record<Persona, Outcome> {

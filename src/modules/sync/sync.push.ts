@@ -50,6 +50,8 @@ import { track, type AnalyticsEvent, type AnalyticsProps } from '../../core/obse
 import { receiveTransferBody, reportLossBody } from '../equipment/equipment.schema.js'; // Step 16
 import { reportLossTx } from '../equipment/losses.service.js';
 import { receiveTransferTx } from '../equipment/transfers.service.js';
+import { createSiteInstructionBody } from '../change-orders/changeOrders.schema.js'; // Step 15
+import { createTx as createSiteInstructionTx } from '../change-orders/siteInstructions.service.js';
 
 const id = z.uuid();
 type Handler = { ref?: z.ZodObject; body: z.ZodType; run: (tx: Tx, a: Actor, ref: Record<string, string>, body: never) => Promise<unknown> };
@@ -92,6 +94,8 @@ export const HANDLERS: Record<string, Handler> = {
   // Step 13 · schedule
   MILESTONE_PROGRESS: { ref: z.object({ milestoneId: id }), body: progressBody, run: (tx, a, r, b) => updateProgressTx(tx, a, r['milestoneId']!, b) },
   STOPPAGE_LOG: { ref: project, body: stoppageBody, run: async (tx, a, r, b) => (await createStoppageTx(tx, a, r['projectId']!, b)).stoppage },
+  // Step 15 · the owner's instruction on site (photo + note) for the office to turn into a change order
+  SITE_INSTRUCTION_CREATE: { ref: project, body: createSiteInstructionBody, run: (tx, a, r, b) => createSiteInstructionTx(tx, a, r['projectId']!, b) },
 };
 export const MUTATION_TYPES = Object.keys(HANDLERS) as [string, ...string[]];
 
@@ -133,6 +137,7 @@ export const MUTATION_PERMISSIONS: Record<string, string> = {
   SNAG_FIX: 'closeout.snag.create',
   MILESTONE_PROGRESS: 'schedule.progress.edit',
   STOPPAGE_LOG: 'schedule.stoppage.create',
+  SITE_INSTRUCTION_CREATE: 'changeorder.instruction.create',
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
