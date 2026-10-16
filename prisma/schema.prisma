@@ -399,48 +399,52 @@ model Tenant {
 }
 
 model TenantSettings {
-  tenantId                  String    @id @db.Uuid
+  tenantId                         String    @id @db.Uuid
   /// Square feet per marla: 225 (societies) or 272.25 (revenue marla).
-  marlaStandardSqft         Decimal   @default(225) @db.Decimal(6, 2)
-  currency                  String    @default("PKR")
-  timezone                  String    @default("Asia/Karachi")
-  defaultLanguage           Language  @default(ROMAN_URDU)
-  weekStartsOn              Int       @default(1)
+  marlaStandardSqft                Decimal   @default(225) @db.Decimal(6, 2)
+  currency                         String    @default("PKR")
+  timezone                         String    @default("Asia/Karachi")
+  defaultLanguage                  Language  @default(ROMAN_URDU)
+  weekStartsOn                     Int       @default(1)
   /// Kharcha (site expense) above this needs THEKEDAR approval. Paisa. Default Rs 25,000.
-  kharchaApprovalLimitPaisa BigInt    @default(2500000)
+  kharchaApprovalLimitPaisa        BigInt    @default(2500000)
   /// Alert when material use exceeds the estimate by this percent (1–20).
-  overuseAlertPercent       Int       @default(10)
+  overuseAlertPercent              Int       @default(10)
   /// Local time (HH:MM, tenant timezone) after which a missing daily site log raises an alert.
-  missingLogAlertTime       String    @default("18:00")
-  quoteValidityDays         Int       @default(15)
-  taxEnabled                Boolean   @default(false)
+  missingLogAlertTime              String    @default("18:00")
+  quoteValidityDays                Int       @default(15)
+  taxEnabled                       Boolean   @default(false)
   /// Default for `canSeeFinancials` on new PM invitations.
-  pmCanSeeFinancials        Boolean   @default(false)
+  pmCanSeeFinancials               Boolean   @default(false)
   /// Site receiving hides sent / challan quantities until the count is submitted.
-  blindCountEnabled         Boolean   @default(true)
+  blindCountEnabled                Boolean   @default(true)
   /// Weekly wage settlements start on this day.
-  settlementWeekStart       WeekDay   @default(MONDAY)
-  workingDays               WeekDay[] @default([MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY])
-  hoursPerDay               Decimal   @default(8) @db.Decimal(4, 2)
+  settlementWeekStart              WeekDay   @default(MONDAY)
+  workingDays                      WeekDay[] @default([MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY, SATURDAY])
+  hoursPerDay                      Decimal   @default(8) @db.Decimal(4, 2)
   /// null = the DAILY labour rate multiplier (×1.5 by default)
-  overtimeMultiplier        Decimal?  @db.Decimal(4, 2)
+  overtimeMultiplier               Decimal?  @db.Decimal(4, 2)
   /// Whether a PM may pay sub-contractors (THEKEDAR always can).
-  subcontractPaymentsByPm   Boolean   @default(false)
+  subcontractPaymentsByPm          Boolean   @default(false)
   /// Invoice due date = issue date + this many days.
-  paymentTermsDays          Int       @default(7)
+  paymentTermsDays                 Int       @default(7)
   /// Sales tax on invoices when taxEnabled (e.g. 16 for PRA).
-  taxRatePercent            Decimal   @default(0) @db.Decimal(5, 2)
-  taxLabel                  String?
+  taxRatePercent                   Decimal   @default(0) @db.Decimal(5, 2)
+  taxLabel                         String?
   /// Whether a PM with billing.view may record client payments.
-  pmCanRecordPayments       Boolean   @default(false)
+  pmCanRecordPayments              Boolean   @default(false)
+  /// Profit margin % added to the estimated cost when the contract value is set from the estimate (0–100).
+  defaultMarginPercent             Decimal   @default(20) @db.Decimal(5, 2)
+  /// Finishing allowance % added for FULL contracts (the estimate is grey structure only), 0–200.
+  defaultFinishingAllowancePercent Decimal   @default(0) @db.Decimal(5, 2)
   /// Setup checklist on the dashboard hidden by the owner (POST /onboarding/checklist/dismiss).
-  onboardingDismissedAt     DateTime? @db.Timestamptz(3)
-  onboardingDismissedById   String?   @db.Uuid
+  onboardingDismissedAt            DateTime? @db.Timestamptz(3)
+  onboardingDismissedById          String?   @db.Uuid
   /// The owner confirmed the material / labour rates (setup checklist step).
-  ratesReviewedAt           DateTime? @db.Timestamptz(3)
-  createdAt                 DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt                 DateTime  @updatedAt @db.Timestamptz(3)
-  tenant                    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ratesReviewedAt                  DateTime? @db.Timestamptz(3)
+  createdAt                        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt                        DateTime  @updatedAt @db.Timestamptz(3)
+  tenant                           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
 
 model Subscription {
@@ -583,84 +587,91 @@ model User {
 
 /// Stub — the Projects module will extend this.
 model Project {
-  id                     String                  @id @default(uuid(7)) @db.Uuid
-  tenantId               String                  @db.Uuid
+  id                        String                  @id @default(uuid(7)) @db.Uuid
+  tenantId                  String                  @db.Uuid
   /// e.g. MSB-2026-015 — unique per company, editable
-  code                   String
-  name                   String
-  clientId               String?                 @db.Uuid
-  siteAddress            String?
-  city                   String?
-  startDate              DateTime?               @db.Date
-  endDate                DateTime?               @db.Date
-  status                 ProjectStatus           @default(DRAFT)
+  code                      String
+  name                      String
+  clientId                  String?                 @db.Uuid
+  siteAddress               String?
+  city                      String?
+  startDate                 DateTime?               @db.Date
+  endDate                   DateTime?               @db.Date
+  status                    ProjectStatus           @default(DRAFT)
   // Tab 2 — contract
-  contractType           ContractType?
-  billingModel           BillingModel?
-  contractValuePaisa     BigInt?
-  ratePerSqftPaisa       BigInt?
-  retentionPercent       Decimal                 @default(5) @db.Decimal(5, 2)
-  defectPeriodMonths     Int                     @default(6)
+  contractType              ContractType?
+  billingModel              BillingModel?
+  contractValuePaisa        BigInt?
+  ratePerSqftPaisa          BigInt?
+  retentionPercent          Decimal                 @default(5) @db.Decimal(5, 2)
+  defectPeriodMonths        Int                     @default(6)
   // Tab 3 — plot & structure (feet)
-  plotUnit               PlotUnit?
-  plotSize               Decimal?                @db.Decimal(10, 2)
-  marlaStandard          Decimal                 @default(225) @db.Decimal(6, 2)
-  frontFt                Decimal?                @db.Decimal(10, 2)
-  depthFt                Decimal?                @db.Decimal(10, 2)
-  cornerPlot             Boolean                 @default(false)
-  structureType          StructureType?
-  hasBasement            Boolean                 @default(false)
-  basementHeightFt       Decimal?                @db.Decimal(10, 2)
+  plotUnit                  PlotUnit?
+  plotSize                  Decimal?                @db.Decimal(10, 2)
+  marlaStandard             Decimal                 @default(225) @db.Decimal(6, 2)
+  frontFt                   Decimal?                @db.Decimal(10, 2)
+  depthFt                   Decimal?                @db.Decimal(10, 2)
+  cornerPlot                Boolean                 @default(false)
+  structureType             StructureType?
+  hasBasement               Boolean                 @default(false)
+  basementHeightFt          Decimal?                @db.Decimal(10, 2)
   /// Foundation (bunyaad): type, dimensions, material, soil — shape validated by zod in
   /// src/modules/projects/foundation.ts. Null = not entered (older projects).
-  foundation             Json?
+  foundation                Json?
+  /// Estimate (BoQ) assumptions the user changed (only those keys) — shape in
+  /// src/modules/estimate/settings.ts. Null = the Pakistani defaults.
+  estimateSettings          Json?
+  /// Profit margin % for "contract value from the estimate". Null = the company default (TenantSettings.defaultMarginPercent).
+  marginPercent             Decimal?                @db.Decimal(5, 2)
+  /// Finishing allowance % (FULL contracts) for "contract value from the estimate". Null = the company default.
+  finishingAllowancePercent Decimal?                @db.Decimal(5, 2)
   // Tab 4 — coverage (sq ft / rft / ft)
-  coveredAreaSqft        Decimal?                @db.Decimal(10, 2)
-  semiCoveredSqft        Decimal                 @default(0) @db.Decimal(10, 2)
-  openAreaSqft           Decimal                 @default(0) @db.Decimal(10, 2)
-  boundaryWall           Boolean                 @default(false)
-  boundaryLengthFt       Decimal?                @db.Decimal(10, 2)
-  boundaryHeightFt       Decimal?                @db.Decimal(10, 2)
-  boundaryThickness      BoundaryThickness?
-  boundaryPlasterSides   Int?
-  wizardCompletedSteps   Int[]                   @default([])
+  coveredAreaSqft           Decimal?                @db.Decimal(10, 2)
+  semiCoveredSqft           Decimal                 @default(0) @db.Decimal(10, 2)
+  openAreaSqft              Decimal                 @default(0) @db.Decimal(10, 2)
+  boundaryWall              Boolean                 @default(false)
+  boundaryLengthFt          Decimal?                @db.Decimal(10, 2)
+  boundaryHeightFt          Decimal?                @db.Decimal(10, 2)
+  boundaryThickness         BoundaryThickness?
+  boundaryPlasterSides      Int?
+  wizardCompletedSteps      Int[]                   @default([])
   /// Set by the quotations module (Phase 2).
-  createdFromQuoteId     String?                 @db.Uuid
+  createdFromQuoteId        String?                 @db.Uuid
   /// Sample project from "Try with demo data": never counts against the plan, removed by DELETE /demo.
-  isDemo                 Boolean                 @default(false)
-  activatedAt            DateTime?               @db.Timestamptz(3)
-  createdById            String?                 @db.Uuid
-  createdAt              DateTime                @default(now()) @db.Timestamptz(3)
-  updatedAt              DateTime                @updatedAt @db.Timestamptz(3)
-  tenant                 Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  client                 Client?                 @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
-  createdBy              User?                   @relation("ProjectCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
-  userAccess             UserProjectAccess[]
-  supplyRules            ProjectSupplyRule[]
-  billingStages          ProjectBillingStage[]
-  billingProgress        BillingProgress[]
-  invoices               Invoice[]
-  clientPayments         ClientPayment[]
-  billingEvents          BillingEvent[]
-  floors                 Floor[]
-  rooms                  Room[]
-  stockLocation          StockLocation?
-  purchaseOrders         PurchaseOrder[]
-  purchases              Purchase[]
-  supplierLedger         SupplierLedgerEntry[]
-  supplierPayments       SupplierPayment[]
-  shortages              Shortage[]
-  ownerDeliveries        OwnerDelivery[]
-  materialUsages         MaterialUsage[]
-  projectWorkers         ProjectWorker[]
-  subcontractAssignments SubcontractAssignment[]
-  attendance             Attendance[]
-  workMeasurements       WorkMeasurement[]
-  advances               Advance[]
-  wageSettlements        WageSettlement[]
-  cashEntries            CashEntry[]
-  notifications          Notification[]
-  dailyLogs              DailyLog[]
+  isDemo                    Boolean                 @default(false)
+  activatedAt               DateTime?               @db.Timestamptz(3)
+  createdById               String?                 @db.Uuid
+  createdAt                 DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt                 DateTime                @updatedAt @db.Timestamptz(3)
+  tenant                    Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client                    Client?                 @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy                 User?                   @relation("ProjectCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  userAccess                UserProjectAccess[]
+  supplyRules               ProjectSupplyRule[]
+  billingStages             ProjectBillingStage[]
+  billingProgress           BillingProgress[]
+  invoices                  Invoice[]
+  clientPayments            ClientPayment[]
+  billingEvents             BillingEvent[]
+  floors                    Floor[]
+  rooms                     Room[]
+  stockLocation             StockLocation?
+  purchaseOrders            PurchaseOrder[]
+  purchases                 Purchase[]
+  supplierLedger            SupplierLedgerEntry[]
+  supplierPayments          SupplierPayment[]
+  shortages                 Shortage[]
+  ownerDeliveries           OwnerDelivery[]
+  materialUsages            MaterialUsage[]
+  projectWorkers            ProjectWorker[]
+  subcontractAssignments    SubcontractAssignment[]
+  attendance                Attendance[]
+  workMeasurements          WorkMeasurement[]
+  advances                  Advance[]
+  wageSettlements           WageSettlement[]
+  cashEntries               CashEntry[]
+  notifications             Notification[]
+  dailyLogs                 DailyLog[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
@@ -1310,6 +1321,14 @@ enum OpeningType {
   VENTILATOR
 }
 
+/// Side of a room (TOP / BOTTOM run along its length, LEFT / RIGHT along its width).
+enum WallSide {
+  TOP
+  RIGHT
+  BOTTOM
+  LEFT
+}
+
 /// Who supplies each material category on a project (and in which quality).
 model ProjectSupplyRule {
   id                String           @id @default(uuid(7)) @db.Uuid
@@ -1367,6 +1386,9 @@ model Floor {
   name            String
   ceilingHeightFt Decimal    @db.Decimal(10, 2)
   sortOrder       Int
+  /// Roof / slab (lenter) over this floor: type, thickness, bars, beams / columns — shape validated
+  /// by zod in src/modules/projects/roof.ts. Null = not entered (estimate uses the % method).
+  roof            Json?
   createdAt       DateTime   @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime   @updatedAt @db.Timestamptz(3)
   tenant          Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1392,6 +1414,9 @@ model Room {
   /// true when isWet was set by hand (type changes no longer reset it)
   isWetOverridden Boolean   @default(false)
   sortOrder       Int       @default(0)
+  /// Four sides TOP / RIGHT / BOTTOM / LEFT with wall type + thickness; shared sides are paired with
+  /// another room of the floor — shape in src/modules/projects/walls.ts. Null = not entered.
+  walls           Json?
   createdAt       DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
   tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1412,6 +1437,8 @@ model Opening {
   widthFt   Decimal     @db.Decimal(10, 2)
   heightFt  Decimal     @db.Decimal(10, 2)
   quantity  Int         @default(1)
+  /// Room side the opening is in (null = not placed: deducted from the room as a whole)
+  side      WallSide?
   createdAt DateTime    @default(now()) @db.Timestamptz(3)
   updatedAt DateTime    @updatedAt @db.Timestamptz(3)
   tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)

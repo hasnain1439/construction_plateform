@@ -105,6 +105,8 @@ function toSettingsDto(s: SettingsRow): SettingsDto {
     taxRatePercent: Number(s.taxRatePercent),
     taxLabel: s.taxLabel,
     pmCanRecordPayments: s.pmCanRecordPayments,
+    defaultMarginPercent: Number(s.defaultMarginPercent),
+    defaultFinishingAllowancePercent: Number(s.defaultFinishingAllowancePercent),
     defaultLanguage: s.defaultLanguage,
   };
 }

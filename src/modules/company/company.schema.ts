@@ -100,6 +100,8 @@ export const updateSettingsBody = z
     taxRatePercent: z.number().min(0, 'Must be between 0 and 30').max(30, 'Must be between 0 and 30').multipleOf(0.01).optional(),
     taxLabel: z.string().trim().max(20).nullable().optional(),
     pmCanRecordPayments: z.boolean().optional(),
+    defaultMarginPercent: z.number().min(0, 'Must be between 0 and 100').max(100, 'Must be between 0 and 100').multipleOf(0.01).optional(),
+    defaultFinishingAllowancePercent: z.number().min(0, 'Must be between 0 and 200').max(200, 'Must be between 0 and 200').multipleOf(0.01).optional(),
     defaultLanguage: languageSchema.optional(),
   })
   .refine((value) => Object.values(value).some((v) => v !== undefined), { message: 'Nothing to update' });
@@ -122,6 +124,10 @@ export const settingsDto = z
     taxRatePercent: z.number().meta({ description: 'Sales tax on invoices (only when taxEnabled)', example: 16 }),
     taxLabel: z.string().nullable().meta({ example: 'PRA' }),
     pmCanRecordPayments: z.boolean().meta({ description: 'A PM with billing.view may record owner payments' }),
+    defaultMarginPercent: z.number().meta({ description: 'Profit margin % added to the estimated cost when a contract value is set from the estimate (0–100)', example: 20 }),
+    defaultFinishingAllowancePercent: z
+      .number()
+      .meta({ description: 'Finishing allowance % added for FULL contracts (the estimate is grey structure only), 0–200', example: 0 }),
     defaultLanguage: languageSchema,
   })
   .meta({ id: 'CompanySettings' });

@@ -8,6 +8,7 @@ import { caller, findEditableProject } from './access.js';
 import { Prisma as P } from '../../core/db/prisma.js';
 import { stageAmounts } from './calc.js';
 import { normaliseFoundation } from './foundation.js';
+import { normaliseRoof } from './roof.js';
 import { FLOOR_LEVELS, FLOOR_NAMES, presetFor } from './presets.js';
 import { contractTotalPaisa } from './projects.dto.js';
 import type { UpdateContractInput, UpdateCoverageInput, UpdatePlotStructureInput } from './projects.schema.js';
@@ -96,15 +97,48 @@ async function saveSupplyRules(tx: Tx, tenantId: string, projectId: string, inpu
   await tx.projectSupplyRule.deleteMany({ where: { projectId, categoryKey: { notIn: [...final.keys()] }, lockedAt: null } });
 }
 
+/**
+ * Contract value / rate after this save: omitted = kept (same contract type), null = cleared.
+ * `ratePerSqftPaisa` is kept for LABOR_ONLY (the contract rate) and for any contract billed by
+ * RUNNING_BILLS (the billing rate per sq ft of progress); otherwise it is dropped.
+ */
+export function resolveContractValues(
+  project: { contractType: string | null; contractValuePaisa: bigint | null; ratePerSqftPaisa: bigint | null },
+  input: Pick<UpdateContractInput, 'contractType' | 'billingModel' | 'contractValuePaisa' | 'ratePerSqftPaisa'>,
+) {
+  const laborOnly = input.contractType === 'LABOR_ONLY';
+  const sameType = project.contractType === input.contractType;
+  const pick = (sent: bigint | null | undefined, current: bigint | null) => (sent !== undefined ? sent : sameType ? current : null);
+  return {
+    contractValuePaisa: laborOnly ? null : pick(input.contractValuePaisa, project.contractValuePaisa),
+    ratePerSqftPaisa: laborOnly || input.billingModel === 'RUNNING_BILLS' ? pick(input.ratePerSqftPaisa, project.ratePerSqftPaisa) : null,
+  };
+}
+
+/**
+ * A DRAFT may be saved without its value — it is usually set after seeing the estimate (step 6);
+ * the review (CONTRACT_VALUE_MISSING / RUNNING_BILLS_RATE_MISSING) blocks activation instead.
+ * Any other status must always keep one.
+ */
+function assertValuesForStatus(
+  status: string,
+  input: Pick<UpdateContractInput, 'contractType' | 'billingModel'>,
+  contractValuePaisa: bigint | null,
+  ratePerSqftPaisa: bigint | null,
+) {
+  if (status === 'DRAFT') return;
+  const laborOnly = input.contractType === 'LABOR_ONLY';
+  if (!laborOnly && contractValuePaisa === null) throw new BadRequest('CONTRACT_VALUE_REQUIRED', 'An active project must keep its contract value');
+  if (laborOnly && ratePerSqftPaisa === null) throw new BadRequest('RATE_REQUIRED', 'An active labour-only project must keep its rate per sq ft');
+  if (input.billingModel === 'RUNNING_BILLS' && ratePerSqftPaisa === null) throw new BadRequest('RATE_REQUIRED', 'Running bills need a rate per sq ft');
+}
+
 export async function updateContract(id: string, input: UpdateContractInput) {
   const c = caller();
   return withTenant(c.tenantId, async (tx) => {
     const project = await findEditableProject(tx, c, id);
-    const laborOnly = input.contractType === 'LABOR_ONLY';
-    const contractValuePaisa = laborOnly ? null : (input.contractValuePaisa ?? (project.contractType === input.contractType ? project.contractValuePaisa : null));
-    const ratePerSqftPaisa = laborOnly ? (input.ratePerSqftPaisa ?? (project.contractType === input.contractType ? project.ratePerSqftPaisa : null)) : null;
-    if (!laborOnly && contractValuePaisa === null) throw new BadRequest('CONTRACT_VALUE_REQUIRED', 'contractValuePaisa is required for this contract type');
-    if (laborOnly && ratePerSqftPaisa === null) throw new BadRequest('RATE_REQUIRED', 'ratePerSqftPaisa is required for a labour-only contract');
+    const { contractValuePaisa, ratePerSqftPaisa } = resolveContractValues(project, input);
+    assertValuesForStatus(project.status, input, contractValuePaisa, ratePerSqftPaisa);
 
     const stages = await resolveStages(tx, id, input);
     if (stages) {
@@ -173,7 +207,9 @@ export async function updatePlotStructure(id: string, input: UpdatePlotStructure
     });
     if (removed.length) await tx.floor.deleteMany({ where: { id: { in: removed.map((f) => f.id) } } }); // rooms + openings cascade
     for (const f of input.floors) {
-      const data = { ceilingHeightFt: f.ceilingHeightFt, sortOrder: FLOOR_LEVELS.indexOf(f.level) + 1 };
+      // roof: omitted = unchanged, null = cleared (SQL NULL)
+      const roof = f.roof === undefined ? {} : { roof: f.roof === null ? P.DbNull : normaliseRoof(f.roof) };
+      const data = { ceilingHeightFt: f.ceilingHeightFt, sortOrder: FLOOR_LEVELS.indexOf(f.level) + 1, ...roof };
       await tx.floor.upsert({
         where: { projectId_level: { projectId: id, level: f.level } },
         create: { tenantId: c.tenantId, projectId: id, level: f.level, name: FLOOR_NAMES[f.level], ...data },
@@ -185,6 +221,7 @@ export async function updatePlotStructure(id: string, input: UpdatePlotStructure
       plotUnit: input.plotUnit,
       plotSize: input.plotSize,
       floors: input.floors.map((f) => f.level),
+      roofs: input.floors.filter((f) => f.roof !== undefined).map((f) => `${f.level}:${f.roof?.type ?? 'none'}`),
       removedFloors: removed.map((f) => f.level),
       ...(input.foundation !== undefined ? { foundation: input.foundation?.type ?? null } : {}),
     });

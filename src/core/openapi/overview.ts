@@ -119,6 +119,7 @@ export const TAGS = [
   { name: 'Projects', description: 'Projects: list, create (draft), detail, review, activation and status. PM / MUNSHI see assigned projects only; others get 404' },
   { name: 'Project Wizard', description: 'Wizard tabs 1–4: basic, team, contract (supply rules + billing stages), plot & structure, coverage' },
   { name: 'Floors & Rooms', description: 'Tab 5: rooms and openings per floor, with area calculations' },
+  { name: 'Estimate', description: 'Grey-structure estimate (BoQ) of a project: foundation, brickwork, RCC and plaster quantities, priced from the company price list, with editable assumptions' },
   { name: 'Stock', description: 'Stock locations, store stock with weighted-average cost, low-stock levels, the movement ledger and site stock' },
   { name: 'Purchases', description: 'Supplier deliveries (challans) into the store or straight to a site, returns and corrections. Saved purchases are locked' },
   { name: 'Purchase Orders', description: 'Orders to suppliers; status follows the linked purchases (THEKEDAR, PM)' },

@@ -1,4 +1,4 @@
-/** Review (tab 6), activation and status transitions. */
+/** Review (wizard tab 7; issue `tab`s point at tabs 1–5), activation and status transitions. */
 import { fieldAccess } from '../../core/auth/access.js';
 import { visible } from '../../core/auth/fieldStrip.js';
 import { withTenant } from '../../core/db/withTenant.js';
@@ -41,6 +41,9 @@ export function reviewProject(p: repo.ProjectFull, c: Caller) {
   if (!p.contractType || !p.billingModel) err(2, 'CONTRACT_MISSING', 'Choose the contract type and billing model');
   else if (p.contractType === 'LABOR_ONLY' ? p.ratePerSqftPaisa === null : p.contractValuePaisa === null) {
     err(2, 'CONTRACT_VALUE_MISSING', p.contractType === 'LABOR_ONLY' ? 'Enter the labour rate per sq ft' : 'Enter the contract value');
+  }
+  if (p.contractType && p.contractType !== 'LABOR_ONLY' && p.billingModel === 'RUNNING_BILLS' && p.ratePerSqftPaisa === null) {
+    err(2, 'RUNNING_BILLS_RATE_MISSING', 'Running bills need a rate per sq ft');
   }
   const stageTotal = Math.round(p.billingStages.reduce((s, x) => s + Number(x.percent), 0) * 100) / 100;
   if (!p.billingStages.length) err(2, 'BILLING_STAGES_MISSING', 'Add the billing stages');

@@ -10,6 +10,8 @@ import type { Prisma } from '../../generated/prisma/client.js';
 import type { Caller } from './access.js';
 import { plotCalc, roomCalc, totalsCalc, laborOnlyTotal, type RoomInput } from './calc.js';
 import { readFoundation } from './foundation.js';
+import { largestSpan, readRoof, suggestSlab } from './roof.js';
+import { readWalls } from './walls.js';
 import { SUPPLY_CATEGORIES } from './presets.js';
 import type { FloorWithRooms, ProjectFull, ProjectListRow, RoomWithOpenings } from './projects.repository.js';
 
@@ -70,7 +72,9 @@ export function toRoomDto(r: RoomWithOpenings) {
     isWet: r.isWet,
     isWetOverridden: r.isWetOverridden,
     sortOrder: r.sortOrder,
-    openings: r.openings.map((o) => ({ id: o.id, type: o.type, widthFt: Number(o.widthFt), heightFt: Number(o.heightFt), quantity: o.quantity })),
+    openings: r.openings.map((o) => ({ id: o.id, type: o.type, widthFt: Number(o.widthFt), heightFt: Number(o.heightFt), quantity: o.quantity, side: o.side })),
+    /** null = not entered (the estimate uses the perimeter method for the floor). */
+    walls: readWalls(r.walls),
     calculations: roomCalc(roomInput(r)),
   };
 }
@@ -80,12 +84,17 @@ export function floorTotals(f: FloorWithRooms) {
 }
 
 export function toFloorDto(f: FloorWithRooms, withRooms: boolean) {
+  const span = largestSpan(f.rooms.map((r) => ({ lengthFt: Number(r.lengthFt), widthFt: Number(r.widthFt) })));
   return {
     id: f.id,
     level: f.level,
     name: f.name,
     ceilingHeightFt: Number(f.ceilingHeightFt),
     sortOrder: f.sortOrder,
+    /** Roof / slab (lenter) over this floor; null = not entered. */
+    roof: readRoof(f.roof),
+    /** RCC slab thickness suggested by the largest room short span. */
+    slabSuggestion: suggestSlab(span),
     ...(withRooms ? { rooms: f.rooms.map(toRoomDto) } : {}),
     calculations: floorTotals(f),
   };

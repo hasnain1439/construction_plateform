@@ -139,6 +139,14 @@ const NEW_ROUTES: Snapshot = {
   ...imports('suppliers', { MUNSHI: false, PM: true }),
   ...imports('materials', { MUNSHI: false, PM: true }),
   ...imports('clients', { MUNSHI: false, PM: true }),
+  // Estimate (BoQ): projects.estimate.view / .manage — Project Manager template (404 = unknown project id), never the Munshi
+  'GET /api/v1/projects/:id/estimate': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'PUT /api/v1/projects/:id/estimate/settings': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  // Contract value from the estimate: projects.project.edit + fields.contract + fields.rates (404 = unknown project id)
+  'POST /api/v1/projects/:id/contract/from-estimate': { MUNSHI: 'DENIED', PM: 'DENIED', PM_FIN: 404, THEKEDAR: 404 },
+  // Walls per room side: projects.project.edit like the other room routes (body {} → 400 walls missing; auto with {} → 404 unknown floor)
+  'PUT /api/v1/rooms/:id/walls': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'POST /api/v1/floors/:id/walls/auto': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
 };
 
 /** Template 200; preview / commit without a file 400 FILE_REQUIRED — for whoever holds the create permission. */

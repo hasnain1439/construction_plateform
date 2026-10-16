@@ -20,6 +20,7 @@ import * as projects from './projects.service.js';
 import * as review from './review.service.js';
 import * as rooms from './rooms.service.js';
 import * as wizard from './wizard.service.js';
+import type { AutoWallsInput, SetWallsInput } from './walls.js';
 
 const id = (req: Request) => String(req.params['id']);
 
@@ -48,6 +49,8 @@ export const deleteRoom = async (req: Request, res: Response) => ok(res, await r
 export const createOpening = async (req: Request, res: Response) => created(res, await rooms.createOpening(id(req), req.body as OpeningInput));
 export const updateOpening = async (req: Request, res: Response) => ok(res, await rooms.updateOpening(id(req), req.body as UpdateOpeningInput));
 export const deleteOpening = async (req: Request, res: Response) => ok(res, await rooms.deleteOpening(id(req)));
+export const setRoomWalls = async (req: Request, res: Response) => ok(res, await rooms.setRoomWalls(id(req), req.body as SetWallsInput));
+export const autoFloorWalls = async (req: Request, res: Response) => ok(res, await rooms.autoFloorWalls(id(req), req.body as AutoWallsInput));
 
 // ─── Review, activation, status ─────────────────────────────────────────────
 

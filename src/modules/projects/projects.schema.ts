@@ -3,6 +3,8 @@ import { paginationQuery } from '../../core/http/pagination.js';
 import { isoDateSchema } from '../../core/utils/dates.js';
 import { companyPhoneSchema, paisaSchema } from '../company/company.schema.js';
 import { foundationInputSchema } from './foundation.js';
+import { roofInputSchema } from './roof.js';
+import { WALL_SIDES, wallSideInputSchema } from './walls.js';
 import { SUPPLY_CATEGORY_KEYS } from './presets.js';
 
 const uuid = (label: string) => z.uuid({ error: `Invalid ${label}` });
@@ -31,6 +33,7 @@ export const roomTypeSchema = z.enum([
   'OTHER',
 ]);
 export const openingTypeSchema = z.enum(['DOOR', 'WINDOW', 'VENTILATOR']);
+export const wallSideSchema = z.enum(WALL_SIDES).meta({ description: 'Room side: TOP / BOTTOM run along the length, LEFT / RIGHT along the width' });
 
 // ─── List ───────────────────────────────────────────────────────────────────
 
@@ -129,8 +132,16 @@ export const updateContractBody = z
   .object({
     contractType: contractTypeSchema,
     billingModel: billingModelSchema,
-    contractValuePaisa: paisaSchema.optional().meta({ description: 'Required for FULL and GREY_OWNER_FINISHING', example: '1850000000' }),
-    ratePerSqftPaisa: paisaSchema.optional().meta({ description: 'Required for LABOR_ONLY', example: '45000' }),
+    contractValuePaisa: paisaSchema.nullable().optional().meta({
+      description:
+        'FULL / GREY_OWNER_FINISHING. Optional while DRAFT (set it after the estimate; activation needs it); required once ACTIVE. Omitted = unchanged, null = cleared (DRAFT only)',
+      example: '1850000000',
+    }),
+    ratePerSqftPaisa: paisaSchema.nullable().optional().meta({
+      description:
+        'LABOR_ONLY: the contract rate per sq ft of covered area. RUNNING_BILLS (any type): the billing rate per sq ft of progress. Optional while DRAFT, required once ACTIVE. Omitted = unchanged, null = cleared (DRAFT only)',
+      example: '45000',
+    }),
     retentionPercent: z.number().min(0).max(10).optional(),
     defectPeriodMonths: z.number().int().min(0).max(24).optional(),
     supplyRules: z
@@ -158,7 +169,16 @@ export const updatePlotStructureBody = z
     hasBasement: z.boolean().default(false),
     basementHeightFt: feet(30).optional(),
     floors: z
-      .array(z.object({ level: floorLevelSchema, ceilingHeightFt: feet(30) }))
+      .array(
+        z.object({
+          level: floorLevelSchema,
+          ceilingHeightFt: feet(30),
+          roof: roofInputSchema
+            .nullable()
+            .optional()
+            .meta({ description: 'Roof / slab (lenter) over this floor. Omitted = unchanged, null = cleared (estimate uses the % method)' }),
+        }),
+      )
       .min(1)
       .max(6)
       .refine((f) => new Set(f.map((x) => x.level)).size === f.length, 'Each level may appear only once')
@@ -197,6 +217,7 @@ export const openingInputSchema = z.object({
   widthFt: feet(50),
   heightFt: feet(30),
   quantity: z.number().int().min(1).max(50).default(1),
+  side: wallSideSchema.nullable().optional().meta({ description: 'Wall the opening is in (deducted from that wall; its lintel takes that wall’s thickness). Omitted / null = not placed' }),
 });
 
 export const createRoomBody = z.object({
@@ -207,6 +228,12 @@ export const createRoomBody = z.object({
   heightFt: feet(30).optional().meta({ description: "Defaults to the floor's ceiling height" }),
   isWet: z.boolean().optional().meta({ description: 'Overrides the automatic wet flag (bath, powder room, kitchen)' }),
   openings: z.array(openingInputSchema).max(30).default([]),
+  walls: z
+    .array(wallSideInputSchema)
+    .length(4, 'Send all four sides: TOP, RIGHT, BOTTOM, LEFT')
+    .refine((ws) => new Set(ws.map((w) => w.side)).size === 4, 'Each side once: TOP, RIGHT, BOTTOM, LEFT')
+    .optional()
+    .meta({ description: 'Optional four sides (as PUT /rooms/:id/walls). Omitted = not entered' }),
 });
 
 export const updateRoomBody = z
@@ -227,6 +254,7 @@ export const updateOpeningBody = z
     widthFt: feet(50).optional(),
     heightFt: feet(30).optional(),
     quantity: z.number().int().min(1).max(50).optional(),
+    side: wallSideSchema.nullable().optional().meta({ description: 'null = not placed' }),
   })
   .refine((v) => Object.values(v).some((x) => x !== undefined), { message: 'Nothing to update' });
 

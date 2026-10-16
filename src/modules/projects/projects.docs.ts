@@ -15,6 +15,7 @@ import {
   updatePlotStructureBody,
   updateRoomBody,
 } from './projects.schema.js';
+import { autoWallsBody, setWallsBody } from './walls.js';
 
 const AUTH = { 401: ['UNAUTHENTICATED', 'TOKEN_INVALID', 'TOKEN_EXPIRED', 'SESSION_REVOKED', 'ACCOUNT_DISABLED', 'DEVICE_REVOKED'] };
 const READ_403 = ['FORBIDDEN', 'COMPANY_SUSPENDED'];
@@ -68,11 +69,23 @@ const roomExample = {
   isWetOverridden: false,
   sortOrder: 1,
   openings: [
-    { id: '0199a8c0-0000-7000-8000-0000000004b1', type: 'DOOR', widthFt: 3.5, heightFt: 7, quantity: 1 },
-    { id: '0199a8c0-0000-7000-8000-0000000004b2', type: 'WINDOW', widthFt: 5, heightFt: 4, quantity: 1 },
+    { id: '0199a8c0-0000-7000-8000-0000000004b1', type: 'DOOR', widthFt: 3.5, heightFt: 7, quantity: 1, side: 'RIGHT' },
+    { id: '0199a8c0-0000-7000-8000-0000000004b2', type: 'WINDOW', widthFt: 5, heightFt: 4, quantity: 1, side: 'TOP' },
+  ],
+  walls: [
+    { side: 'TOP', type: 'EXTERNAL', thicknessIn: 9, innerLeafIn: null, cavityIn: null, sharedWithRoomId: null, sharedWithSide: null, existing: false },
+    { side: 'RIGHT', type: 'SHARED', thicknessIn: 4.5, innerLeafIn: null, cavityIn: null, sharedWithRoomId: '0199a8c0-0000-7000-8000-0000000003a2', sharedWithSide: 'LEFT', existing: false },
+    { side: 'BOTTOM', type: 'EXTERNAL', thicknessIn: 9, innerLeafIn: null, cavityIn: null, sharedWithRoomId: null, sharedWithSide: null, existing: false },
+    { side: 'LEFT', type: 'PARTY', thicknessIn: 9, innerLeafIn: null, cavityIn: null, sharedWithRoomId: null, sharedWithSide: null, existing: true },
   ],
   calculations: { floorAreaSqft: 224, grossWallAreaSqft: 660, openingsAreaSqft: 44.5, netWallAreaSqft: 615.5 },
 };
+const ROOM_B = '0199a8c0-0000-7000-8000-0000000003a2';
+const WALLS_NOTE =
+  '\n\nWalls (`walls`, null = not entered): exactly four sides TOP / RIGHT / BOTTOM / LEFT (TOP / BOTTOM run along the length, LEFT / RIGHT along the width). ' +
+  'Types: EXTERNAL (default 9″), SHARED with another room on the same floor (`sharedWithRoomId`; default 4.5″ in an RCC frame, 9″ load-bearing — counted once), ' +
+  'PARTY with the neighbour (9″; `existing: true` = already built, no brickwork), DOUBLE cavity wall (outer `thicknessIn` 9″ + `cavityIn` 2″ + `innerLeafIn` 4.5″), ' +
+  'OPEN (no wall), PASSAGE (to a corridor / stair not entered as a room, 4.5″). Thickness 3–18 in. Fields that do not apply are stored as null / false.';
 
 const STRIP_FOUNDATION = {
   type: 'STRIP',
@@ -284,7 +297,11 @@ export function registerProjectsDocs(): void {
   path(Z, 'patch', '/api/v1/projects/{id}/contract', {
     summary: 'Tab 2 — contract, supply rules, billing stages',
     description:
-      '`contractValuePaisa` is required for FULL / GREY_OWNER_FINISHING, `ratePerSqftPaisa` for LABOR_ONLY. Supply rules start from the ' +
+      '`contractValuePaisa` (FULL / GREY_OWNER_FINISHING) and `ratePerSqftPaisa` (LABOR_ONLY) are **optional while the project is DRAFT** — the value is usually ' +
+      'set after seeing the estimate (wizard step 6, or POST /projects/{id}/contract/from-estimate); the review reports CONTRACT_VALUE_MISSING and blocks activation until it is set. ' +
+      'Omitted = unchanged (same contract type), `null` = cleared. Once the project is not DRAFT, a save that would leave no value → 400 CONTRACT_VALUE_REQUIRED / RATE_REQUIRED. ' +
+      'RUNNING_BILLS on any contract type keeps `ratePerSqftPaisa` as the billing rate per sq ft of progress (review error RUNNING_BILLS_RATE_MISSING without it; required once active). ' +
+      'Without fields.contract the value fields are hidden in responses; such a user can still save the rest of the tab (omit the values). Supply rules start from the ' +
       'contract-type preset (see /supply-presets; contractor rows get the default quality category) and `supplyRules` override single ' +
       'categories: CONTRACTOR rows need `qualityCategoryId`, OWNER rows must not have one; locked rows → 409 SUPPLY_RULE_LOCKED. ' +
       'Stages from `billingStages`, a `templateId`, or (first time) the company default template; total exactly 100 % ' +
@@ -358,7 +375,15 @@ export function registerProjectsDocs(): void {
       'Required by type: `footingWidthFt` for STRIP / ISOLATED / COMBINED; `footingCount` + `footingLengthFt` for ISOLATED / COMBINED; ' +
       '`pileCount`, `pileDiameterIn`, `pileDepthFt` for PILE; `rccMix` + `mainBarMm` (10 / 12 / 16 / 20 = #3–#6) wherever RCC applies ' +
       '(every type except a BRICK / STONE strip footing). Fields that don’t apply are stored as null. The excavation must be at least ' +
-      'the PCC + footing thickness deep.' +
+      'the PCC + footing thickness deep.\n\n' +
+      '`floors[].roof` (roof / slab — lenter — over that floor, optional — omitted = unchanged, `null` = cleared → the estimate uses the % method): ' +
+      '`type` RCC_SLAB (default) / T_IRON_TILE (garder + bricks or tiles) / PRECAST / STEEL_DECK; only `type` is required, everything else gets the Pakistani default. ' +
+      'RCC: `thicknessIn` 5 (3–12), `concreteMix` 1:2:4 / 1:1.5:3, `steelGrade` G60 / G40, `mainBar` #4 @ `mainSpacingIn` 6″ (along the short span), `distBar` #3 @ `distSpacingIn` 9″ ' +
+      '(bars 3–6 = 10 / 12 / 16 / 20 mm; spacing 3–18″), `topBars` true, `coverIn` 0.75, sunshade `chajjaLengthFt` × `chajjaWidthFt` 2. ' +
+      'RCC frame (used for FRAMED): beams `beamWidthIn` 9 × `beamDepthIn` 15 (deeper than the slab), `beamBars` 4 × `beamBar` #5, stirrups #3 @ 6″, `beamRunFt` (default the floor’s wall run); ' +
+      'columns `columnCount` (default from the footprint), 12 × 12″, 6 #5, ties #3 @ 6″. T-iron: `tIronSection` T3X3 / T4X4 / G4X3 / G5X3 / G6X3, `tIronSpacingFt` 3, `infill` BRICK / TILE, ' +
+      '`screedThicknessIn` 3, `earthFillIn` 4. PRECAST / STEEL_DECK: `plankAreaSqft` / `deckAreaSqft` (default the footprint), `toppingIn` 2 / 4, `mesh`. ' +
+      'Each floor in the response has `roof` and `slabSuggestion` { spanFt, suggestedIn, minIn, beamAdvised } (largest room short span: ≤ 12 ft → 4.5–5″, 12–15 → 5″, 15–18 → 6″, > 18 → 6–7″ or a beam).' +
       LOCK_NOTE,
     request: {
       params: idParam('Project'),
@@ -371,9 +396,9 @@ export function registerProjectsDocs(): void {
           structureType: 'FRAMED',
           hasBasement: false,
           floors: [
-            { level: 'GROUND', ceilingHeightFt: 11 },
-            { level: 'FIRST', ceilingHeightFt: 10 },
-            { level: 'MUMTY', ceilingHeightFt: 9 },
+            { level: 'GROUND', ceilingHeightFt: 11, roof: { type: 'RCC_SLAB', thicknessIn: 5, mainBar: 4, mainSpacingIn: 6, distBar: 3, distSpacingIn: 9, chajjaLengthFt: 40 } },
+            { level: 'FIRST', ceilingHeightFt: 10, roof: { type: 'RCC_SLAB', thicknessIn: 5 } },
+            { level: 'MUMTY', ceilingHeightFt: 9, roof: { type: 'T_IRON_TILE', tIronSection: 'G5X3', tIronSpacingFt: 3, infill: 'TILE' } },
           ],
           foundation: {
             type: 'STRIP',
@@ -521,7 +546,9 @@ export function registerProjectsDocs(): void {
     summary: 'Add a room',
     description:
       'THEKEDAR, assigned PM. Height defaults to the floor’s ceiling; name defaults to the type ("Bedroom 2" for the second). ' +
-      'Bath, powder room and kitchen are wet automatically; `isWet` overrides. Openings larger than the walls → 400 OPENINGS_EXCEED_WALL.',
+      'Bath, powder room and kitchen are wet automatically; `isWet` overrides. Openings larger than the walls (or than their `side` wall) → 400 OPENINGS_EXCEED_WALL. ' +
+      'Optional `walls` (four sides) as in PUT /rooms/{id}/walls.' +
+      WALLS_NOTE,
     request: {
       params: idParam('Floor'),
       body: jsonBody(createRoomBody, {
@@ -535,13 +562,25 @@ export function registerProjectsDocs(): void {
           ],
         }),
         store: ex('Store marked wet by hand', { type: 'STORE', name: 'Washing area', lengthFt: 6, widthFt: 5, heightFt: 9, isWet: true }),
+        walls: ex('Bedroom with its walls and a door on the shared side', {
+          type: 'BEDROOM',
+          lengthFt: 14,
+          widthFt: 12,
+          openings: [{ type: 'DOOR', widthFt: 3, heightFt: 7, side: 'RIGHT' }],
+          walls: [
+            { side: 'TOP', type: 'EXTERNAL' },
+            { side: 'RIGHT', type: 'SHARED', sharedWithRoomId: ROOM_B },
+            { side: 'BOTTOM', type: 'EXTERNAL' },
+            { side: 'LEFT', type: 'PARTY', existing: true },
+          ],
+        }),
       }),
     },
     responses: { ...resp(201, 'Created', roomExample), ...errors({ ...ROOM_ERRORS, 400: ['VALIDATION_ERROR', 'OPENINGS_EXCEED_WALL'], 404: ['FLOOR_NOT_FOUND'] }) },
   });
   path(F, 'post', '/api/v1/floors/{id}/copy', {
     summary: 'Copy a floor’s rooms to another floor',
-    description: 'Copies rooms + openings; heights take the target floor’s ceiling. The target must be empty unless `replace: true`.',
+    description: 'Copies rooms + openings (with their sides) + walls (shared pairings point at the copies); heights take the target floor’s ceiling. The target must be empty unless `replace: true`.',
     request: { params: idParam('Source floor'), body: jsonBody(copyFloorBody, { copy: ex('Ground → First', { targetFloorId: FLOOR_FIRST }), replace: ex('Overwrite the target', { targetFloorId: FLOOR_FIRST, replace: true }) }) },
     responses: {
       ...resp(200, 'Target floor with rooms'),
@@ -554,21 +593,63 @@ export function registerProjectsDocs(): void {
     request: { params: idParam('Room'), body: jsonBody(updateRoomBody, { resize: ex('Resize', { lengthFt: 17, widthFt: 14.5 }), auto: ex('Wet flag back to automatic', { isWet: null }) }) },
     responses: { ...resp(200, 'Updated', roomExample), ...errors({ ...ROOM_ERRORS, 400: ['VALIDATION_ERROR', 'OPENINGS_EXCEED_WALL'], 404: ['ROOM_NOT_FOUND'] }) },
   });
+  path(F, 'put', '/api/v1/rooms/{id}/walls', {
+    summary: 'Set a room’s four walls',
+    description:
+      'THEKEDAR, assigned PM (projects.project.edit). Replaces the room’s walls (`walls: null` clears them — the estimate then uses the perimeter method for the floor). ' +
+      'A SHARED side is paired with the other room: that room’s matching side is set to SHARED back (the opposite side when free, else the free side closest in length; ' +
+      '`sharedWithSide` picks it — must be free, else 409 WALL_SIDE_TAKEN); a room without walls gets four EXTERNAL sides first. Removing / changing a pairing turns the ' +
+      'other room’s side back into EXTERNAL; deleting a room does the same. Sharing with itself or a room on another floor → 400 INVALID_SHARED_ROOM. ' +
+      'Returns the whole floor with rooms (other rooms may have changed). Audited `project.room_walls`.' +
+      WALLS_NOTE,
+    request: {
+      params: idParam('Room'),
+      body: jsonBody(setWallsBody, {
+        shared: ex('Shared with the next bedroom, party wall already built', {
+          walls: [
+            { side: 'TOP', type: 'EXTERNAL' },
+            { side: 'RIGHT', type: 'SHARED', sharedWithRoomId: ROOM_B, thicknessIn: 4.5 },
+            { side: 'BOTTOM', type: 'DOUBLE' },
+            { side: 'LEFT', type: 'PARTY', existing: true },
+          ],
+        }),
+        clear: ex('Clear the walls', { walls: null }),
+      }),
+    },
+    responses: {
+      ...resp(200, 'Floor with rooms', { id: FLOOR_ID, level: 'GROUND', name: 'Ground floor', ceilingHeightFt: 11, sortOrder: 2, roof: null, rooms: [roomExample] }),
+      ...errors({ ...ROOM_ERRORS, 400: ['VALIDATION_ERROR', 'INVALID_SHARED_ROOM'], 404: ['ROOM_NOT_FOUND'], 409: ['PROJECT_LOCKED', 'WALL_SIDE_TAKEN'] }),
+    },
+  });
+  path(F, 'post', '/api/v1/floors/{id}/walls/auto', {
+    summary: 'Auto-set walls for a floor',
+    description:
+      'Rooms without walls get four EXTERNAL 9″ sides (room positions are not known, so nothing is guessed as shared — mark the shared sides afterwards). ' +
+      '`replace: true` resets every room of the floor (pairings cleared). Returns the floor with rooms. Audited `project.floor_walls_auto`.',
+    request: { params: idParam('Floor'), body: jsonBody(autoWallsBody, { fill: ex('Fill rooms without walls', {}), reset: ex('Reset every room', { replace: true }) }) },
+    responses: { ...resp(200, 'Floor with rooms'), ...errors({ ...ROOM_ERRORS, 404: ['FLOOR_NOT_FOUND'] }) },
+  });
   path(F, 'delete', '/api/v1/rooms/{id}', {
     summary: 'Delete a room',
-    description: 'Its openings are deleted too.',
+    description: 'Its openings are deleted too; other rooms’ sides shared with it become EXTERNAL walls.',
     request: { params: idParam('Room') },
     responses: { ...resp(200, 'Deleted', { id: ROOM_ID, deleted: true }), ...errors({ ...ROOM_ERRORS, 404: ['ROOM_NOT_FOUND'] }) },
   });
   path(F, 'post', '/api/v1/rooms/{id}/openings', {
     summary: 'Add a door / window / ventilator',
     description: 'Returns the room with updated calculations.',
-    request: { params: idParam('Room'), body: jsonBody(openingInputSchema, { door: ex('Door 3.5 × 7', { type: 'DOOR', widthFt: 3.5, heightFt: 7 }), windows: ex('Two windows 5 × 4', { type: 'WINDOW', widthFt: 5, heightFt: 4, quantity: 2 }) }) },
+    request: {
+      params: idParam('Room'),
+      body: jsonBody(openingInputSchema, {
+        door: ex('Door 3.5 × 7', { type: 'DOOR', widthFt: 3.5, heightFt: 7 }),
+        windows: ex('Two windows 5 × 4 in the TOP wall', { type: 'WINDOW', widthFt: 5, heightFt: 4, quantity: 2, side: 'TOP' }),
+      }),
+    },
     responses: { ...resp(201, 'Room', roomExample), ...errors({ ...ROOM_ERRORS, 400: ['VALIDATION_ERROR', 'OPENINGS_EXCEED_WALL'], 404: ['ROOM_NOT_FOUND'] }) },
   });
   path(F, 'patch', '/api/v1/openings/{id}', {
     summary: 'Edit an opening',
-    request: { params: idParam('Opening'), body: jsonBody(updateOpeningBody, { qty: ex('Three of them', { quantity: 3 }) }) },
+    request: { params: idParam('Opening'), body: jsonBody(updateOpeningBody, { qty: ex('Three of them', { quantity: 3 }), side: ex('Move to the LEFT wall', { side: 'LEFT' }) }) },
     responses: { ...resp(200, 'Room', roomExample), ...errors({ ...ROOM_ERRORS, 400: ['VALIDATION_ERROR', 'OPENINGS_EXCEED_WALL'], 404: ['OPENING_NOT_FOUND'] }) },
   });
   path(F, 'delete', '/api/v1/openings/{id}', {

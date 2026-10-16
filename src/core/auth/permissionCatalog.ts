@@ -76,6 +76,8 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   def('projects.project.approve', L('Activate projects', 'Project activate karna', 'پراجیکٹ ایکٹیویٹ کرنا'), 'Activate a reviewed draft (counts against the plan).', S),
   def('projects.project.manage', L('Change project status / delete drafts', 'Project ka status / draft delete', 'پراجیکٹ کا اسٹیٹس / ڈرافٹ ڈیلیٹ'), 'Close-out, hand over, close, reopen; delete a draft.', S),
   def('projects.team.manage', L('Assign project team', 'Project team muqarrar karna', 'پراجیکٹ ٹیم مقرر کرنا'), 'Choose the PM and munshis of a project.', S),
+  def('projects.estimate.view', L('View estimate (BoQ)', 'Estimate (BoQ) dekhna', 'تخمینہ (BoQ) دیکھنا'), 'Grey-structure material estimate of a project (rates and amounts follow the data-visibility permissions).', S),
+  def('projects.estimate.manage', L('Change estimate settings', 'Estimate ki settings badalna', 'تخمینے کی سیٹنگز بدلنا'), 'Change the assumptions of a project estimate (wall / slab thickness, mixes, steel, wastage, labour rate).', S),
 
   // ─── Clients ───────────────────────────────────────────────────────────────
   def('clients.client.view', L('View clients', 'Clients dekhna', 'کلائنٹس دیکھنا'), 'Project owners (clients) list and detail.'),
@@ -283,6 +285,8 @@ const PM_KEYS = [
   'projects.project.create',
   'projects.project.edit',
   'projects.project.approve',
+  'projects.estimate.view',
+  'projects.estimate.manage',
   'clients.client.view',
   'clients.client.create',
   'clients.client.edit',
@@ -370,6 +374,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
     description: 'Office accounts: billing, owner and supplier payments, cash, receivables and reports across all projects. No project or site changes.',
     grants: [
       'projects.project.view',
+      'projects.estimate.view',
       'clients.client.view',
       'labor.settlement.view',
       'labor.advance.view',
