@@ -163,6 +163,22 @@ const NEW_ROUTES: Snapshot = {
   'GET /api/v1/rulebook/overrides': { MUNSHI: 'DENIED', PM: 200, PM_FIN: 200, THEKEDAR: 200 },
   'PUT /api/v1/rulebook/overrides': owner(400),
   'DELETE /api/v1/rulebook/overrides/:key': owner(404),
+  // Step 12 · quotes: sales.quote.view / .create / .edit (PM template), send also fields.contract (PM_FIN), won = sales.quote.approve (owner / Administrator), delete = .manage; never the Munshi
+  'GET /api/v1/quotes/assumptions': { MUNSHI: 'DENIED', PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'GET /api/v1/quotes/insights': { MUNSHI: 'DENIED', PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'POST /api/v1/quotes/preview': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'GET /api/v1/quotes': { MUNSHI: 'DENIED', PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'POST /api/v1/quotes': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'GET /api/v1/quotes/:id': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'PATCH /api/v1/quotes/:id': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'DELETE /api/v1/quotes/:id': owner(404),
+  'GET /api/v1/quotes/:id/revisions': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'POST /api/v1/quotes/:id/revisions': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'POST /api/v1/quotes/:id/send': { MUNSHI: 'DENIED', PM: 'DENIED', PM_FIN: 404, THEKEDAR: 404 },
+  'POST /api/v1/quotes/:id/negotiation': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'POST /api/v1/quotes/:id/lost': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'POST /api/v1/quotes/:id/won': owner(404),
+  'GET /api/v1/quotes/:id/pdf': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
 };
 
 /** Template 200; preview / commit without a file 400 FILE_REQUIRED — for whoever holds the create permission. */

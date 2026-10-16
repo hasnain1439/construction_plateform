@@ -120,6 +120,7 @@ export const TAGS = [
   { name: 'Project Wizard', description: 'Wizard tabs 1–4: basic, team, contract (supply rules + billing stages), plot & structure, coverage' },
   { name: 'Floors & Rooms', description: 'Tab 5: rooms and openings per floor, with area calculations' },
   { name: 'Estimate', description: 'Estimate (BoQ) of a project: live preview, saved revisions (DRAFT → APPROVED → SUPERSEDED) with 14 priced sections, line overrides, compare, PDF and the owner shopping list' },
+  { name: 'Sales', description: 'Quotes: quick estimate from plot / covered area / storeys (same engine as the project estimate), revisions, send with a customer PDF + WhatsApp text, negotiation, lost with a reason, won → a pre-filled draft project, expiry, win / loss insights' },
   { name: 'Rulebook', description: 'The estimation rulebook of the company: platform values of its region (versioned, pending engineer review) and the company own values within safe ranges' },
   { name: 'Stock', description: 'Stock locations, store stock with weighted-average cost, low-stock levels, the movement ledger and site stock' },
   { name: 'Purchases', description: 'Supplier deliveries (challans) into the store or straight to a site, returns and corrections. Saved purchases are locked' },

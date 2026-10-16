@@ -23,6 +23,7 @@ import { registerProcurementDocs } from '../../modules/procurement/procurement.d
 import { registerProjectsDocs } from '../../modules/projects/projects.docs.js';
 import { registerEstimateDocs } from '../../modules/estimate/estimate.docs.js';
 import { registerRevisionDocs } from '../../modules/estimate/revisions.docs.js';
+import { registerSalesDocs } from '../../modules/sales/sales.docs.js';
 import { registerSubscriptionDocs } from '../../modules/subscription/subscription.docs.js';
 import { registerTeamDocs } from '../../modules/team/team.docs.js';
 import { registerOnboardingDocs } from '../../modules/onboarding/onboarding.docs.js';
@@ -48,6 +49,7 @@ export function openApiDocument() {
     registerProjectsDocs();
     registerEstimateDocs();
     registerRevisionDocs(); // Step 11
+    registerSalesDocs(); // Step 12
     registerInventoryDocs();
     registerProcurementDocs();
     registerDispatchDocs();

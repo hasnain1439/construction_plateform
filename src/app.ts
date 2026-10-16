@@ -43,6 +43,7 @@ import { companyRouter } from './modules/company/company.routes.js';
 import { floorsRouter, openingsRouter, projectsRouter, roomsRouter, supplyPresetsRouter } from './modules/projects/projects.routes.js';
 import { estimatesRouter, projectEstimateRouter } from './modules/estimate/estimate.routes.js';
 import { rulebookRouter } from './modules/rulebook/rulebook.routes.js';
+import { quotesRouter } from './modules/sales/sales.routes.js';
 import { dispatchesRouter, projectDispatchRouter, shortagesRouter } from './modules/dispatch/dispatch.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import {
@@ -201,6 +202,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/rooms', roomsRouter);
   mount('/estimates', estimatesRouter); // Step 11: saved estimate revisions (per-route auth)
   mount('/rulebook', rulebookRouter); // Step 11: company estimation rulebook (per-route auth)
+  mount('/quotes', quotesRouter); // Step 12: quotes / sales pipeline (per-route auth)
   mount('/openings', openingsRouter);
   mount('/onboarding', onboardingRouter);
   mount('/imports', importsRouter);

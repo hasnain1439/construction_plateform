@@ -6,6 +6,15 @@ All notable changes to the Construction Platform API are documented here, follow
 
 ## [Unreleased]
 
+### Step 12
+- **Quotes / sales pipeline** (module `sales`): `Quote` (Q-YYYY-NNNN, client, status DRAFT / SENT / NEGOTIATION / WON / LOST / EXPIRED, validity from the company `quoteValidityDays`, lost reason + note, won project) + `QuoteRevision` (inputs, quick-mode result, cost / price / margin in paisa, payment stages).
+- **Quick estimate**: plot + covered area + storeys (+ basement / mumty, structure, contract type, quality category, supply split, margin %) run through the Step 11 engine and BoQ with area-based room assumptions (`GET /quotes/assumptions`, pending engineer review); price per contract type from cost + finishing allowance + margin, or an agreed price; `POST /quotes/preview` for the live view.
+- Endpoints: `GET|POST /quotes`, `GET|PATCH|DELETE /quotes/:id`, `GET|POST /quotes/:id/revisions`, `POST /quotes/:id/send` (customer PDF + WhatsApp text), `/negotiation`, `/lost` (reason required), `/won` (pre-filled DRAFT project, idempotent), `GET /quotes/:id/pdf?variant=customer|internal`, `GET /quotes/insights` (win rate, quotes per month, average rate quoted vs won, loss reasons, follow-up list).
+- Customer quotation PDF (letterhead, total, rate per sq ft, scope, material specifications, payment schedule, validity, terms — never costs or margins) and internal costing PDF; new server texts (en / roman / ur) for both and the WhatsApp message.
+- Daily job `quote-expiry` (01:00 PKT): SENT / NEGOTIATION past validity → EXPIRED (audited as SYSTEM).
+- Permissions `sales.quote.view|create|edit` (Project Manager; view also Accountant), `sales.quote.approve` (mark won) and `sales.quote.manage` (delete) — Administrator; the Munshi has none. Existing companies get them with `npm run backfill:permissions`.
+- Migration `20261104090000_sales_quotes` (RLS + grants, composite FKs). Seed: six Malik quotes in every state (`prisma/seedSales.ts`; two new prospect clients).
+
 ### Step 11
 - **Estimation rulebook**: platform tables `Rulebook` (region PUNJAB_KP / KARACHI_SINDH, version, DRAFT / PUBLISHED) + `RulebookParameter` (68 parameters: walls, masonry, concrete, steel, plaster, factors, wastage per material, waterproofing, earthwork, finishes, MEP, overheads, norms, productivity) — v1 PUBLISHED for both regions, every value PENDING_ENGINEER_REVIEW; Karachi / Sindh v1 counts concrete blocks per sq ft of wall face. The Phase 1 hard-coded estimate defaults now come from the rulebook (same keys).
 - Company rulebook: `GET /rulebook`, `GET|PUT /rulebook/overrides`, `DELETE /rulebook/overrides/:key` (new permissions `rulebook.override.view` — Administrator, Project Manager — and `rulebook.override.manage` — Administrator); values outside the safe range → `400 OUT_OF_SAFE_RANGE`. Platform admin: `/admin/rulebooks` (list, create DRAFT copy, notes, delete DRAFT, edit parameter, publish).

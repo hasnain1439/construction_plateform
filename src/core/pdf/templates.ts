@@ -386,3 +386,140 @@ export function shoppingListHtml(d: ShoppingListPdfData, lang: Lang = 'en'): str
   <table><thead><tr><th>#</th><th>${L('pdf.description')}</th><th class="r">${L('pdf.qty')}</th><th>${L('pdf.unit')}</th><th>${L('pdf.neededBy')}</th></tr></thead><tbody>${rows || `<tr><td colspan="5">${esc(tr(lang, 'common.noRows'))}</td></tr>`}</tbody></table>`;
   return shell(d.company, tr(lang, 'pdf.ownerShoppingList'), label(lang, 'pdf.generated', {}, { date: date(d.generatedOn) }), html, lang);
 }
+
+// ─── Step 12 · Quotation (customer) and quote costing (internal) ─────────────
+
+export interface QuotePdfData {
+  company: Letterhead;
+  client: { name: string; phone: string | null };
+  number: string;
+  revision: number;
+  date: string;
+  validUntil: string;
+  title: string;
+  siteAddress: string | null;
+  city: string | null;
+  contractType: string;
+  structureType: string;
+  plot: { unit: string; size: number; frontFt: number | null; depthFt: number | null };
+  coveredAreaSqft: number;
+  floors: number;
+  basement: boolean;
+  mumty: boolean;
+  /** BoQ sections the price covers (names only — never their amounts). */
+  sections: string[];
+  specifications: Array<{ categoryKey: string; suppliedBy: 'CONTRACTOR' | 'OWNER'; quality: string | null; materials: string[] }>;
+  paymentStages: Array<{ label: string; percent: number; amountPaisa: bigint }>;
+  pricePaisa: bigint;
+  perSqftPaisa: bigint | null;
+}
+
+export interface QuoteInternalPdfData extends QuotePdfData {
+  status: string;
+  costSections: Array<{ section: string; amountPaisa: bigint }>;
+  directCostPaisa: bigint;
+  overheadPaisa: bigint;
+  contingencyPaisa: bigint;
+  costPaisa: bigint;
+  finishingAllowancePaisa: bigint;
+  costPerSqftPaisa: bigint | null;
+  /** Only with fields.contract + fields.profit. */
+  margin: { marginPercent: number; marginPaisa: bigint; marginOnPricePercent: number | null } | null;
+  /** Price only with fields.contract. */
+  showPrice: boolean;
+}
+
+function quoteHead(d: QuotePdfData, lang: Lang) {
+  const L = (key: MessageKey, params?: Params, html?: Record<string, string>) => label(lang, key, params, html);
+  const plot = `${qty(d.plot.size)} ${esc(unitLabel(lang, d.plot.unit.toLowerCase()))}${d.plot.frontFt && d.plot.depthFt ? ` (${ltr(`${d.plot.frontFt} × ${d.plot.depthFt} ft`)})` : ''}`;
+  const building = [L('pdf.storeys', { count: d.floors }), d.basement ? L('pdf.basement') : null, d.mumty ? L('pdf.mumty') : null].filter(Boolean).join(' + ');
+  return `
+  <div class="grid">
+    <div><div class="label">${L('pdf.preparedFor')}</div><strong>${esc(d.client.name)}</strong>${d.client.phone ? `<div class="muted">${ltr(esc(d.client.phone))}</div>` : ''}</div>
+    <div><div class="label">${L('pdf.project')}</div><strong>${esc(d.title)}</strong><div class="muted">${esc([d.siteAddress, d.city].filter(Boolean).join(', '))}</div></div>
+    <div><div class="label">${L('pdf.validUntil')}</div><strong>${date(d.validUntil)}</strong></div>
+  </div>
+  <h3>${L('pdf.scope')}</h3>
+  <table><tbody>
+    <tr><td>${L('pdf.contract')}</td><td>${esc(enumLabel(lang, 'ContractType', d.contractType))}</td></tr>
+    <tr><td>${L('pdf.plot')}</td><td>${plot}</td></tr>
+    <tr><td>${L('pdf.building')}</td><td>${building}</td></tr>
+    <tr><td>${L('pdf.structure')}</td><td>${esc(enumLabel(lang, 'StructureType', d.structureType))}</td></tr>
+    <tr><td>${L('pdf.coveredArea')}</td><td>${qty(d.coveredAreaSqft)} ${esc(unitLabel(lang, 'sqft'))}</td></tr>
+    <tr><td>${L('pdf.workIncluded')}</td><td>${d.sections.map((s) => sectionLabel(lang, s)).join(' · ')}</td></tr>
+  </tbody></table>`;
+}
+
+function quoteSpecs(d: QuotePdfData, lang: Lang) {
+  const L = (key: MessageKey) => label(lang, key);
+  const rows = d.specifications
+    .map(
+      (s) =>
+        `<tr><td>${esc(tr(lang, `supply.${s.categoryKey}` as MessageKey))}</td><td>${s.suppliedBy === 'OWNER' ? L('pdf.byOwner') : L('pdf.byContractor')}</td><td>${s.quality ? esc(s.quality) : ''}</td><td>${esc(s.materials.join(', '))}</td></tr>`,
+    )
+    .join('');
+  return `<h3>${L('pdf.specifications')}</h3>
+  <table><thead><tr><th>${L('pdf.category')}</th><th>${L('pdf.suppliedBy')}</th><th>${L('pdf.quality')}</th><th>${L('pdf.description')}</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function quoteSchedule(d: QuotePdfData, lang: Lang, showAmounts: boolean) {
+  const L = (key: MessageKey) => label(lang, key);
+  const rows = d.paymentStages
+    .map((s, i) => `<tr><td>${i + 1}</td><td>${esc(s.label)}</td><td class="r">${ltr(`${s.percent}%`)}</td>${showAmounts ? `<td class="r">${money(s.amountPaisa)}</td>` : ''}</tr>`)
+    .join('');
+  const total = d.paymentStages.reduce((a, s) => a + s.percent, 0);
+  return `<h3>${L('pdf.paymentSchedule')}</h3>
+  <table><thead><tr><th>#</th><th>${L('pdf.stage')}</th><th class="r">%</th>${showAmounts ? `<th class="r">${L('pdf.amount')}</th>` : ''}</tr></thead>
+  <tbody>${rows}<tr><td></td><td><strong>${L('pdf.total')}</strong></td><td class="r"><strong>${ltr(`${Math.round(total * 100) / 100}%`)}</strong></td>${showAmounts ? `<td class="r"><strong>${money(d.pricePaisa)}</strong></td>` : ''}</tr></tbody></table>`;
+}
+
+/**
+ * Customer quotation: letterhead, client, total price, rate per sq ft, scope, material
+ * specifications, payment schedule (100 %), validity and terms. It is built only from the fields
+ * in QuotePdfData — costs, overheads, contingency and margins are not part of it.
+ */
+export function quoteCustomerHtml(d: QuotePdfData, lang: Lang = 'en'): string {
+  const L = (key: MessageKey, params?: Params, html?: Record<string, string>) => label(lang, key, params, html);
+  const price = `<table class="totals">
+    <tr class="grand"><td>${L('pdf.totalPrice')}</td><td class="r">${money(d.pricePaisa)}</td></tr>
+    ${d.perSqftPaisa !== null ? `<tr><td>${L('pdf.ratePerSqft')} (${qty(d.coveredAreaSqft)} ${esc(unitLabel(lang, 'sqft'))})</td><td class="r">${money(d.perSqftPaisa)}</td></tr>` : ''}
+  </table>`;
+  const terms = (['pdf.quoteTerm.validity', 'pdf.quoteTerm.changes', 'pdf.quoteTerm.owner', 'pdf.quoteTerm.fees', 'pdf.quoteTerm.payments'] as MessageKey[])
+    .map((k) => `<li>${L(k, {}, { date: date(d.validUntil) })}</li>`)
+    .join('');
+  const html = `<style>h3 { font-size: 12px; margin: 16px 0 4px; }</style>
+  ${quoteHead(d, lang)}
+  ${price}
+  ${quoteSpecs(d, lang)}
+  ${quoteSchedule(d, lang, true)}
+  <h3>${L('pdf.terms')}</h3><ol>${terms}</ol>
+  <div class="note muted">${L('pdf.quickEstimateNote')}</div>`;
+  const meta = `${L('pdf.quoteMeta', { number: d.number, revision: d.revision })}<br>${label(lang, 'pdf.issued', {}, { date: date(d.date) })}`;
+  return shell(d.company, tr(lang, 'pdf.quote'), meta, html, lang);
+}
+
+/** Internal quote costing: the customer content plus cost by BoQ section, overheads, contingency, finishing allowance, price and margin. */
+export function quoteInternalHtml(d: QuoteInternalPdfData, lang: Lang = 'en'): string {
+  const L = (key: MessageKey, params?: Params, html?: Record<string, string>) => label(lang, key, params, html);
+  const rows = d.costSections.map((s) => `<tr><td>${sectionLabel(lang, s.section)}</td><td class="r">${money(s.amountPaisa)}</td></tr>`).join('');
+  const html = `<style>h3 { font-size: 12px; margin: 16px 0 4px; }</style>
+  ${quoteHead(d, lang)}
+  <h3>${L('pdf.estimatedCost')}</h3>
+  <table><tbody>${rows}</tbody></table>
+  <table class="totals">
+    <tr><td>${L('pdf.directCost')}</td><td class="r">${money(d.directCostPaisa)}</td></tr>
+    <tr><td>${sectionLabel(lang, 'SITE_OVERHEADS')}</td><td class="r">${money(d.overheadPaisa)}</td></tr>
+    <tr><td>${sectionLabel(lang, 'CONTINGENCY')}</td><td class="r">${money(d.contingencyPaisa)}</td></tr>
+    <tr><td><strong>${L('pdf.estimatedCost')}</strong></td><td class="r"><strong>${money(d.costPaisa)}</strong></td></tr>
+    ${d.costPerSqftPaisa !== null ? `<tr><td>${L('pdf.costPerSqft')}</td><td class="r">${money(d.costPerSqftPaisa)}</td></tr>` : ''}
+    ${d.finishingAllowancePaisa > 0n ? `<tr><td>${L('pdf.finishingAllowance')}</td><td class="r">${money(d.finishingAllowancePaisa)}</td></tr>` : ''}
+    ${d.showPrice ? `<tr class="grand"><td>${L('pdf.totalPrice')}</td><td class="r">${money(d.pricePaisa)}</td></tr>` : ''}
+    ${d.showPrice && d.perSqftPaisa !== null ? `<tr><td>${L('pdf.ratePerSqft')}</td><td class="r">${money(d.perSqftPaisa)}</td></tr>` : ''}
+    ${d.margin ? `<tr><td>${L('pdf.margin')} (${ltr(`${d.margin.marginPercent}%`)})</td><td class="r">${money(d.margin.marginPaisa)}${d.margin.marginOnPricePercent !== null ? ` · ${ltr(`${d.margin.marginOnPricePercent}%`)}` : ''}</td></tr>` : ''}
+  </table>
+  ${quoteSpecs(d, lang)}
+  ${quoteSchedule(d, lang, d.showPrice)}
+  <div class="note muted">${L('pdf.internalOnly')} · ${L('pdf.quickEstimateNote')}</div>`;
+  const meta = `${L('pdf.quoteMeta', { number: d.number, revision: d.revision })} · ${esc(enumLabel(lang, 'QuoteStatus', d.status))}<br>${label(lang, 'pdf.generated', {}, { date: date(d.date) })}`;
+  return shell(d.company, tr(lang, 'pdf.quoteInternal'), meta, html, lang);
+}

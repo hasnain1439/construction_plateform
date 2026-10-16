@@ -898,6 +898,53 @@ Supply split: MATERIAL lines follow the project supply rules; for GREY_OWNER_FIN
 
 **Decisions.** Rulebook keys = the existing setting keys (no mapping table; mixes stored as the sand parts n of 1:n / 1:n:2n). The live estimate keeps its grey-structure `cost` (the contract-value suggestion still uses it) and adds the `boq` preview. Owner-supplied lines carry no money at all (Phase 1 valued them as `ownerSuppliedPaisa` in the live view, which stays). MEP rough-in lump sums are always contractor work. `materialId` on estimate lines is a snapshot reference without a foreign key (material deletes must not be blocked by old estimates). Estimate PDFs are REPORT attachments (no new enum value).
 
+## Quotes / sales pipeline (Step 12)
+
+`src/modules/sales/`: `quickMode.ts` (PURE quick-mode geometry + quote price, unit-tested in `tests/unit/quickMode.test.ts` with a hand-checked 10-marla example), `quote.compute.ts` (inputs → the Step 11 engine + BoQ with the company rulebook, price list and sub-contract rates → cost, price, margin, stages, quantities, specifications), `sales.service.ts` (quotes, revisions, status actions, Mark as Won → draft project, PDFs, insights), `sales.dto.ts` (field visibility), routes / schema / docs. Job: `src/jobs/quoteExpiry.ts`. Contract: `PHASE_2_3_CONTRACTS.md` → Step 12.
+
+**Model.** `Quote` (number `Q-YYYY-NNNN` per company from `TenantCounter`, client (inline new client allowed), title, site, status DRAFT / SENT / NEGOTIATION / WON / LOST / EXPIRED, `validUntil` = today + company `quoteValidityDays` (default 15), lost reason COMPETITOR_CHEAPER / CLIENT_POSTPONED / SELF_BUILD / OTHER + note, `wonProjectId` (no FK — the draft may be deleted; Mark as Won then makes a new one), the latest revision's price / per sq ft / covered area / contract type, `lastActivityAt`) + `QuoteRevision` (inputs with every company default filled in, the quick-mode `result` JSON, direct / overhead / contingency / cost / finishing allowance / computed price / price / per sq ft / margin in paisa, payment stages with amounts). Migration `20261104090000_sales_quotes` (RLS + grants, composite FKs).
+
+**Quick mode** — no room-by-room input: synthetic floors are laid out from the covered area and run through the SAME engine (`estimateQuantities`) and BoQ builder (`buildBoq`) as a project estimate. Assumptions (`GET /quotes/assumptions`, code constants pending civil-engineer review; candidates for the rulebook later):
+
+| Key | Value | Meaning |
+|---|---|---|
+| `quickMumtyPercent` | **10 %** | mumty = 10 % of one storey (part of the covered area) |
+| `quickRoomFillPercent` | **80 %** | rooms are 80 % of each floor (rest: walls, passages, stairs) |
+| `quickRoomSizeSqft` | **160** | dry rooms share the room area in ~160 sq ft rooms (12 ft wide) |
+| `quickSqftPerBath` / `quickBathSizeSqft` | **450** / **48** | one 6 × 8 ft bath per 450 sq ft of floor, at least one per above-ground floor |
+| `quickKitchensPerFloor` / `quickKitchenSizeSqft` | **1** / **110** | a 10 × 11 ft kitchen on every above-ground floor |
+| `quickDoorWidthFt` / `quickWindowSizeFt` | **3** / **4** | one 3 × 7 ft door per room (baths 2.5 ft), a 4 × 4 ft window per dry room / kitchen, a 2 × 1.5 ft ventilator per bath |
+| `quickGroundCeilingFt` / `quickUpperCeilingFt` / `quickMumtyCeilingFt` | **11** / **10** / **9** | ceilings (basement = its own height) |
+| `quickExcavationDepthFt` / `quickPlinthHeightFt` | **5** / **2** | foundation depth (+ basement height), plinth |
+| `quickPadSizeFt` / `quickStripWidthFt` | **5** / **3** | FRAMED: 5 × 5 ft × 18″ isolated pads on the engine's ~15 ft column grid; LOAD_BEARING: 3 ft brick strip footing |
+| `quickProjectMonths` | **12** | end date of the draft project made by Mark as Won |
+
+Storey area = covered ÷ (above-ground storeys + basement + mumty share). Worked example (10 marla, 3,950 sq ft, ground + first + mumty): storey 1,880.95 sq ft; mumty 188.10; per floor 1,504.76 sq ft of rooms = 4 baths (192) + 1 kitchen (110) + 8 rooms of 150.35 sq ft; framed → 20 pads.
+
+**Price** — cost = BoQ total (direct + site overheads + contingency). FULL: cost × (1 + finishing %) × (1 + margin %) → nearest Rs 1,000; GREY_OWNER_FINISHING: cost × (1 + margin %) → Rs 1,000; LABOR_ONLY: rate = cost × (1 + margin %) ÷ covered → nearest Rs 5, price = rate × covered. Margin / finishing default to the company settings. `finalPricePaisa` (agreed price) overrides; margin = price − cost − finishing allowance. Payment stages = the chosen (or default) payment template, amounts to the rupee, last stage absorbs rounding.
+
+**Status flow.** DRAFT → (send) SENT → (negotiation) NEGOTIATION → WON / LOST. SENT / NEGOTIATION past `validUntil` → EXPIRED (daily job `quote-expiry`, 01:00 PKT, idempotent, audited as SYSTEM); DRAFT never expires; a new revision re-opens an EXPIRED quote as DRAFT. WON / LOST are closed (`409 QUOTE_CLOSED`). Lost needs a reason (OTHER also a note → `400 LOST_NOTE_REQUIRED`). Follow-up = SENT with no activity for more than 5 days.
+
+**Mark as Won** (`sales.quote.approve` + `projects.project.create`) makes a DRAFT project with wizard tabs 1–4 done: client, site, contract type + value (labour-only: rate per sq ft) = the quote price, billing model + stages of the payment template (amounts recomputed), supply split (preset + the quote's overrides, contractor rows in the quote's quality category), plot, structure, basement, floors with the quick ceilings, covered area, margin / finishing % (only when they differ from the company default), `createdFromQuoteId`. Idempotent: a WON quote returns its project. Rooms are added in the wizard for the full Step 11 estimate.
+
+**PDFs.** Customer quotation (`GET /quotes/:id/pdf?variant=customer`, also made by `send`): letterhead, client, total price, rate per sq ft, scope (contract, plot, storeys, structure, covered area, work sections by name), material specifications per supply category (who supplies, quality, material names), payment schedule (100 %), validity and terms — the template is built only from those fields, so costs, overheads, contingency and margins can never appear (tested on the rendered HTML). Internal costing (`variant=internal`, `fields.rates`): cost by section, overheads, contingency, finishing allowance, price (`fields.contract`), margin (`fields.contract` + `fields.profit`).
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/quotes/assumptions` | `sales.quote.view` |
+| POST | `/quotes/preview` | `sales.quote.view` — live quick estimate, nothing saved |
+| GET | `/quotes?status=&search=&clientId=&followUp=` | `sales.quote.view` |
+| POST | `/quotes` | `sales.quote.create` (+ `clients.client.create` for `newClient`) |
+| GET / PATCH / DELETE | `/quotes/:id` | view / `sales.quote.edit` / `sales.quote.manage` (not WON) |
+| GET / POST | `/quotes/:id/revisions` | view / edit |
+| POST | `/quotes/:id/send` | `sales.quote.edit` + `fields.contract` — customer PDF + WhatsApp text |
+| POST | `/quotes/:id/negotiation`, `/quotes/:id/lost` | `sales.quote.edit` |
+| POST | `/quotes/:id/won` | `sales.quote.approve` + `projects.project.create` |
+| GET | `/quotes/:id/pdf?variant=customer\|internal` | view + `fields.contract` / `fields.rates` |
+| GET | `/quotes/insights?months=` | `sales.quote.view` — win rate, quotes per month, loss reasons, follow-ups; average rate quoted vs won + values with `fields.contract` |
+
+Every write is audited (`quote.create`, `quote.update`, `quote.revision`, `quote.send`, `quote.negotiation`, `quote.lost`, `quote.won` + `project.create`, `quote.expire`, `quote.delete`); the quote's audit rows are its activity list. Money visibility: price `fields.contract`, cost `fields.rates`, margin `fields.contract` + `fields.profit`; keys are left out without them. Seed: six Malik quotes (WON linked to DHA Phase 6, LOST, SENT needing follow-up, NEGOTIATION with two revisions, DRAFT labour-only, EXPIRED) — `prisma/seedSales.ts`.
+
 ## Procurement & Inventory
 
 `src/modules/inventory` (locations, stock ledger, costing, usage, counts), `src/modules/procurement` (purchase orders, purchases, returns, corrections, supplier ledger + payments) and `src/modules/dispatch` (dispatches, receiving, shortages, owner deliveries).
