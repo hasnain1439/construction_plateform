@@ -13,7 +13,7 @@ describe('clients', () => {
     const auth = await pm();
     const res = await api().get('/api/v1/clients?limit=4').set(auth);
     expect(res.status).toBe(200);
-    expect(res.body.meta).toMatchObject({ total: 6, limit: 4, totalPages: 2 });
+    expect(res.body.meta).toMatchObject({ total: 8, limit: 4, totalPages: 2 }); // 6 project owners + 2 quote prospects (Step 12 seed)
     expect(res.body.data[0]).toMatchObject({ name: 'Ahmed Raza', phone: '+923331234567', projectsCount: expect.any(Number) });
 
     const byPhone = await api().get('/api/v1/clients?search=0300-555').set(auth);

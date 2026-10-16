@@ -38,6 +38,7 @@ import * as eqp from '../src/modules/equipment/equipment.schema.js';
 import * as co from '../src/modules/closeout/closeout.schema.js';
 import { approveEstimateBody, generateEstimateBody, lineOverrideBody } from '../src/modules/estimate/estimate.schema.js';
 import { setOverridesBody } from '../src/modules/rulebook/rulebook.schema.js';
+import * as sales from '../src/modules/sales/sales.schema.js';
 import { createRulebookBody, updateParameterBody, updateRulebookBody } from '../src/modules/platform-admin/rulebook.schema.js';
 import * as sch from '../src/modules/schedule/schedule.schema.js';
 import { api } from './helpers.js';
@@ -74,6 +75,15 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/admin/rulebooks': createRulebookBody,
   'patch /api/v1/admin/rulebooks/{id}': updateRulebookBody,
   'patch /api/v1/admin/rulebooks/{id}/parameters/{key}': updateParameterBody,
+  // Step 12
+  'post /api/v1/quotes/preview': sales.previewBody,
+  'post /api/v1/quotes': sales.createQuoteBody,
+  'patch /api/v1/quotes/{id}': sales.updateQuoteBody,
+  'post /api/v1/quotes/{id}/revisions': sales.addRevisionBody,
+  'post /api/v1/quotes/{id}/send': sales.sendQuoteBody,
+  'post /api/v1/quotes/{id}/negotiation': sales.negotiationBody,
+  'post /api/v1/quotes/{id}/lost': sales.lostBody,
+  'post /api/v1/quotes/{id}/won': sales.wonBody,
   'post /api/v1/onboarding/checklist/dismiss': ob.dismissBody,
   'post /api/v1/opening-balances': ob.openingBody,
   'put /api/v1/projects/{id}/estimate/settings': estimateSettingsBody,
@@ -257,6 +267,7 @@ describe('API docs', () => {
       'Project Wizard',
       'Floors & Rooms',
       'Estimate',
+      'Sales',
       'Rulebook',
       'Schedule',
       'Stock',
@@ -294,7 +305,7 @@ describe('API docs', () => {
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(326); // +14: Step 13 schedule (8 /projects/{id}/schedule…, /projects/{id}/stoppages, 3 /milestones, 3 /stoppages), +16: Step 11 (9 estimate revision / shopping list paths, 3 company rulebook, 4 admin rulebook), +21: Step 16 equipment, +16: Step 17 closeout (drawings, snags, handover, retention), +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
+    expect(Object.keys(res.body.paths)).toHaveLength(337); // +11: Step 12 quotes (assumptions, preview, insights, list/create, detail, revisions, send, negotiation, lost, won, pdf), +14: Step 13 schedule (8 /projects/{id}/schedule…, /projects/{id}/stoppages, 3 /milestones, 3 /stoppages), +16: Step 11 (9 estimate revision / shopping list paths, 3 company rulebook, 4 admin rulebook), +21: Step 16 equipment, +16: Step 17 closeout (drawings, snags, handover, retention), +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

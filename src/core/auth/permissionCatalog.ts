@@ -59,6 +59,8 @@ export const PERMISSION_MODULES = {
   rulebook: { en: 'Estimation rulebook', roman: 'Estimate ke qawaid', urdu: 'تخمینے کے قواعد' },
   // Step 13
   schedule: { en: 'Schedule', roman: 'Schedule (kaam ka nizam)', urdu: 'شیڈول' },
+  // Step 12
+  sales: { en: 'Sales & quotes', roman: 'Sales aur quotes', urdu: 'سیلز اور کوٹیشن' },
 } as const satisfies Record<string, PermissionLabel>;
 
 export type PermissionModule = keyof typeof PERMISSION_MODULES;
@@ -96,6 +98,13 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   def('schedule.stoppage.create', L('Log stoppage days', 'Kaam band ke din likhna', 'کام بند کے دن لکھنا'), 'Log days the site could not work (rain, smog ban, holiday, owner hold, shortages) with a photo.', S),
   def('schedule.stoppage.approve', L('Approve stoppage days', 'Kaam band ke din manzoor karna', 'کام بند کے دن منظور کرنا'), 'Approve or reject stoppage days and decide who they are charged to (owner / excusable / contractor); approved days push the schedule.', S),
   def('rulebook.override.manage', L('Change company rulebook values', 'Company ke qawaid badalna', 'کمپنی کے قواعد بدلنا'), 'Set the company own values for rulebook parameters (within the safe range).'),
+
+  // ─── Step 12 · Sales / quotes ──────────────────────────────────────────────
+  def('sales.quote.view', L('View quotes', 'Quotes dekhna', 'کوٹیشن دیکھنا'), 'Quote pipeline, quote detail and revisions, quote PDFs, win / loss insights (price, cost and margin follow the data-visibility permissions).'),
+  def('sales.quote.create', L('Create quotes', 'Naya quote banana', 'نیا کوٹیشن بنانا'), 'Start a quote for a client (quick estimate from plot, covered area and floors).'),
+  def('sales.quote.edit', L('Work on quotes', 'Quote par kaam', 'کوٹیشن پر کام'), 'Change a quote, add a revision, send it to the client, record negotiation, mark it lost.'),
+  def('sales.quote.approve', L('Mark quotes won', 'Quote jeeta hua karna', 'کوٹیشن جیتا ہوا کرنا'), 'Mark a quote won: a draft project is made from it (also needs Create projects).'),
+  def('sales.quote.manage', L('Delete quotes', 'Quote delete karna', 'کوٹیشن ڈیلیٹ کرنا'), 'Delete a quote that was not won.'),
 
   // ─── Clients ───────────────────────────────────────────────────────────────
   def('clients.client.view', L('View clients', 'Clients dekhna', 'کلائنٹس دیکھنا'), 'Project owners (clients) list and detail.'),
@@ -334,6 +343,9 @@ const PM_KEYS = [
   'rulebook.override.view',
   'schedule.plan.manage',
   'schedule.stoppage.approve',
+  'sales.quote.view',
+  'sales.quote.create',
+  'sales.quote.edit',
   'clients.client.view',
   'clients.client.create',
   'clients.client.edit',
@@ -429,6 +441,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'projects.project.view',
       'projects.estimate.view',
       'schedule.plan.view',
+      'sales.quote.view',
       'clients.client.view',
       'labor.settlement.view',
       'labor.advance.view',

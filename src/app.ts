@@ -46,6 +46,7 @@ import { estimatesRouter, projectEstimateRouter } from './modules/estimate/estim
 import { rulebookRouter } from './modules/rulebook/rulebook.routes.js';
 import { equipmentRouter, projectEquipmentRouter } from './modules/equipment/equipment.routes.js'; // Step 16
 import { milestonesRouter, projectScheduleRouter, stoppagesRouter } from './modules/schedule/schedule.routes.js';
+import { quotesRouter } from './modules/sales/sales.routes.js';
 import { dispatchesRouter, projectDispatchRouter, shortagesRouter } from './modules/dispatch/dispatch.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import {
@@ -213,6 +214,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/rulebook', rulebookRouter); // Step 11: company estimation rulebook (per-route auth)
   mount('/milestones', milestonesRouter); // Step 13: milestone detail / edit / progress (per-route auth)
   mount('/stoppages', stoppagesRouter); // Step 13: stoppage days (per-route auth)
+  mount('/quotes', quotesRouter); // Step 12: quotes / sales pipeline (per-route auth)
   mount('/openings', openingsRouter);
   mount('/onboarding', onboardingRouter);
   mount('/imports', importsRouter);

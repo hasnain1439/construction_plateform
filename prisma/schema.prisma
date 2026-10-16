@@ -386,6 +386,9 @@ model Tenant {
   scheduleBaselines      ScheduleBaseline[]
   schedulePlanVersions   SchedulePlanVersion[]
   stoppageDays           StoppageDay[]
+  // Step 12
+  quotes                 Quote[]
+  quoteRevisions         QuoteRevision[]
   stockCounts            StockCount[]
   stockCountItems        StockCountItem[]
   projectWorkers         ProjectWorker[]
@@ -632,6 +635,9 @@ model User {
   schedulePlanVersions       SchedulePlanVersion[]     @relation("SchedulePlanVersionBy")
   stoppagesReported          StoppageDay[]             @relation("StoppageReportedBy")
   stoppagesDecided           StoppageDay[]             @relation("StoppageDecidedBy")
+  // Step 12 · quotes
+  quotesCreated              Quote[]                   @relation("QuoteCreatedBy")
+  quoteRevisions             QuoteRevision[]           @relation("QuoteRevisionCreatedBy")
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -1325,6 +1331,7 @@ model Client {
   projects    Project[]
   invoices    Invoice[]
   payments    ClientPayment[]
+  quotes      Quote[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -4058,4 +4065,106 @@ model StoppageDay {
   @@unique([tenantId, id])
   @@unique([tenantId, clientId])
   @@index([tenantId, projectId, status])
+}
+
+// ─── Step 12 · Quotations / sales ───────────────────────────────────────────
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  NEGOTIATION
+  WON
+  LOST
+  EXPIRED
+}
+
+enum QuoteLostReason {
+  COMPETITOR_CHEAPER
+  CLIENT_POSTPONED
+  SELF_BUILD
+  OTHER
+}
+
+/// A price offer to a client (Q-2026-0001). The latest revision's price / area are copied here for
+/// the pipeline. wonProjectId has no FK on purpose (the DRAFT project may be deleted; Mark as Won
+/// then creates a new one).
+model Quote {
+  id              String           @id @default(uuid(7)) @db.Uuid
+  tenantId        String           @db.Uuid
+  number          String
+  clientId        String           @db.Uuid
+  title           String
+  siteAddress     String?
+  city            String?
+  status          QuoteStatus      @default(DRAFT)
+  validUntil      DateTime         @db.Date
+  notes           String?
+  /// Latest revision number.
+  revision        Int              @default(1)
+  contractType    ContractType
+  coveredAreaSqft Decimal          @db.Decimal(10, 2)
+  /// Final price of the latest revision (paisa).
+  pricePaisa      BigInt
+  perSqftPaisa    BigInt?
+  sentAt          DateTime?        @db.Timestamptz(3)
+  /// Last change by a user (follow-up list: SENT with no activity for more than 5 days).
+  lastActivityAt  DateTime         @default(now()) @db.Timestamptz(3)
+  wonAt           DateTime?        @db.Timestamptz(3)
+  wonProjectId    String?          @db.Uuid
+  lostAt          DateTime?        @db.Timestamptz(3)
+  lostReason      QuoteLostReason?
+  lostNote        String?
+  expiredAt       DateTime?        @db.Timestamptz(3)
+  createdById     String?          @db.Uuid
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client          Client           @relation(fields: [tenantId, clientId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy       User?            @relation("QuoteCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  revisions       QuoteRevision[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, number])
+  @@index([tenantId, status])
+  @@index([tenantId, clientId])
+  @@index([tenantId, createdAt])
+}
+
+/// One priced version of a quote: the inputs, the quick-mode engine result (sections, quantities,
+/// specifications, warnings), the price and the payment schedule — frozen when saved.
+model QuoteRevision {
+  id                        String       @id @default(uuid(7)) @db.Uuid
+  tenantId                  String       @db.Uuid
+  quoteId                   String       @db.Uuid
+  revision                  Int
+  /// QuoteInputs (src/modules/sales/sales.schema.ts) with the company defaults filled in.
+  inputs                    Json
+  /// { basis, quantities, sections, specifications, warnings, rulebook } of the quick-mode estimate.
+  result                    Json
+  /// [{ label, percent, isRetention, amountPaisa }] — sums to 100 %.
+  paymentStages             Json
+  paymentTemplateId         String?      @db.Uuid
+  paymentTemplateName       String?
+  contractType              ContractType
+  coveredAreaSqft           Decimal      @db.Decimal(10, 2)
+  directCostPaisa           BigInt
+  overheadPaisa             BigInt
+  contingencyPaisa          BigInt
+  costPaisa                 BigInt
+  finishingAllowancePaisa   BigInt       @default(0)
+  computedPricePaisa        BigInt?
+  pricePaisa                BigInt
+  perSqftPaisa              BigInt?
+  marginPercent             Decimal      @db.Decimal(5, 2)
+  finishingAllowancePercent Decimal      @default(0) @db.Decimal(5, 2)
+  marginPaisa               BigInt
+  note                      String?
+  createdById               String?      @db.Uuid
+  createdAt                 DateTime     @default(now()) @db.Timestamptz(3)
+  tenant                    Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  quote                     Quote        @relation(fields: [tenantId, quoteId], references: [tenantId, id], onDelete: Cascade)
+  createdBy                 User?        @relation("QuoteRevisionCreatedBy", fields: [tenantId, createdById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, quoteId, revision])
 }

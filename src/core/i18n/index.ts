@@ -61,7 +61,11 @@ export type EnumName =
   | 'PayeeKind'
   | 'CostBucket'
   | 'ExpenseCategory'
-  | 'EstimateStatus';
+  | 'EstimateStatus'
+  // Step 12
+  | 'QuoteStatus'
+  | 'ContractType'
+  | 'StructureType';
 
 /** Label of an enum value in `lang`; an unknown value comes back as it is. */
 export function enumLabel(lang: Lang, name: EnumName, value: string | null | undefined): string {

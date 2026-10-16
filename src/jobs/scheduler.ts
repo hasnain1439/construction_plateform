@@ -8,6 +8,7 @@ import { runMissingLogCheck } from './missingLogs.js';
 import { runSyncRetention } from './syncRetention.js';
 import { runSubscriptionLifecycle } from './subscriptionLifecycle.js';
 import { runRetentionReminders } from './retentionReminders.js';
+import { runQuoteExpiry } from './quoteExpiry.js';
 
 /** Karachi is UTC+5 all year (no DST). */
 const PKT_OFFSET_MS = 5 * 3_600_000;
@@ -116,6 +117,16 @@ export async function runRetentionJob(): Promise<void> {
   }
 }
 
+/** Daily 01:00 PKT: SENT / NEGOTIATION quotes past their validity → EXPIRED (Step 12). */
+export async function runQuoteExpiryJob(): Promise<void> {
+  try {
+    const result = await runExclusive('quote-expiry', () => trackJobRun('quote-expiry', () => runQuoteExpiry()));
+    if (result) logger.info({ job: 'quote-expiry', checked: result.checked, expired: result.expired.length }, 'quote expiry finished');
+  } catch (err) {
+    logger.error({ err, job: 'quote-expiry' }, 'quote expiry failed');
+  }
+}
+
 const timers: NodeJS.Timeout[] = [];
 
 /** On startup + daily at 02:00 Asia/Karachi. Disabled in tests. */
@@ -141,6 +152,10 @@ export function startScheduledJobs(): void {
     timers.push(setTimeout(() => void runRetentionJob().finally(scheduleRetentionReminders), msUntilNextPkt(2) + 45 * 60_000).unref());
   };
   scheduleRetentionReminders();
+  const scheduleQuoteExpiry = () => {
+    timers.push(setTimeout(() => void runQuoteExpiryJob().finally(scheduleQuoteExpiry), msUntilNextPkt(1)).unref());
+  };
+  scheduleQuoteExpiry();
   const scheduleNext = () => {
     const wait = msUntilNextPkt(2);
     timers.push(
