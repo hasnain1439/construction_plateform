@@ -5,6 +5,8 @@
  * `extends` starts from another demo snapshot instead of the base seed.
  */
 import { seedMalikBilling } from '../../prisma/seedBilling.js';
+import { seedMalikChangeOrders } from '../../prisma/seedChangeOrders.js';
+import { seedMalikCloseout } from '../../prisma/seedCloseout.js';
 import { seedMalikControl } from '../../prisma/seedControl.js';
 import { seedMalikEquipment } from '../../prisma/seedEquipment.js';
 import { seedMalikInventory } from '../../prisma/seedInventory.js';
@@ -41,6 +43,17 @@ export const DEMO_SEEDS = {
     extends: 'malik_demo',
     build: async (s: Seeded) => {
       await seedMalikControl(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, rafaqatId: s.users.rafaqatMalik.id, dhaProjectId: s.projects.dha.id });
+    },
+  },
+  /** Step 18 reports: the control demo + equipment & shuttering, closeout (snags) and change orders — every Phase 2 / 3 module has data. */
+  malik_reports: {
+    extends: 'malik_control',
+    build: async (s: Seeded) => {
+      const base = { tenantId: s.malik.id, ownerId: s.users.khalid.id, bilalId: s.users.bilal.id, rafaqatId: s.users.rafaqatMalik.id, projects: s.projects };
+      await seedMalikEquipment(prismaAdmin, base);
+      await seedMalikShuttering(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, projects: s.projects });
+      await seedMalikCloseout(prismaAdmin, base);
+      await seedMalikChangeOrders(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, bilalId: s.users.bilal.id, rafaqatId: s.users.rafaqatMalik.id, dhaProjectId: s.projects.dha.id });
     },
   },
   /** Step 16: Malik & Sons equipment & shuttering on the base seed (no stock / labour). */

@@ -33,9 +33,33 @@ export interface Report {
   notes?: string[];
   /** "Total" in the file language (set by localizeReport). */
   totalLabel?: string;
+  /** Step 18: extra JSON for the screens (charts); never in the files. */
+  extra?: Record<string, unknown>;
 }
 
 // ─── Language of the files ──────────────────────────────────────────────────
+
+/**
+ * Step 18: enum cells by column key → `<prefix>.<VALUE>` in the catalogue (statuses, types,
+ * categories, reasons, buckets, stages).
+ */
+const CELL_ENUM: Record<string, string> = {
+  coStatus: 'report.v.coStatus',
+  coType: 'pdf.changeOrderType',
+  proofType: 'pdf.proofType',
+  snagStatus: 'report.v.snagStatus',
+  milestoneStatus: 'report.v.milestoneStatus',
+  stoppageStatus: 'report.v.stoppageStatus',
+  delayCategory: 'report.v.delayCategory',
+  reason: 'report.v.reason',
+  bucket: 'report.v.bucket',
+  varianceStatus: 'report.v.varianceStatus',
+  category: 'report.v.category',
+  assigneeKind: 'report.v.assigneeKind',
+  stage: 'estimate.stage',
+  progressBasis: 'report.v.progressBasis',
+  projectionBasis: 'report.v.projectionBasis',
+};
 
 /** Columns whose label differs from the shared `report.col.<key>` one. */
 const COLUMN_KEY: Record<string, string> = { 'receivables-ageing:project': 'report.col.code', 'material-audit:value': 'report.col.stockValue' };
@@ -66,6 +90,11 @@ function localCell(lang: Lang, key: string, v: Cell): Cell {
   if (typeof v !== 'string') return v;
   if (key === 'status') return enumLabel(lang, 'ProjectStatus', v);
   if (key === 'unit') return unitLabel(lang, v);
+  const prefix = CELL_ENUM[key];
+  if (prefix) {
+    const k = `${prefix}.${v}`;
+    return hasKey(k) ? tr(lang, k) : v;
+  }
   const k = CELL_KEY[v];
   return (key === 'kind' || key === 'location') && k && hasKey(k) ? tr(lang, k) : v;
 }
@@ -149,7 +178,7 @@ export async function renderReport(report: Report, format: Exclude<ReportFormat,
 export { letterhead };
 
 /** Stores the file (attachment kind REPORT) and returns a signed link. */
-export async function storeReport(tx: Tx, a: { tenantId: string; userId: string }, r: Report, format: Exclude<ReportFormat, 'json'>, buffer: Buffer) {
+export async function storeReport(tx: Tx, a: { tenantId: string; userId: string }, r: Pick<Report, 'name' | 'generatedAt'>, format: Exclude<ReportFormat, 'json'>, buffer: Buffer) {
   const id = uuidv7();
   const now = new Date();
   const fileName = `${r.name}-${r.generatedAt.slice(0, 10)}.${format}`;

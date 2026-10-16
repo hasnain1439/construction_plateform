@@ -285,6 +285,15 @@ const NEW_ROUTES: Snapshot = {
   'POST /api/v1/control/alerts/run': owner(200),
   'GET /api/v1/control/settings': office(200),
   'PUT /api/v1/control/settings': owner(400),
+  // Step 18 · reports: finance.reports.view + the module key (control / changeorder / equipment / closeout.snag view) — PM template, never the Munshi
+  'GET /api/v1/reports/delay-analysis': office(200),
+  'GET /api/v1/reports/variance': office(200),
+  'GET /api/v1/reports/change-orders': office(200),
+  'GET /api/v1/reports/equipment-utilisation': office(200),
+  'GET /api/v1/reports/snags': office(200),
+  'GET /api/v1/reports/delay-analysis/:projectId': office(404),
+  'GET /api/v1/reports/variance/:projectId': office(404),
+  'GET /api/v1/reports/snags/:projectId': office(404),
 };
 
 function all(status: Outcome): Record<Persona, Outcome> {

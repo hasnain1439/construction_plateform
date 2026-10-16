@@ -30,7 +30,10 @@ import { supplierBalances } from '../procurement/supplierLedger.service.js';
 import { findProjectFor } from '../projects/access.js';
 import { letterhead, renderReport, storeReport, type Cell, type Report, type ReportColumn } from './reports.export.js';
 import { documentLang } from '../billing/documents.js';
-import type { ReportName, ReportQuery } from './reports.schema.js';
+import { STEP18_REPORT_NAMES, STEP18_REPORT_PERM, type BookName, type BookQuery, type ReportName, type ReportQuery, type Step18ReportName } from './reports.schema.js';
+import { renderBook, type ReportBook } from './reports.book.js';
+import { buildBookFor, changeOrderRegister, delayAnalysisReport, equipmentUtilisation, snagSummary, varianceReport } from './step18.service.js';
+import type { Lang } from '../../core/i18n/index.js';
 
 const NON_DRAFT = ['ACTIVE', 'CLOSEOUT', 'HANDED_OVER', 'CLOSED'] as const;
 const BUCKET_LABEL: Record<(typeof PNL_BUCKETS)[number], string> = {
@@ -55,6 +58,8 @@ interface Ctx {
   a: ReadActor;
   q: ReportQuery;
   projectName: string;
+  /** Language of text the builders write into cells (Step 18). */
+  lang: Lang;
 }
 
 /** Company-wide money reports (supplier ageing, receivables ageing, stock valuation). */
@@ -532,23 +537,57 @@ const BUILDERS: Record<ReportName, (c: Ctx) => Promise<Omit<Report, 'generatedAt
   'supplier-ageing': supplierAgeing,
   'receivables-ageing': receivablesAgeing,
   'stock-valuation': stockValuation,
+  // Step 18
+  'delay-analysis': delayAnalysisReport,
+  variance: varianceReport,
+  'change-orders': changeOrderRegister,
+  'equipment-utilisation': equipmentUtilisation,
+  snags: snagSummary,
 };
 
-export async function buildReport(tx: Tx, a: ReadActor, name: ReportName, q: ReportQuery): Promise<Report> {
-  const project = q.projectId ? await findProjectFor(tx, a, q.projectId) : null;
-  const built = await BUILDERS[name]({ tx, a, q, projectName: project ? `${project.code} ${project.name}` : 'All projects' });
-  return { ...built, generatedAt: new Date().toISOString(), filters: { projectId: q.projectId ?? null, from: q.from ?? null, to: q.to ?? null } };
+const isStep18 = (name: ReportName): name is Step18ReportName => (STEP18_REPORT_NAMES as readonly string[]).includes(name);
+
+export async function buildReport(tx: Tx, a: ReadActor, name: ReportName, q: ReportQuery, lang: Lang = 'en'): Promise<Report> {
+  // Step 18 reports: the module key (403) and its scope for the project filter (404).
+  const perm = isStep18(name) ? STEP18_REPORT_PERM[name] : undefined;
+  if (perm) assertPerm(perm, a);
+  const project = q.projectId ? await findProjectFor(tx, a, q.projectId, perm) : null;
+  const built = await BUILDERS[name]({ tx, a, q, lang, projectName: project ? `${project.code} ${project.name}` : 'All projects' });
+  const extra = { ...(q.status ? { status: q.status } : {}), ...(q.type ? { type: q.type } : {}), ...(q.category ? { category: q.category } : {}), ...(q.group ? { group: q.group } : {}) };
+  return { ...built, generatedAt: new Date().toISOString(), filters: { projectId: q.projectId ?? null, from: q.from ?? null, to: q.to ?? null, ...extra } };
 }
 
 export async function runReport(name: ReportName, q: ReportQuery) {
   const a = readActor();
   assertPerm('finance.reports.view', a, 'Reports are for the office');
-  const { report, company, lang } = await withTenant(a.tenantId, async (tx) => ({
-    report: await buildReport(tx, a, name, q),
-    company: q.format === 'pdf' ? await letterhead(tx, a.tenantId) : null,
-    lang: q.format === 'json' ? ('en' as const) : await documentLang(tx, a.userId, q.lang),
-  }));
+  const { report, company, lang } = await withTenant(
+    a.tenantId,
+    async (tx) => {
+      const lang = q.format === 'json' ? ('en' as const) : await documentLang(tx, a.userId, q.lang);
+      return { lang, report: await buildReport(tx, a, name, q, lang), company: q.format === 'pdf' ? await letterhead(tx, a.tenantId) : null };
+    },
+    { timeout: 60_000 },
+  );
   if (q.format === 'json') return report;
   const buffer = await renderReport(report, q.format, company, lang);
   return withTenant(a.tenantId, (tx) => storeReport(tx, a, report, q.format as Exclude<ReportQuery['format'], 'json'>, buffer));
+}
+
+/** Step 18 · one project's report book (delay analysis, variance, snags) as JSON or a file. */
+export async function runBook(name: BookName, projectId: string, q: BookQuery) {
+  const a = readActor();
+  assertPerm('finance.reports.view', a, 'Reports are for the office');
+  const { book, company, lang } = await withTenant(
+    a.tenantId,
+    async (tx) => {
+      const lang = q.format === 'json' ? ('en' as const) : await documentLang(tx, a.userId, q.lang);
+      const built = await buildBookFor({ tx, a, q: { format: q.format, from: q.from, to: q.to }, lang }, name, projectId, q);
+      const book: ReportBook = { ...built, generatedAt: new Date().toISOString(), filters: { projectId, from: q.from ?? null, to: q.to ?? null } };
+      return { lang, book, company: q.format === 'pdf' ? await letterhead(tx, a.tenantId) : null };
+    },
+    { timeout: 60_000 },
+  );
+  if (q.format === 'json') return book;
+  const buffer = await renderBook(book, q.format, company, lang);
+  return withTenant(a.tenantId, (tx) => storeReport(tx, a, book, q.format as Exclude<BookQuery['format'], 'json'>, buffer));
 }
