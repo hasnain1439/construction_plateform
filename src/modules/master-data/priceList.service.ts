@@ -14,6 +14,7 @@ import type {
   UpdateCategoryInput,
 } from './master-data.schema.js';
 import { audit, conflictOn, current, iso, paisa } from './master-data.shared.js';
+import { markRatesOutdated } from '../estimate/outdated.js';
 
 const categoryNotFound = () => new NotFound('CATEGORY_NOT_FOUND', 'Quality category not found');
 const categoryExists = conflictOn('CATEGORY_EXISTS', 'A quality category with this name or code already exists');
@@ -179,6 +180,8 @@ export async function setPriceList(input: SetPriceListInput) {
       return [{ tenantId, materialId: r.materialId, categoryId: category.id, ratePaisa: r.ratePaisa, specification, effectiveFrom: now, createdById: userId }];
     });
     if (rows.length) await tx.materialRate.createMany({ data: rows });
+    // Step 11: DRAFT estimates that use these materials now show "rates outdated"
+    await markRatesOutdated(tx, rows.map((r) => r.materialId));
     const result = { categoryId: category.id, changed: rows.length, unchanged: input.rates.length - rows.length };
     await audit(tx, 'price_list.update', 'QualityCategory', category.id, { category: category.code, changed: result.changed, unchanged: result.unchanged });
     return result;
@@ -211,6 +214,7 @@ export async function bulkPercent(input: BulkPercentInput) {
       return [{ tenantId, materialId: r.materialId, categoryId: category.id, ratePaisa: next, specification: r.specification, effectiveFrom: now, createdById: userId }];
     });
     if (rows.length) await tx.materialRate.createMany({ data: rows });
+    await markRatesOutdated(tx, rows.map((r) => r.materialId));
     const result = { categoryId: category.id, percent: input.percent, changed: rows.length, unchanged: rates.length - rows.length };
     await audit(tx, 'price_list.bulk_percent', 'QualityCategory', category.id, {
       category: category.code,

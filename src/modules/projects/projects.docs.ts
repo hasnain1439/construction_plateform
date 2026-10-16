@@ -250,10 +250,10 @@ export function registerProjectsDocs(): void {
     summary: 'Activate a draft',
     description:
       'THEKEDAR, PM. Only DRAFT; the review must have no errors (400 PROJECT_NOT_READY with `details.errors`); the plan’s active-project ' +
-      'limit applies (402). Sets ACTIVE + `activatedAt`. `nextStep: "ESTIMATE"` (estimate engine: Phase 2).',
+      'limit applies (402). Sets ACTIVE + `activatedAt`. `nextStep: "GENERATE_ESTIMATE"` — the client offers to generate the first estimate revision (POST /projects/{id}/estimates).',
     request: { params: idParam('Project') },
     responses: {
-      ...resp(200, 'Activated', { ...detailExample, nextStep: 'ESTIMATE' }),
+      ...resp(200, 'Activated', { ...detailExample, nextStep: 'GENERATE_ESTIMATE' }),
       ...errors({ 400: ['PROJECT_NOT_READY'], ...AUTH, 402: ['PLAN_LIMIT_REACHED'], 403: WRITE_403, 404: ['PROJECT_NOT_FOUND'], 409: ['PROJECT_NOT_DRAFT'] }),
     },
   });

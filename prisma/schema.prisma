@@ -372,6 +372,10 @@ model Tenant {
   ownerDeliveryItems     OwnerDeliveryItem[]
   materialUsages         MaterialUsage[]
   materialUsageItems     MaterialUsageItem[]
+  // Step 11
+  rulebookOverrides      CompanyRulebookOverride[]
+  estimates              Estimate[]
+  estimateLines          EstimateLine[]
   stockCounts            StockCount[]
   stockCountItems        StockCountItem[]
   projectWorkers         ProjectWorker[]
@@ -531,8 +535,8 @@ model SubscriptionPayment {
 }
 
 model User {
-  id                         String                   @id @default(uuid(7)) @db.Uuid
-  tenantId                   String                   @db.Uuid
+  id                         String                    @id @default(uuid(7)) @db.Uuid
+  tenantId                   String                    @db.Uuid
   name                       String
   /// E.164, e.g. +923001234567
   phone                      String
@@ -540,68 +544,73 @@ model User {
   /// null for OTP-only users (typically MUNSHI)
   passwordHash               String?
   role                       UserRole
-  status                     UserStatus               @default(ACTIVE)
-  language                   Language                 @default(ROMAN_URDU)
-  photoAttachmentId          String?                  @db.Uuid
+  status                     UserStatus                @default(ACTIVE)
+  language                   Language                  @default(ROMAN_URDU)
+  photoAttachmentId          String?                   @db.Uuid
   /// Deprecated: kept in sync for old clients. Financial access is the FINANCIAL_BUNDLE of permission overrides.
-  canSeeFinancials           Boolean                  @default(false)
+  canSeeFinancials           Boolean                   @default(false)
   /// Permission role template (null for THEKEDAR = every permission; null for others = the system template of their role).
-  roleId                     String?                  @db.Uuid
+  roleId                     String?                   @db.Uuid
   /// Bumped on every change of the user's role / overrides — the permission cache key.
-  permVersion                Int                      @default(0)
+  permVersion                Int                       @default(0)
   /// Hidden per-company "Super Admin (Platform)" user that records what the platform super admin does inside the company. Never signs in (INACTIVE), never listed or counted.
-  isSystem                   Boolean                  @default(false)
-  failedLoginCount           Int                      @default(0)
-  lockedUntil                DateTime?                @db.Timestamptz(3)
-  passwordChangedAt          DateTime?                @db.Timestamptz(3)
-  lastLoginAt                DateTime?                @db.Timestamptz(3)
-  deactivatedAt              DateTime?                @db.Timestamptz(3)
-  createdAt                  DateTime                 @default(now()) @db.Timestamptz(3)
-  updatedAt                  DateTime                 @updatedAt @db.Timestamptz(3)
-  tenant                     Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  photo                      Attachment?              @relation("UserPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  isSystem                   Boolean                   @default(false)
+  failedLoginCount           Int                       @default(0)
+  lockedUntil                DateTime?                 @db.Timestamptz(3)
+  passwordChangedAt          DateTime?                 @db.Timestamptz(3)
+  lastLoginAt                DateTime?                 @db.Timestamptz(3)
+  deactivatedAt              DateTime?                 @db.Timestamptz(3)
+  createdAt                  DateTime                  @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime                  @updatedAt @db.Timestamptz(3)
+  tenant                     Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  photo                      Attachment?               @relation("UserPhoto", fields: [tenantId, photoAttachmentId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
   projectAccess              UserProjectAccess[]
   devices                    Device[]
   sessions                   Session[]
-  acceptedInvites            Invitation[]             @relation("InvitationAcceptedUser")
-  sentInvites                Invitation[]             @relation("InvitationInvitedBy")
-  uploads                    Attachment[]             @relation("AttachmentUploadedBy")
-  submittedPayments          SubscriptionPayment[]    @relation("PaymentSubmittedBy")
-  materialsCreated           Material[]               @relation("MaterialCreatedBy")
-  materialRatesCreated       MaterialRate[]           @relation("MaterialRateCreatedBy")
-  supplierRatesCreated       SupplierRate[]           @relation("SupplierRateCreatedBy")
-  workersCreated             Worker[]                 @relation("WorkerCreatedBy")
-  clientsCreated             Client[]                 @relation("ClientCreatedBy")
-  projectsCreated            Project[]                @relation("ProjectCreatedBy")
-  stockMovements             StockMovement[]          @relation("StockMovementCreatedBy")
-  purchaseOrders             PurchaseOrder[]          @relation("PurchaseOrderCreatedBy")
-  purchasesCreated           Purchase[]               @relation("PurchaseCreatedBy")
-  purchasesReceived          Purchase[]               @relation("PurchaseReceivedBy")
-  purchaseCorrections        PurchaseCorrection[]     @relation("PurchaseCorrectionCreatedBy")
-  purchaseReturns            PurchaseReturn[]         @relation("PurchaseReturnCreatedBy")
-  supplierLedger             SupplierLedgerEntry[]    @relation("SupplierLedgerCreatedBy")
-  supplierPayments           SupplierPayment[]        @relation("SupplierPaymentCreatedBy")
-  dispatchesCreated          Dispatch[]               @relation("DispatchCreatedBy")
-  dispatchesReceived         Dispatch[]               @relation("DispatchReceivedBy")
-  shortagesResolved          Shortage[]               @relation("ShortageResolvedBy")
-  ownerDeliveries            OwnerDelivery[]          @relation("OwnerDeliveryCreatedBy")
-  materialUsages             MaterialUsage[]          @relation("MaterialUsageCreatedBy")
-  stockCounts                StockCount[]             @relation("StockCountCreatedBy")
-  cashAccounts               CashAccount[]            @relation("CashAccountHolder")
-  notifications              Notification[]           @relation("NotificationRecipient")
-  dailyLogs                  DailyLog[]               @relation("DailyLogAuthor")
-  permissionRole             Role?                    @relation("UserPermissionRole", fields: [tenantId, roleId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
-  permissionOverrides        UserPermissionOverride[] @relation("UserPermissionOverrides")
+  acceptedInvites            Invitation[]              @relation("InvitationAcceptedUser")
+  sentInvites                Invitation[]              @relation("InvitationInvitedBy")
+  uploads                    Attachment[]              @relation("AttachmentUploadedBy")
+  submittedPayments          SubscriptionPayment[]     @relation("PaymentSubmittedBy")
+  materialsCreated           Material[]                @relation("MaterialCreatedBy")
+  materialRatesCreated       MaterialRate[]            @relation("MaterialRateCreatedBy")
+  supplierRatesCreated       SupplierRate[]            @relation("SupplierRateCreatedBy")
+  workersCreated             Worker[]                  @relation("WorkerCreatedBy")
+  clientsCreated             Client[]                  @relation("ClientCreatedBy")
+  projectsCreated            Project[]                 @relation("ProjectCreatedBy")
+  stockMovements             StockMovement[]           @relation("StockMovementCreatedBy")
+  purchaseOrders             PurchaseOrder[]           @relation("PurchaseOrderCreatedBy")
+  purchasesCreated           Purchase[]                @relation("PurchaseCreatedBy")
+  purchasesReceived          Purchase[]                @relation("PurchaseReceivedBy")
+  purchaseCorrections        PurchaseCorrection[]      @relation("PurchaseCorrectionCreatedBy")
+  purchaseReturns            PurchaseReturn[]          @relation("PurchaseReturnCreatedBy")
+  supplierLedger             SupplierLedgerEntry[]     @relation("SupplierLedgerCreatedBy")
+  supplierPayments           SupplierPayment[]         @relation("SupplierPaymentCreatedBy")
+  dispatchesCreated          Dispatch[]                @relation("DispatchCreatedBy")
+  dispatchesReceived         Dispatch[]                @relation("DispatchReceivedBy")
+  shortagesResolved          Shortage[]                @relation("ShortageResolvedBy")
+  ownerDeliveries            OwnerDelivery[]           @relation("OwnerDeliveryCreatedBy")
+  materialUsages             MaterialUsage[]           @relation("MaterialUsageCreatedBy")
+  stockCounts                StockCount[]              @relation("StockCountCreatedBy")
+  cashAccounts               CashAccount[]             @relation("CashAccountHolder")
+  notifications              Notification[]            @relation("NotificationRecipient")
+  dailyLogs                  DailyLog[]                @relation("DailyLogAuthor")
+  permissionRole             Role?                     @relation("UserPermissionRole", fields: [tenantId, roleId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  permissionOverrides        UserPermissionOverride[]  @relation("UserPermissionOverrides")
   /// Permission roles of the member (several allowed; effective = union + overrides). roleId = the first.
-  roleAssignments            UserRoleAssignment[]     @relation("UserRoleAssignments")
+  roleAssignments            UserRoleAssignment[]      @relation("UserRoleAssignments")
   // Step 16 · equipment
-  equipmentMovements         EquipmentMovement[]      @relation("EquipmentMovementCreatedBy")
-  equipmentTransfersCreated  EquipmentTransfer[]      @relation("EquipmentTransferCreatedBy")
-  equipmentTransfersReceived EquipmentTransfer[]      @relation("EquipmentTransferReceivedBy")
-  equipmentRentals           EquipmentRental[]        @relation("EquipmentRentalCreatedBy")
-  equipmentRentalReturns     EquipmentRentalReturn[]  @relation("EquipmentRentalReturnCreatedBy")
-  equipmentLossesReported    EquipmentLoss[]          @relation("EquipmentLossReportedBy")
-  equipmentLossesCharged     EquipmentLoss[]          @relation("EquipmentLossChargedBy")
+  equipmentMovements         EquipmentMovement[]       @relation("EquipmentMovementCreatedBy")
+  equipmentTransfersCreated  EquipmentTransfer[]       @relation("EquipmentTransferCreatedBy")
+  equipmentTransfersReceived EquipmentTransfer[]       @relation("EquipmentTransferReceivedBy")
+  equipmentRentals           EquipmentRental[]         @relation("EquipmentRentalCreatedBy")
+  equipmentRentalReturns     EquipmentRentalReturn[]   @relation("EquipmentRentalReturnCreatedBy")
+  equipmentLossesReported    EquipmentLoss[]           @relation("EquipmentLossReportedBy")
+  equipmentLossesCharged     EquipmentLoss[]           @relation("EquipmentLossChargedBy")
+  // Step 11 · estimates
+  estimatesGenerated         Estimate[]                @relation("EstimateGeneratedBy")
+  estimatesApproved          Estimate[]                @relation("EstimateApprovedBy")
+  estimateLineEdits          EstimateLine[]            @relation("EstimateLineOverriddenBy")
+  rulebookOverrides          CompanyRulebookOverride[] @relation("RulebookOverrideUpdatedBy")
 
   @@unique([tenantId, id])
   @@unique([tenantId, phone])
@@ -705,6 +714,8 @@ model Project {
   drawings                  Drawing[]
   snags                     Snag[]
   handover                  ProjectHandover?
+  // Step 11
+  estimates                 Estimate[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
@@ -3574,4 +3585,171 @@ model HandoverItem {
 
   @@unique([tenantId, id])
   @@unique([handoverId, key])
+}
+
+// ─── Step 11 · Estimation rulebook + saved estimates ─────────────────────────
+
+enum RulebookStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum RulebookReviewStatus {
+  PENDING_ENGINEER_REVIEW
+  REVIEWED
+}
+
+enum EstimateStatus {
+  DRAFT
+  APPROVED
+  SUPERSEDED
+}
+
+enum EstimateLineKind {
+  MATERIAL
+  LABOUR
+  LUMP_SUM
+  PERCENT
+}
+
+/// Platform estimation rulebook, versioned per region (no tenant; companies read, platform admins write).
+model Rulebook {
+  id          String              @id @default(uuid(7)) @db.Uuid
+  region      Region
+  version     Int
+  status      RulebookStatus      @default(DRAFT)
+  publishedAt DateTime?           @db.Timestamptz(3)
+  notes       String?
+  createdAt   DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @db.Timestamptz(3)
+  parameters  RulebookParameter[]
+  estimates   Estimate[]
+
+  @@unique([region, version])
+  @@index([region, status, version(sort: Desc)])
+}
+
+/// One rule-of-thumb number of a rulebook version (keys defined in src/modules/estimate/rulebookDefs.ts).
+model RulebookParameter {
+  id           String               @id @default(uuid(7)) @db.Uuid
+  rulebookId   String               @db.Uuid
+  key          String
+  group        String
+  label        String
+  labelRoman   String
+  labelUrdu    String
+  description  String?
+  unit         String
+  value        Decimal              @db.Decimal(14, 4)
+  safeMin      Decimal              @db.Decimal(14, 4)
+  safeMax      Decimal              @db.Decimal(14, 4)
+  reviewStatus RulebookReviewStatus @default(PENDING_ENGINEER_REVIEW)
+  sortOrder    Int                  @default(0)
+  createdAt    DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime             @updatedAt @db.Timestamptz(3)
+  rulebook     Rulebook             @relation(fields: [rulebookId], references: [id], onDelete: Cascade)
+
+  @@unique([rulebookId, key])
+}
+
+/// A company's own value for a rulebook parameter (must stay within the parameter's safe range).
+model CompanyRulebookOverride {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  tenantId     String   @db.Uuid
+  parameterKey String
+  value        Decimal  @db.Decimal(14, 4)
+  note         String?
+  updatedById  String?  @db.Uuid
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  updatedBy    User?    @relation("RulebookOverrideUpdatedBy", fields: [tenantId, updatedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, parameterKey])
+}
+
+/// Saved estimate revision of a project. APPROVED freezes rates + rulebook; one APPROVED per project (partial unique index).
+model Estimate {
+  id                String         @id @default(uuid(7)) @db.Uuid
+  tenantId          String         @db.Uuid
+  projectId         String         @db.Uuid
+  revision          Int
+  status            EstimateStatus @default(DRAFT)
+  /// Rulebook version the values came from (null = built-in v1 defaults).
+  rulebookVersionId String?        @db.Uuid
+  region            Region
+  /// { company: {key: value}, project: {key: value}, parameters: {key: {value, source}} }
+  overridesSnapshot Json
+  /// Rates used: { materials: [{ material, materialId, name, unit, ratePaisa, category }], labour: [{ item, unit, ratePaisa }] }
+  ratesSnapshot     Json
+  /// Engine basis summary + warnings at generation.
+  basis             Json
+  coveredAreaSqft   Decimal        @db.Decimal(12, 2)
+  directCostPaisa   BigInt         @default(0)
+  overheadPaisa     BigInt         @default(0)
+  contingencyPaisa  BigInt         @default(0)
+  totalPaisa        BigInt         @default(0)
+  ratesOutdated     Boolean        @default(false)
+  note              String?
+  generatedById     String?        @db.Uuid
+  generatedAt       DateTime       @default(now()) @db.Timestamptz(3)
+  approvedById      String?        @db.Uuid
+  approvedAt        DateTime?      @db.Timestamptz(3)
+  supersededAt      DateTime?      @db.Timestamptz(3)
+  createdAt         DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime       @updatedAt @db.Timestamptz(3)
+  tenant            Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project           Project        @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade)
+  rulebook          Rulebook?      @relation(fields: [rulebookVersionId], references: [id], onDelete: Restrict)
+  generatedBy       User?          @relation("EstimateGeneratedBy", fields: [tenantId, generatedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  approvedBy        User?          @relation("EstimateApprovedBy", fields: [tenantId, approvedById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  lines             EstimateLine[]
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, projectId, revision])
+  @@index([tenantId, status])
+}
+
+/// One BoQ line of a saved estimate (+ the user's quantity / rate override with a note).
+model EstimateLine {
+  id                  String           @id @default(uuid(7)) @db.Uuid
+  tenantId            String           @db.Uuid
+  estimateId          String           @db.Uuid
+  sortOrder           Int
+  lineKey             String
+  section             String
+  stageKey            String?
+  kind                EstimateLineKind
+  description         String
+  material            String?
+  /// Company material the rate came from (snapshot reference, no FK: the estimate outlives material edits).
+  materialId          String?          @db.Uuid
+  unit                String
+  quantity            Decimal          @db.Decimal(16, 4)
+  wastagePercent      Decimal          @db.Decimal(6, 2)
+  quantityWithWastage Decimal          @db.Decimal(16, 4)
+  suppliedBy          SuppliedBy
+  formula             String
+  trace               Json
+  ratePaisa           BigInt?
+  rateUnit            String?
+  rateFactor          Decimal?         @db.Decimal(18, 8)
+  rateQuantity        Decimal?         @db.Decimal(20, 4)
+  amountPaisa         BigInt?
+  rateStatus          String?
+  overrideQuantity    Decimal?         @db.Decimal(16, 4)
+  overrideRatePaisa   BigInt?
+  overrideNote        String?
+  overriddenById      String?          @db.Uuid
+  overriddenAt        DateTime?        @db.Timestamptz(3)
+  createdAt           DateTime         @default(now()) @db.Timestamptz(3)
+  tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  estimate            Estimate         @relation(fields: [tenantId, estimateId], references: [tenantId, id], onDelete: Cascade)
+  overriddenBy        User?            @relation("EstimateLineOverriddenBy", fields: [tenantId, overriddenById], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, estimateId, lineKey])
+  @@index([tenantId, estimateId, sortOrder])
+  @@index([tenantId, materialId])
 }

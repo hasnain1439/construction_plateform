@@ -36,6 +36,9 @@ import { contractFromEstimateBody } from '../src/modules/estimate/contractValue.
 import { autoWallsBody, setWallsBody } from '../src/modules/projects/walls.js';
 import * as eqp from '../src/modules/equipment/equipment.schema.js';
 import * as co from '../src/modules/closeout/closeout.schema.js';
+import { approveEstimateBody, generateEstimateBody, lineOverrideBody } from '../src/modules/estimate/estimate.schema.js';
+import { setOverridesBody } from '../src/modules/rulebook/rulebook.schema.js';
+import { createRulebookBody, updateParameterBody, updateRulebookBody } from '../src/modules/platform-admin/rulebook.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
@@ -54,6 +57,14 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/projects/{id}/handover/sign-off': co.signOffBody,
   'post /api/v1/projects/{id}/handover/complete': co.completeHandoverBody,
   'patch /api/v1/projects/{id}/retention': co.retentionSettingsBody,
+  // Step 11
+  'post /api/v1/projects/{id}/estimates': generateEstimateBody,
+  'patch /api/v1/estimates/{id}/lines/{lineId}': lineOverrideBody,
+  'post /api/v1/estimates/{id}/approve': approveEstimateBody,
+  'put /api/v1/rulebook/overrides': setOverridesBody,
+  'post /api/v1/admin/rulebooks': createRulebookBody,
+  'patch /api/v1/admin/rulebooks/{id}': updateRulebookBody,
+  'patch /api/v1/admin/rulebooks/{id}/parameters/{key}': updateParameterBody,
   'post /api/v1/onboarding/checklist/dismiss': ob.dismissBody,
   'post /api/v1/opening-balances': ob.openingBody,
   'put /api/v1/projects/{id}/estimate/settings': estimateSettingsBody,
@@ -237,6 +248,7 @@ describe('API docs', () => {
       'Project Wizard',
       'Floors & Rooms',
       'Estimate',
+      'Rulebook',
       'Stock',
       'Purchases',
       'Purchase Orders',
@@ -272,7 +284,7 @@ describe('API docs', () => {
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(296); // +21: Step 16 equipment, +16: Step 17 closeout (drawings, snags, handover, retention), +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
+    expect(Object.keys(res.body.paths)).toHaveLength(312); // +16: Step 11 (9 estimate revision / shopping list paths, 3 company rulebook, 4 admin rulebook), +21: Step 16 equipment, +16: Step 17 closeout (drawings, snags, handover, retention), +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

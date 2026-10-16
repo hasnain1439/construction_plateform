@@ -60,7 +60,8 @@ export type EnumName =
   | 'StockLocationType'
   | 'PayeeKind'
   | 'CostBucket'
-  | 'ExpenseCategory';
+  | 'ExpenseCategory'
+  | 'EstimateStatus';
 
 /** Label of an enum value in `lang`; an unknown value comes back as it is. */
 export function enumLabel(lang: Lang, name: EnumName, value: string | null | undefined): string {

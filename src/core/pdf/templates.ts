@@ -305,3 +305,84 @@ export function reportHtml(d: ReportPdfData, lang: Lang = 'en'): string {
   <table class="report"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${d.columns.length}">${esc(tr(lang, 'common.noRows'))}</td></tr>`}${totals}</tbody></table>`;
   return shell(d.company, lang === 'ur' ? d.title : d.title.toUpperCase(), label(lang, 'pdf.generated', {}, { date: date(d.generatedOn) }), html, lang);
 }
+
+// ─── Step 11 · Estimate (internal BoQ) and owner shopping list ───────────────
+
+export interface EstimatePdfData {
+  company: Letterhead;
+  project: { name: string; code: string };
+  revision: number;
+  status: 'DRAFT' | 'APPROVED' | 'SUPERSEDED';
+  generatedOn: string;
+  coveredAreaSqft: number;
+  /** false = the reader has no fields.rates: quantities only. */
+  showMoney: boolean;
+  sections: Array<{
+    section: string;
+    amountPaisa: bigint;
+    lines: Array<{ description: string; stageKey: string | null; quantity: number; unit: string; wastagePercent: number; owner: boolean; ratePaisa: bigint | null; amountPaisa: bigint | null }>;
+  }>;
+  directCostPaisa: bigint;
+  overheadPaisa: bigint;
+  contingencyPaisa: bigint;
+  totalPaisa: bigint;
+  perSqftPaisa: bigint | null;
+}
+
+const qty = (n: number) => ltr(Number(n).toLocaleString('en-PK', { maximumFractionDigits: 2 }));
+const stageLabel = (lang: Lang, s: string | null) => (s ? esc(CATALOGS[lang][`estimate.stage.${s}` as MessageKey] ?? s) : '');
+const sectionLabel = (lang: Lang, s: string) => esc(CATALOGS[lang][`estimate.section.${s}` as MessageKey] ?? s);
+
+/** Internal BoQ: sections with their lines, section totals, overheads, contingency, total and cost per sq ft. */
+export function estimateHtml(d: EstimatePdfData, lang: Lang = 'en'): string {
+  const L = (key: MessageKey, params?: Params, html?: Record<string, string>) => label(lang, key, params, html);
+  const cols = d.showMoney ? 6 : 4;
+  const body = d.sections
+    .map((s) => {
+      const rows = s.lines
+        .map(
+          (l) => `<tr><td>${esc(l.description)}${l.owner ? ` <span class="badge warn">${L('pdf.suppliedByOwner')}</span>` : ''}</td><td>${stageLabel(lang, l.stageKey)}</td>
+          <td class="r">${qty(l.quantity)} ${esc(unitLabel(lang, l.unit))}</td><td class="r">${l.wastagePercent ? ltr(`${l.wastagePercent}%`) : ''}</td>
+          ${d.showMoney ? `<td class="r">${l.ratePaisa !== null ? money(l.ratePaisa) : ''}</td><td class="r">${l.amountPaisa !== null ? money(l.amountPaisa) : ''}</td>` : ''}</tr>`,
+        )
+        .join('');
+      return `<tr><td colspan="${cols}" style="background:#f8fafc"><strong>${sectionLabel(lang, s.section)}</strong>${d.showMoney ? ` <span class="muted">· ${money(s.amountPaisa)}</span>` : ''}</td></tr>${rows}`;
+    })
+    .join('');
+  const totals = d.showMoney
+    ? `<table class="totals">
+    <tr><td>${L('pdf.directCost')}</td><td class="r">${money(d.directCostPaisa)}</td></tr>
+    <tr><td>${sectionLabel(lang, 'SITE_OVERHEADS')}</td><td class="r">${money(d.overheadPaisa)}</td></tr>
+    <tr><td>${sectionLabel(lang, 'CONTINGENCY')}</td><td class="r">${money(d.contingencyPaisa)}</td></tr>
+    <tr class="grand"><td>${L('pdf.total')}</td><td class="r">${money(d.totalPaisa)}</td></tr>
+    ${d.perSqftPaisa !== null ? `<tr><td>${L('pdf.costPerSqft')} (${qty(d.coveredAreaSqft)} ${esc(unitLabel(lang, 'sqft'))})</td><td class="r">${money(d.perSqftPaisa)}</td></tr>` : ''}
+  </table>`
+    : '';
+  const html = `
+  <style>table.boq { font-size: 9px; } table.boq td, table.boq th { padding: 4px 6px; }</style>
+  <div class="grid"><div><div class="label">${L('pdf.project')}</div><strong>${esc(d.project.name)}</strong><div class="muted">${ltr(esc(d.project.code))}</div></div></div>
+  <table class="boq"><thead><tr><th>${L('pdf.description')}</th><th>${L('pdf.neededBy')}</th><th class="r">${L('pdf.qty')}</th><th class="r">${L('pdf.wastage')}</th>${d.showMoney ? `<th class="r">${L('pdf.rate')}</th><th class="r">${L('pdf.amount')}</th>` : ''}</tr></thead><tbody>${body}</tbody></table>
+  ${totals}
+  <div class="note muted">${L('pdf.internalOnly')}</div>`;
+  const meta = `${L('pdf.estimateRevision', { revision: d.revision, status: enumLabel(lang, 'EstimateStatus', d.status) })}<br>${label(lang, 'pdf.generated', {}, { date: date(d.generatedOn) })}`;
+  return shell(d.company, tr(lang, 'pdf.estimate'), meta, html, lang);
+}
+
+export interface ShoppingListPdfData {
+  company: Letterhead;
+  project: { name: string; code: string };
+  generatedOn: string;
+  items: Array<{ description: string; quantity: number; unit: string; neededBy: string }>;
+}
+
+/** What the owner buys himself: item, quantity, unit, stage it is needed by. Never any rate. */
+export function shoppingListHtml(d: ShoppingListPdfData, lang: Lang = 'en'): string {
+  const L = (key: MessageKey) => label(lang, key);
+  const rows = d.items
+    .map((i, n) => `<tr><td>${n + 1}</td><td>${esc(i.description)}</td><td class="r">${qty(i.quantity)}</td><td>${esc(unitLabel(lang, i.unit))}</td><td>${stageLabel(lang, i.neededBy)}</td></tr>`)
+    .join('');
+  const html = `
+  <div class="grid"><div><div class="label">${L('pdf.project')}</div><strong>${esc(d.project.name)}</strong><div class="muted">${ltr(esc(d.project.code))}</div></div></div>
+  <table><thead><tr><th>#</th><th>${L('pdf.description')}</th><th class="r">${L('pdf.qty')}</th><th>${L('pdf.unit')}</th><th>${L('pdf.neededBy')}</th></tr></thead><tbody>${rows || `<tr><td colspan="5">${esc(tr(lang, 'common.noRows'))}</td></tr>`}</tbody></table>`;
+  return shell(d.company, tr(lang, 'pdf.ownerShoppingList'), label(lang, 'pdf.generated', {}, { date: date(d.generatedOn) }), html, lang);
+}

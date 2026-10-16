@@ -147,6 +147,22 @@ const NEW_ROUTES: Snapshot = {
   // Walls per room side: projects.project.edit like the other room routes (body {} → 400 walls missing; auto with {} → 404 unknown floor)
   'PUT /api/v1/rooms/:id/walls': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
   'POST /api/v1/floors/:id/walls/auto': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  // Step 11 · saved estimates: projects.estimate.view / .manage (404 = unknown id); approve = estimate.revision.approve (owner / Administrator only)
+  'POST /api/v1/projects/:id/estimates': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/projects/:id/estimates': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/projects/:id/owner-shopping-list': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/projects/:id/owner-shopping-list/pdf': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/estimates/:a/compare/:b': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/estimates/:id': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/estimates/:id/pdf': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'POST /api/v1/estimates/:id/regenerate': { MUNSHI: 'DENIED', PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'PATCH /api/v1/estimates/:id/lines/:lineId': { MUNSHI: 'DENIED', PM: 400, PM_FIN: 400, THEKEDAR: 400 },
+  'POST /api/v1/estimates/:id/approve': owner(404),
+  // Step 11 · company rulebook: rulebook.override.view (PM template) / .manage (owner, Administrator)
+  'GET /api/v1/rulebook': { MUNSHI: 'DENIED', PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'GET /api/v1/rulebook/overrides': { MUNSHI: 'DENIED', PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'PUT /api/v1/rulebook/overrides': owner(400),
+  'DELETE /api/v1/rulebook/overrides/:key': owner(404),
   // Step 16 — equipment: view / receiving.create / loss.create (Munshi, PM, Store Keeper), transfer.create + rental.manage (PM), manage + loss.approve (owner / Administrator)
   'GET /api/v1/equipment/balances': { MUNSHI: 200, PM: 200, PM_FIN: 200, THEKEDAR: 200 },
   'GET /api/v1/equipment/movements': { MUNSHI: 200, PM: 200, PM_FIN: 200, THEKEDAR: 200 },
