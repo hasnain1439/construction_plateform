@@ -162,6 +162,19 @@ export const en = {
   'notif.retentionReminder.body': 'Retention {amount} is due on {date}. Open defect snags: {snags}.',
   'notif.retentionDue.title': 'Retention due — {project}',
   'notif.retentionDue.body': 'The defect period ended on {date}: bill the retention ({amount}) and release sub-contractor retention. Open defect snags: {snags}.',
+  // Step 14 · control alerts (never money)
+  'notif.controlMaterialOveruse.title': '{project}: {material} {percent}% over the estimate',
+  'notif.controlMaterialOveruse.body': '{used} {unit} used (with counted losses) against {planned} {unit} due for the work done so far. Check wastage, theft or a wrong entry.',
+  'notif.controlMilestoneBehind.title': '{project}: {milestone} is behind plan',
+  'notif.controlMilestoneBehind.body': 'Only {actual}% done — the plan says {planned}% by today.',
+  'notif.controlMilestoneLate.title': '{project}: {milestone} is late',
+  'notif.controlMilestoneLate.body': 'It should have finished on {date} ({days} days ago) and is {actual}% done.',
+  'notif.controlQuotaExhausted.title': '{project}: {material} quota used up',
+  'notif.controlQuotaExhausted.body': '{milestone}: {used} {unit} used of {planned} {unit} planned, and the work is not finished yet.',
+  'notif.controlSpendAhead.title': '{project}: spending ahead of progress',
+  'notif.controlSpendAhead.body': '{spent}% of the contract is spent but the work is only {progress}% done.',
+  'notif.controlEquipmentIdle.title': '{project}: rented {equipment} standing idle',
+  'notif.controlEquipmentIdle.body': '{qty} on rent with no work for {days} days — return it or move it to another site.',
 
   // ─── SMS ──────────────────────────────────────────────────────────────────
   'sms.otp.login': 'Your login code is {code}. It expires in {minutes} minutes. Do not share it with anyone.',

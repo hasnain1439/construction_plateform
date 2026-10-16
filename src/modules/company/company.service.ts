@@ -112,6 +112,11 @@ function toSettingsDto(s: SettingsRow): SettingsDto {
     ramadanDayFactor: Number(s.ramadanDayFactor),
     ramadanPeriods: ramadanPeriodsOf(s.ramadanPeriods ?? null),
     ramadanPeriodsCustom: Array.isArray(s.ramadanPeriods),
+    behindPlanAlertPoints: s.behindPlanAlertPoints,
+    lateFinishGraceDays: s.lateFinishGraceDays,
+    quotaAlertPercent: s.quotaAlertPercent,
+    spendAheadAlertPoints: s.spendAheadAlertPoints,
+    controlAlertsEnabled: s.controlAlertsEnabled,
   };
 }
 

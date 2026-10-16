@@ -11,6 +11,7 @@
  * (BillingEvent PREVIOUS_STAGE_UNPAID refType MILESTONE + notification to owner / PMs with billing;
  * amounts only for callers with fields.amounts).
  */
+import { controlTrigger } from '../control/trigger.js';
 import { can, fieldAccess } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict } from '../../core/errors/AppError.js';
@@ -150,6 +151,7 @@ export async function updateProgressTx(tx: Tx, c: C, milestoneId: string, input:
     ...(input.clientId ? { clientId: input.clientId } : {}),
     warnings: warnings.map((w) => w.code),
   });
+  await controlTrigger(tx, c.tenantId, m.projectId, ['MILESTONE_BEHIND_PLAN', 'QUOTA_EXHAUSTED'], opts); // Step 14
   const { updates: _u, ...milestone } = await milestoneDetail(tx, c, m.id);
   void _u;
   return { id: update.id, milestone, warnings, duplicate: false };

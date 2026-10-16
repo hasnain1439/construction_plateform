@@ -41,6 +41,7 @@ import { setOverridesBody } from '../src/modules/rulebook/rulebook.schema.js';
 import * as sales from '../src/modules/sales/sales.schema.js';
 import { createRulebookBody, updateParameterBody, updateRulebookBody } from '../src/modules/platform-admin/rulebook.schema.js';
 import * as sch from '../src/modules/schedule/schedule.schema.js';
+import * as ctl from '../src/modules/control/control.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
@@ -61,6 +62,8 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'patch /api/v1/projects/{id}/retention': co.retentionSettingsBody,
   // Step 13
   'post /api/v1/projects/{id}/schedule/generate': sch.generateScheduleBody,
+  'post /api/v1/control/alerts/run': ctl.runAlertsBody, // Step 14
+  'put /api/v1/control/settings': ctl.controlSettingsBody,
   'post /api/v1/projects/{id}/schedule/replan': sch.replanBody,
   'patch /api/v1/milestones/{id}': sch.milestoneEditBody,
   'post /api/v1/milestones/{id}/progress': sch.progressBody,
@@ -298,6 +301,7 @@ describe('API docs', () => {
       'Notifications',
       'Dashboard',
       'Finance',
+      'Control',
       'Daily Logs',
       'Closeout',
       'Sync',
@@ -305,7 +309,7 @@ describe('API docs', () => {
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(337); // +11: Step 12 quotes (assumptions, preview, insights, list/create, detail, revisions, send, negotiation, lost, won, pdf), +14: Step 13 schedule (8 /projects/{id}/schedule…, /projects/{id}/stoppages, 3 /milestones, 3 /stoppages), +16: Step 11 (9 estimate revision / shopping list paths, 3 company rulebook, 4 admin rulebook), +21: Step 16 equipment, +16: Step 17 closeout (drawings, snags, handover, retention), +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
+    expect(Object.keys(res.body.paths)).toHaveLength(347); // +10: Step 14 control (4 /projects/{id}/control/…, /projects/{id}/control/alerts, /control/summary, /control/alerts, /control/alerts/rules, /control/alerts/run, /control/settings), +11: Step 12 quotes (assumptions, preview, insights, list/create, detail, revisions, send, negotiation, lost, won, pdf), +14: Step 13 schedule (8 /projects/{id}/schedule…, /projects/{id}/stoppages, 3 /milestones, 3 /stoppages), +16: Step 11 (9 estimate revision / shopping list paths, 3 company rulebook, 4 admin rulebook), +21: Step 16 equipment, +16: Step 17 closeout (drawings, snags, handover, retention), +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

@@ -38,6 +38,13 @@ export const NOTIFICATION_TEXT_KEYS = [
   'missingLogWaiting',
   'retentionReminder',
   'retentionDue',
+  // Step 14 · control alerts
+  'controlMaterialOveruse',
+  'controlMilestoneBehind',
+  'controlMilestoneLate',
+  'controlQuotaExhausted',
+  'controlSpendAhead',
+  'controlEquipmentIdle',
 ] as const;
 export type NotificationTextKey = (typeof NOTIFICATION_TEXT_KEYS)[number];
 

@@ -389,6 +389,8 @@ model Tenant {
   // Step 12
   quotes                 Quote[]
   quoteRevisions         QuoteRevision[]
+  // Step 14
+  controlAlerts          ControlAlert[]
   stockCounts            StockCount[]
   stockCountItems        StockCountItem[]
   projectWorkers         ProjectWorker[]
@@ -480,6 +482,16 @@ model TenantSettings {
   ramadanDayFactor                 Decimal   @default(0.75) @db.Decimal(3, 2)
   /// Step 13: Ramadan periods [{ start, end }] (YYYY-MM-DD); null = built-in approximate Pakistan dates.
   ramadanPeriods                   Json?
+  /// Step 14: milestone behind plan when planned − actual progress ≥ this many points (5–50).
+  behindPlanAlertPoints            Int       @default(15)
+  /// Step 14: milestone late when not finished this many days after its planned end (0–30).
+  lateFinishGraceDays              Int       @default(3)
+  /// Step 14: quota exhausted when used ≥ this % of the milestone quota (50–150).
+  quotaAlertPercent                Int       @default(100)
+  /// Step 14: spend ahead of progress when cost % of contract − progress % > this many points (1–50).
+  spendAheadAlertPoints            Int       @default(10)
+  /// Step 14: false = the control alert engine stores / sends nothing.
+  controlAlertsEnabled             Boolean   @default(true)
   createdAt                        DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt                        DateTime  @updatedAt @db.Timestamptz(3)
   tenant                           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -747,6 +759,8 @@ model Project {
   schedule                  Schedule[]
   milestones                Milestone[]
   stoppageDays              StoppageDay[]
+  // Step 14
+  controlAlerts             ControlAlert[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
@@ -2897,6 +2911,8 @@ enum NotificationType {
   PLATFORM_SUPPORT_ACCESS
   /// Step 17: retention release coming up / due (handover + defect period)
   RETENTION_RELEASE_DUE
+  /// Step 14: control alert (variance / behind plan / quota / spend ahead / plug-in rules)
+  CONTROL_ALERT
 }
 
 /// One in-app message for one user. Same (type, refId, user) is sent at most once per 24 h.
@@ -4167,4 +4183,46 @@ model QuoteRevision {
 
   @@unique([tenantId, id])
   @@unique([tenantId, quoteId, revision])
+}
+
+// ─── Step 14 · Control & alerts ─────────────────────────────────────────────
+
+enum ControlAlertStatus {
+  OPEN
+  RESOLVED
+}
+
+/// One alert of the control engine per (tenant, dedupeKey): OPEN while its rule keeps finding it,
+/// RESOLVED when it no longer does, reopened when it comes back. `rule` is a registry key
+/// (src/modules/control/alerts/registry.ts) — plug-in rules need no migration.
+model ControlAlert {
+  id          String               @id @default(uuid(7)) @db.Uuid
+  tenantId    String               @db.Uuid
+  projectId   String?              @db.Uuid
+  rule        String
+  dedupeKey   String
+  severity    NotificationSeverity
+  status      ControlAlertStatus   @default(OPEN)
+  refType     String
+  refId       String?              @db.Uuid
+  /// Notification text key + params of the finding (never money).
+  textKey     String
+  params      Json
+  /// Rule numbers (quantities / percentages / dates — never money).
+  details     Json
+  actionUrl   String
+  openedAt    DateTime             @default(now()) @db.Timestamptz(3)
+  lastSeenAt  DateTime             @default(now()) @db.Timestamptz(3)
+  resolvedAt  DateTime?            @db.Timestamptz(3)
+  notifiedAt  DateTime?            @db.Timestamptz(3)
+  occurrences Int                  @default(1)
+  createdAt   DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime             @updatedAt @db.Timestamptz(3)
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project     Project?             @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@unique([tenantId, dedupeKey])
+  @@index([tenantId, status, lastSeenAt])
+  @@index([tenantId, projectId, rule])
 }

@@ -112,6 +112,12 @@ describe('company settings', () => {
       ramadanDayFactor: 0.75,
       ramadanPeriods: expect.arrayContaining([{ start: '2027-02-09', end: '2027-03-09' }]),
       ramadanPeriodsCustom: false,
+      // Step 14 · control alert thresholds
+      behindPlanAlertPoints: 15,
+      lateFinishGraceDays: 3,
+      quotaAlertPercent: 100,
+      spendAheadAlertPoints: 10,
+      controlAlertsEnabled: true,
     });
   });
 

@@ -151,6 +151,7 @@ export const TAGS = [
   { name: 'Notifications', description: 'In-app notifications for the signed-in user (bell), with SMS for critical ones' },
   { name: 'Dashboard', description: 'Company overview (money keys only with billing.view) and the site dashboard (munshi landing page, no rates or values)' },
   { name: 'Finance', description: 'Receivables ageing, cash-flow outlook (estimate), profit & loss to date and cash with site staff' },
+  { name: 'Control', description: 'Step 14: material variance (estimate vs delivered / used / stock / loss, quantity + price impact), cost variance by bucket, burn rate vs physical progress, projected margin at completion, delay analysis, the control alert engine (rules, thresholds, run now)' },
   { name: 'Daily Logs', description: 'Site diary: one log per person per project per day (conditions, work done, photos, voice notes) with the day’s hazri, usage and kharcha' },
   { name: 'Closeout', description: 'Step 17: drawings (folders, revisions), snag list (photos, status flow, who pays), handover checklist + owner sign-off + certificate PDF, retention after the defect period' },
   { name: 'Sync', description: 'Offline sync for the mobile app: pull the read model since a cursor, push queued mutations, device sync status' },
