@@ -13,6 +13,8 @@ import * as repo from './projects.repository.js';
 import type { ChangeStatusInput } from './projects.schema.js';
 import { audit, detail } from './projects.service.js';
 import { track } from '../../core/observability/analytics.js';
+import { recordHandoverTx } from '../closeout/retention.dates.js';
+import { todayIn } from '../../core/utils/dates.js';
 
 export interface Issue {
   tab: 1 | 2 | 3 | 4 | 5;
@@ -156,6 +158,8 @@ export async function changeStatus(id: string, input: ChangeStatusInput) {
       await assertWithinLimit(tx, c.tenantId, 'activeProjects', 0);
     }
     await tx.project.update({ where: { id }, data: { status: input.status } });
+    // Step 17: handover date, defect period and retention due date (kept if the handover page recorded them).
+    if (input.status === 'HANDED_OVER') await recordHandoverTx(tx, c.tenantId, project, todayIn('Asia/Karachi'));
     await audit(tx, c, 'project.status_change', id, { code: project.code, from: project.status, to: input.status, note: input.note ?? null });
     return detail(tx, c, id);
   });

@@ -6,6 +6,7 @@ import { registerAuthDocs } from '../../modules/auth/auth.docs.js';
 import { registerBillingDocs } from '../../modules/billing/billing.docs.js';
 import { registerSyncDocs } from '../../modules/sync/sync.docs.js';
 import { registerDailyLogsDocs } from '../../modules/dailylogs/dailylogs.docs.js';
+import { registerCloseoutDocs } from '../../modules/closeout/closeout.docs.js';
 import { registerDashboardDocs } from '../../modules/dashboard/dashboard.docs.js';
 import { registerFinanceDocs } from '../../modules/finance/finance.docs.js';
 import { registerReportsDocs } from '../../modules/reports/reports.docs.js';
@@ -60,6 +61,7 @@ export function openApiDocument() {
     registerFinanceDocs();
     registerReportsDocs();
     registerDailyLogsDocs();
+    registerCloseoutDocs();
     registerSyncDocs();
     registerPlatformAdminDocs();
     document = buildOpenApiDocument();

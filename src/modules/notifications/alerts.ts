@@ -6,7 +6,7 @@
  */
 import type { Tx } from '../../core/db/withTenant.js';
 import type { MaterialLine } from '../../core/i18n/index.js';
-import { rs } from '../../core/pdf/templates.js';
+import { day, rs } from '../../core/pdf/templates.js';
 import { notify, type Recipient } from './notifications.service.js';
 
 const team = (projectId: string, ...roles: Array<'PM' | 'MUNSHI'>): Recipient => ({ projectRoles: roles, projectId });
@@ -264,3 +264,21 @@ export const inviteAccepted = (tx: Tx, e: Base & { userId: string; name: string;
     ...(e.at ? { at: e.at } : {}),
   });
 
+
+// ─── Closeout (Step 17) ─────────────────────────────────────────────────────
+
+/** Retention release coming up (`stage` REMINDER, N days before) or due (DUE, on / after the date). */
+export const retentionReleaseDue = (tx: Tx, e: Base & { projectId: string; projectName: string; handoverId: string; stage: 'REMINDER' | 'DUE'; dueDate: string; amountPaisa: bigint; openSnags: number }) =>
+  notify(tx, {
+    tenantId: e.tenantId,
+    recipients: billingTeam(e.projectId),
+    type: 'RETENTION_RELEASE_DUE',
+    severity: e.stage === 'DUE' ? 'WARNING' : 'INFO',
+    text: { key: e.stage === 'DUE' ? 'retentionDue' : 'retentionReminder', params: { project: e.projectName, date: day(e.dueDate), amount: rs(e.amountPaisa), snags: e.openSnags } },
+    projectId: e.projectId,
+    ref: { type: 'PROJECT_HANDOVER', id: e.handoverId },
+    actionUrl: `/projects/${e.projectId}/documents/retention`,
+    actorId: null,
+    dedupeMs: 12 * 3_600_000,
+    ...(e.at ? { at: e.at } : {}),
+  });

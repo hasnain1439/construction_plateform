@@ -11,6 +11,7 @@
  *   losses     shortages written off (ACCEPT_LOSS) + equipment losses charged to the project (Step 16)
  *   equipment  internal hire of owned equipment on site + rent of hired equipment, per day (Step 16,
  *              EquipmentCharge — see modules/equipment/accrual.ts)
+ *   rework     snags whose fix the contractor pays (Step 17, Snag.costAttribution REWORK)
  *
  * Every amount is one row of `costRows` (project × month × source), read in a single query.
  * P&L buckets regroup the same rows, so they always add up to the total:
@@ -19,7 +20,7 @@
  *   SUBCONTRACT    sub-contract payments + sub-contractor advances
  *   SITE_OVERHEAD  other kharcha (tea / water, transport, other)
  *   EQUIPMENT      kharcha marked EQUIPMENT (fuel, repairs, small tools) + equipment hire / rent
- *   LOSSES         written-off shortages + equipment losses charged to the project
+ *   LOSSES         written-off shortages + equipment losses charged to the project + snag rework
  */
 import { Prisma } from '../../core/db/prisma.js';
 import type { Tx } from '../../core/db/withTenant.js';
@@ -50,6 +51,7 @@ export const COST_SOURCES = [
   'EQUIPMENT_HIRE',
   'EQUIPMENT_RENTAL',
   'EQUIPMENT_LOSS',
+  'REWORK',
 ] as const;
 export type CostSource = (typeof COST_SOURCES)[number];
 
@@ -70,6 +72,7 @@ export const BUCKET_OF: Record<CostSource, PnlBucket> = {
   EQUIPMENT_HIRE: 'EQUIPMENT',
   EQUIPMENT_RENTAL: 'EQUIPMENT',
   EQUIPMENT_LOSS: 'LOSSES',
+  REWORK: 'LOSSES',
 };
 
 export interface CostRow {
@@ -133,6 +136,10 @@ export async function costRows(tx: Tx, tenantId: string, opts: { projectIds?: st
       SELECT el."projectId", el."chargedAt", 'EQUIPMENT_LOSS', el."valuePaisa"
         FROM "EquipmentLoss" el
        WHERE el."tenantId" = ${tenantId}::uuid AND el.status = 'CHARGED' AND el."chargedTo" = 'PROJECT'
+      UNION ALL
+      SELECT sn."projectId", sn."costPostedAt", 'REWORK', sn."costAmountPaisa"
+        FROM "Snag" sn
+       WHERE sn."tenantId" = ${tenantId}::uuid AND sn."costAttribution" = 'REWORK' AND sn."costPostedAt" IS NOT NULL
     )
     SELECT r.project, to_char(r.at AT TIME ZONE 'Asia/Karachi', 'YYYY-MM') AS month, r.source, SUM(r.amount)::bigint AS amount
       FROM r
@@ -157,6 +164,7 @@ const FIELD_OF: Record<CostSource, keyof Omit<ProjectCost, 'totalPaisa'>> = {
   EQUIPMENT_HIRE: 'equipmentPaisa',
   EQUIPMENT_RENTAL: 'equipmentPaisa',
   EQUIPMENT_LOSS: 'lossesPaisa',
+  REWORK: 'lossesPaisa',
 };
 
 export function costOf(rows: CostRow[]): ProjectCost {

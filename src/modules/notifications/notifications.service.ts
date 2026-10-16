@@ -63,6 +63,7 @@ export const FINANCIAL_TYPES: ReadonlySet<NotificationType> = new Set<Notificati
   'SUBSCRIPTION_RENEWAL',
   'SUBSCRIPTION_PAYMENT_APPROVED',
   'SUBSCRIPTION_PAYMENT_REJECTED',
+  'RETENTION_RELEASE_DUE',
 ]);
 
 export const DEDUPE_MS = 24 * 3_600_000;

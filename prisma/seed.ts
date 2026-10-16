@@ -20,6 +20,7 @@ import { seedMalikBilling } from './seedBilling.js';
 import { seedMalikNotifications } from './seedNotifications.js';
 import { seedMalikDailyLogs } from './seedDailyLogs.js';
 import { seedMalikLabor } from './seedLabor.js';
+import { seedMalikCloseout } from './seedCloseout.js';
 import { ensureProjectRow, seedAhmedProject, seedMalikClients, seedMalikProjects } from './seedProjects.js';
 
 export const SEED = {
@@ -354,6 +355,7 @@ export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: b
     // Notifications point at stock, labour and billing records — only with the full demo, written now.
     if (!billing.skipped && opts.inventory !== false && opts.labor !== false) await seedMalikNotifications(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, projects: malikProjects });
   }
+  if (opts.billing !== false) await seedMalikCloseout(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, projects: malikProjects }); // Step 17 closeout demo
 
   return {
     malik,

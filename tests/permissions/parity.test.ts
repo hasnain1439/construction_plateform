@@ -174,7 +174,38 @@ const NEW_ROUTES: Snapshot = {
   'POST /api/v1/equipment/:id/stock-in': owner(400),
   'POST /api/v1/equipment/:id/adjust': owner(400),
   'GET /api/v1/projects/:id/equipment': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  // Step 17 · Closeout: Munshi drawing.view + snag.view / create; PM all closeout keys; cost needs fields.amounts; completing the handover projects.project.manage
+  'GET /api/v1/projects/:id/drawings': all(404),
+  'POST /api/v1/projects/:id/drawings': office(400),
+  'GET /api/v1/projects/:id/snags': all(404),
+  'POST /api/v1/projects/:id/snags': all(400),
+  'GET /api/v1/projects/:id/handover': office(404),
+  'PUT /api/v1/projects/:id/handover/items/:key': office(400),
+  'POST /api/v1/projects/:id/handover/sign-off': office(400),
+  'POST /api/v1/projects/:id/handover/complete': owner(404),
+  'GET /api/v1/projects/:id/handover/certificate': office(404),
+  'GET /api/v1/projects/:id/retention': office(404),
+  'PATCH /api/v1/projects/:id/retention': office(400),
+  'GET /api/v1/drawings/:id': all(404),
+  'PATCH /api/v1/drawings/:id': office(400),
+  'DELETE /api/v1/drawings/:id': office(404),
+  'POST /api/v1/drawings/:id/revisions': office(400),
+  'PATCH /api/v1/drawing-revisions/:id': office(400),
+  'GET /api/v1/snags/:id': all(404),
+  'PATCH /api/v1/snags/:id': office(400),
+  'DELETE /api/v1/snags/:id': office(404),
+  'POST /api/v1/snags/:id/fix': all(404),
+  'POST /api/v1/snags/:id/verify': office(404),
+  'POST /api/v1/snags/:id/reopen': office(400),
+  'PUT /api/v1/snags/:id/cost': { MUNSHI: 'DENIED', PM: 'DENIED', PM_FIN: 400, THEKEDAR: 400 },
 };
+
+function all(status: Outcome): Record<Persona, Outcome> {
+  return { MUNSHI: status, PM: status, PM_FIN: status, THEKEDAR: status };
+}
+function office(status: Outcome): Record<Persona, Outcome> {
+  return { MUNSHI: 'DENIED', PM: status, PM_FIN: status, THEKEDAR: status };
+}
 
 /** Template 200; preview / commit without a file 400 FILE_REQUIRED — for whoever holds the create permission. */
 function imports(entity: string, who: { MUNSHI: boolean; PM: boolean }): Snapshot {

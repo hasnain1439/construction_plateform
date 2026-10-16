@@ -38,6 +38,7 @@ import { invalidateOnWrite } from './modules/dashboard/dashboard.cache.js';
 import { financeRouter } from './modules/finance/finance.routes.js';
 import { reportsRouter } from './modules/reports/reports.routes.js';
 import { dailyLogsRouter, projectDailyLogsRouter } from './modules/dailylogs/dailylogs.routes.js';
+import { drawingRevisionsRouter, drawingsRouter, projectCloseoutRouter, snagsRouter } from './modules/closeout/closeout.routes.js';
 import { syncRouter } from './modules/sync/sync.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 import { floorsRouter, openingsRouter, projectsRouter, roomsRouter, supplyPresetsRouter } from './modules/projects/projects.routes.js';
@@ -173,6 +174,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/projects', projectDailyLogsRouter); // /projects/:id/daily-logs (per-route auth) // /projects/:id/billing-stages, /invoices, /payments, /receivables, ... (per-route auth)
   mount('/projects', projectEstimateRouter); // /projects/:id/estimate, /estimate/settings (per-route auth)
   mount('/projects', projectEquipmentRouter); // Step 16: /projects/:id/equipment (per-route auth)
+  mount('/projects', projectCloseoutRouter); // Step 17: /projects/:id/drawings, /snags, /handover, /retention (per-route auth)
   mount('/projects', projectsRouter);
   mount('/billing-stages', billingStagesRouter);
   mount('/billing-progress', billingProgressRouter);
@@ -186,6 +188,9 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/finance', financeRouter);
   mount('/reports', reportsRouter);
   mount('/daily-logs', dailyLogsRouter);
+  mount('/drawings', drawingsRouter);
+  mount('/drawing-revisions', drawingRevisionsRouter);
+  mount('/snags', snagsRouter);
   mount('/sync', syncRouter);
   mount('/project-workers', projectWorkersRouter);
   mount('/subcontract-assignments', subcontractAssignmentsRouter);

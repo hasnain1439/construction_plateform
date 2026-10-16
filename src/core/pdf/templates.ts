@@ -15,7 +15,7 @@ export interface Letterhead {
   logoUrl: string | null;
 }
 
-const esc = (v: unknown) =>
+export const esc = (v: unknown) =>
   String(v ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -48,12 +48,12 @@ export function day(date: string | null | undefined): string {
 }
 
 /** Left-to-right island (money, dates, numbers, codes) — keeps its order inside Urdu text. */
-const ltr = (html: string) => `<bdi dir="ltr">${html}</bdi>`;
+export const ltr = (html: string) => `<bdi dir="ltr">${html}</bdi>`;
 const money = (paisa: bigint | string | number) => ltr(rs(paisa));
-const date = (d: string | null | undefined) => ltr(day(d));
+export const date = (d: string | null | undefined) => ltr(day(d));
 
 /** Escaped label in the document language (params are escaped too; pre-built HTML goes in `html`). */
-function label(lang: Lang, key: MessageKey, params: Params = {}, html: Record<string, string> = {}): string {
+export function label(lang: Lang, key: MessageKey, params: Params = {}, html: Record<string, string> = {}): string {
   return esc(CATALOGS[lang][key]).replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (whole, name: string) =>
     html[name] !== undefined ? html[name] : params[name] !== undefined && params[name] !== null ? esc(params[name]) : whole,
   );
@@ -100,7 +100,7 @@ function documentHead(lang: Lang): string {
   return `<!doctype html><html lang="${lang === 'ur' ? 'ur' : 'en'}" dir="${rtl ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><style>${CSS}${rtl ? URDU_CSS() : ''}</style></head>`;
 }
 
-function shell(company: Letterhead, docTitle: string, docMeta: string, body: string, lang: Lang): string {
+export function shell(company: Letterhead, docTitle: string, docMeta: string, body: string, lang: Lang): string {
   return `${documentHead(lang)}<body>
   <div class="head">
     <div class="brand">
