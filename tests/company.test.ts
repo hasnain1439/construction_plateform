@@ -112,6 +112,9 @@ describe('company settings', () => {
       ramadanDayFactor: 0.75,
       ramadanPeriods: expect.arrayContaining([{ start: '2027-02-09', end: '2027-03-09' }]),
       ramadanPeriodsCustom: false,
+      equipmentIdleDays: 5,
+      shutteringPropsPerPlate: 0.75,
+      shutteringSparePercent: 5,
     });
   });
 
@@ -134,6 +137,10 @@ describe('company settings', () => {
       { defaultMarginPercent: 101 },
       { defaultMarginPercent: -1 },
       { defaultFinishingAllowancePercent: 250 },
+      { equipmentIdleDays: 0 },
+      { equipmentIdleDays: 61 },
+      { shutteringPropsPerPlate: 6 },
+      { shutteringSparePercent: 31 },
       {},
     ]) {
       const res = await api().patch('/api/v1/company/settings').set(bearer(s.accessToken)).send(body);

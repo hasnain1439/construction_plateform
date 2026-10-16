@@ -190,6 +190,11 @@ const NEW_ROUTES: Snapshot = {
   'POST /api/v1/equipment/:id/stock-in': owner(400),
   'POST /api/v1/equipment/:id/adjust': owner(400),
   'GET /api/v1/projects/:id/equipment': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  // Step 16 part 2 — shuttering demand + idle rent: equipment.view; the on-demand idle check equipment.rental.manage (PM)
+  'GET /api/v1/equipment/shuttering-demand': { MUNSHI: 200, PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'GET /api/v1/projects/:id/shuttering-demand': { MUNSHI: 404, PM: 404, PM_FIN: 404, THEKEDAR: 404 },
+  'GET /api/v1/equipment/idle': { MUNSHI: 200, PM: 200, PM_FIN: 200, THEKEDAR: 200 },
+  'POST /api/v1/equipment/idle/check': { MUNSHI: 'DENIED', PM: 200, PM_FIN: 200, THEKEDAR: 200 },
   // Step 17 · Closeout: Munshi drawing.view + snag.view / create; PM all closeout keys; cost needs fields.amounts; completing the handover projects.project.manage
   'GET /api/v1/projects/:id/drawings': all(404),
   'POST /api/v1/projects/:id/drawings': office(400),

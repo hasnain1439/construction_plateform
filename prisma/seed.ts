@@ -23,6 +23,7 @@ import { seedMalikLabor } from './seedLabor.js';
 import { seedMalikCloseout } from './seedCloseout.js';
 import { seedMalikEstimates } from './seedEstimate.js';
 import { seedMalikSchedule } from './seedSchedule.js';
+import { seedMalikShuttering } from './seedShuttering.js';
 import { seedMalikQuotes } from './seedSales.js';
 import { ensureProjectRow, seedAhmedProject, seedMalikClients, seedMalikProjects } from './seedProjects.js';
 
@@ -363,6 +364,7 @@ export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: b
   if (opts.billing !== false) await seedMalikCloseout(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, projects: malikProjects }); // Step 17 closeout demo
 
   await seedMalikSchedule(db, { tenantId: malik.id, ownerId: khalid.id, rafaqatId: rafaqatMalik.id, dhaProjectId: malikProjects.dha.id }); // Step 13 (after the estimate; links the stock demo's usage)
+  if (opts.inventory !== false) await seedMalikShuttering(db, { tenantId: malik.id, ownerId: khalid.id, projects: malikProjects }); // Step 16 part 2 (idle rental + planner shortfall; after the schedule)
 
   return {
     malik,

@@ -347,5 +347,115 @@ export function registerEquipmentDocs(): void {
       ...errors({ 400: ['VALIDATION_ERROR', 'DATE_NOT_COMPLETE'], ...AUTH, 403: WRITE_403 }),
     },
   });
+
+  // Shuttering demand planner (Step 16 part 2)
+  const JOHAR = { id: '0199a8c0-0000-7000-8000-000000000303', code: 'MSB-2026-014', name: 'Johar Town · 5 Marla' };
+  const JOHAR_SITE = { id: '0199a8c0-0000-7000-8000-000000000504', type: 'SITE', name: 'Johar Town · 5 Marla', projectId: JOHAR.id };
+  const F1_SLAB = '0199a8c0-0000-7000-8000-000000001671';
+  const week = (weekStart: string, weekEnd: string, needed: number, owned: number, onRent: number, demand: Array<{ projectId: string; milestoneId: string; qty: number }>) => ({
+    weekStart,
+    weekEnd,
+    needed,
+    ownedAvailable: owned,
+    onRent,
+    available: owned + onRent,
+    shortfall: Math.max(0, needed - owned - onRent),
+    surplus: Math.max(0, owned + onRent - needed),
+    demand,
+  });
+  const demandExample = {
+    scope: 'COMPANY',
+    project: null,
+    from: '2026-10-12',
+    to: '2026-11-08',
+    today: '2026-10-16',
+    weeks: 4,
+    parameters: { plateCoverageSqft: 6, plateCoverageSource: 'EQUIPMENT', propsPerPlate: 0.75, sparePercent: 5, beamSidesPercent: 20, defaultStrikeDays: 14 },
+    equipment: { plates: [PLATES], props: [PROPS] },
+    milestones: [
+      {
+        project: DHA,
+        milestone: { id: F1_SLAB, key: 'F1_STRUCTURE.SLAB', name: 'First floor roof slab (lenter)', stageKey: 'F1_STRUCTURE', status: 'IN_PROGRESS', plannedStart: '2026-10-14', plannedEnd: '2026-10-28', curingDays: 14 },
+        holdFrom: '2026-10-14',
+        holdUntil: '2026-11-11',
+        area: { slabSqft: 2250, beamSqft: 450, totalSqft: 2700, source: 'ESTIMATE_FOOTPRINT' },
+        plates: 473,
+        props: 355,
+      },
+    ],
+    series: [
+      {
+        category: 'SHUTTERING_PLATE',
+        weeks: [
+          week('2026-10-12', '2026-10-18', 473, 394, 0, [{ projectId: IDS.dha, milestoneId: F1_SLAB, qty: 473 }]),
+          week('2026-10-19', '2026-10-25', 473, 394, 0, [{ projectId: IDS.dha, milestoneId: F1_SLAB, qty: 473 }]),
+          week('2026-10-26', '2026-11-01', 473, 394, 0, [{ projectId: IDS.dha, milestoneId: F1_SLAB, qty: 473 }]),
+          week('2026-11-02', '2026-11-08', 473, 394, 0, [{ projectId: IDS.dha, milestoneId: F1_SLAB, qty: 473 }]),
+        ],
+      },
+    ],
+    suggestions: [
+      { type: 'EXTEND_RENTAL', category: 'PROP', equipment: PROPS, qty: 150, fromWeek: '2026-11-02', toWeek: '2026-11-09', from: DHA_SITE, fromProject: DHA, idleAfterWeek: null, toProject: DHA, toLocation: DHA_SITE, rental: { id: E_IDS.rental, number: 'RNT-0001' }, supplier: null },
+      { type: 'TRANSFER', category: 'SHUTTERING_PLATE', equipment: PLATES, qty: 20, fromWeek: '2026-10-12', toWeek: '2026-11-08', from: STORE, fromProject: null, idleAfterWeek: null, toProject: DHA, toLocation: DHA_SITE, rental: null, supplier: null },
+      { type: 'TRANSFER', category: 'SHUTTERING_PLATE', equipment: PLATES, qty: 130, fromWeek: '2026-10-12', toWeek: '2026-11-08', from: JOHAR_SITE, fromProject: JOHAR, idleAfterWeek: null, toProject: DHA, toLocation: DHA_SITE, rental: null, supplier: null },
+      { type: 'RENT', category: 'SHUTTERING_PLATE', equipment: PLATES, qty: 79, fromWeek: '2026-10-12', toWeek: '2026-11-08', from: null, fromProject: null, idleAfterWeek: null, toProject: DHA, toLocation: DHA_SITE, rental: null, supplier: { id: E_IDS.punjabYard, name: 'Punjab Shuttering Yard' } },
+      { type: 'RETURN_RENTAL', category: 'PROP', equipment: PROPS, qty: 100, fromWeek: '2026-10-12', toWeek: '2026-10-12', from: JOHAR_SITE, fromProject: JOHAR, idleAfterWeek: null, toProject: null, toLocation: null, rental: { id: '0199a8c0-0000-7000-8000-000000001623', number: 'RNT-0002' }, supplier: null },
+    ],
+    warnings: [{ code: 'NO_SCHEDULE', project: JOHAR }],
+  };
+  const demandDescription =
+    'Weekly shuttering plates / props needed by the slab milestones (GF / F1 / F2 / F3 slab, mumty roof) of the schedule vs owned and rented units, with suggestions. ' +
+    'Area per slab from the APPROVED estimate: slab soffit + beam sides from the shuttering BoQ line (BOQ), else the floor footprint + beamSidesPercent (ESTIMATE_FOOTPRINT), else covered area ÷ slab floors (COVERED_AREA). ' +
+    'plates = ceil(area ÷ plate coverage × (1 + spare %)), props = ceil(plates × props per plate) (company settings). Plates are held from the start of the slab work until it is struck (end + curing lag, else 14 days). ' +
+    'Weekly need = the highest day of the week. Company view: owned available = every owned unit, on rent = rented units on hand; project view: owned at the site + the yard, rented at the site. ' +
+    'Suggestions: EXTEND_RENTAL for the site’s own rentals ending while it is still short, TRANSFER from the yard, then from sites that need fewer from that week on (idleAfterWeek), RENT the rest (supplier = yard last rented from); RETURN_RENTAL for rented units nobody needs. No money in the planner. Assumptions need engineer review.';
+  path(T, 'get', '/api/v1/equipment/shuttering-demand', {
+    summary: 'Shuttering demand planner',
+    description: `equipment.view. Every ACTIVE project in scope (or \`projectId\`), from the week of \`from\` (Monday) for \`weeks\` weeks. ${demandDescription}`,
+    request: { query: S.shutteringDemandQuery },
+    responses: { ...ok('Demand', demandExample), ...errors({ 400: ['VALIDATION_ERROR'], ...AUTH, 403: READ_403, 404: ['PROJECT_NOT_FOUND'] }) },
+  });
+  path(T, 'get', '/api/v1/projects/{id}/shuttering-demand', {
+    summary: 'Shuttering demand of one project',
+    description: `equipment.view + project scope. Same as GET /equipment/shuttering-demand?projectId= (scope PROJECT). ${demandDescription}`,
+    request: { params: idParam('Project'), query: S.projectShutteringQuery },
+    responses: { ...ok('Demand', { ...demandExample, scope: 'PROJECT', project: DHA }), ...errors({ 400: ['VALIDATION_ERROR'], ...AUTH, 403: READ_403, 404: ['PROJECT_NOT_FOUND'] }) },
+  });
+
+  // Idle rent
+  const idleExample = {
+    rental: { id: '0199a8c0-0000-7000-8000-000000001623', number: 'RNT-0002', status: 'ACTIVE', startDate: '2026-10-04', expectedEndDate: '2026-11-03', supplier: { id: E_IDS.punjabYard, name: 'Punjab Shuttering Yard' } },
+    project: JOHAR,
+    location: JOHAR_SITE,
+    items: [{ equipment: PROPS, qty: 100, ratePaisaPerDay: '1500', dailyCostPaisa: '150000' }],
+    qty: 100,
+    since: '2026-10-04',
+    lastActivity: null,
+    hasSchedule: false,
+    idleDays: 12,
+    thresholdDays: 5,
+    idle: true,
+    dailyCostPaisa: '150000',
+    idleCostPaisa: '1800000',
+  };
+  path(T, 'get', '/api/v1/equipment/idle', {
+    summary: 'Idle rented equipment',
+    description:
+      `equipment.view (sites in scope). Rented units at a site whose project had no milestone activity (progress update, usage linked to a milestone, a structure milestone IN_PROGRESS / CURING) for at least the company \`equipmentIdleDays\` (default 5). since = max(last activity, arrival); \`all=true\` also lists rentals below the threshold. Most idle first. ${money}`,
+    request: { query: S.idleQuery },
+    responses: {
+      ...ok('Idle rentals', { today: '2026-10-16', thresholdDays: 5, items: [idleExample], totalDailyCostPaisa: '150000' }),
+      ...errors({ 400: ['VALIDATION_ERROR'], ...AUTH, 403: READ_403, 404: ['PROJECT_NOT_FOUND'] }),
+    },
+  });
+  path(T, 'post', '/api/v1/equipment/idle/check', {
+    summary: 'Run the idle-rent alert now',
+    description:
+      'equipment.rental.manage. Same as the daily 09:00 job, for this company: EQUIPMENT_IDLE (WARNING) per idle rental to the holders of equipment.rental.manage for the project + its PMs (the daily rent only for users with fields.rates). At most once per rental per 7 days per user. Audited (equipment.idle.check).',
+    responses: {
+      ...ok('Checked', { date: '2026-10-16', thresholdDays: 5, checked: 2, idle: 1, notified: [{ rentalId: '0199a8c0-0000-7000-8000-000000001623', number: 'RNT-0002', users: 2 }] }),
+      ...errors({ ...AUTH, 403: WRITE_403 }),
+    },
+  });
 }
 

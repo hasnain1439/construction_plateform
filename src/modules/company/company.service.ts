@@ -112,6 +112,9 @@ function toSettingsDto(s: SettingsRow): SettingsDto {
     ramadanDayFactor: Number(s.ramadanDayFactor),
     ramadanPeriods: ramadanPeriodsOf(s.ramadanPeriods ?? null),
     ramadanPeriodsCustom: Array.isArray(s.ramadanPeriods),
+    equipmentIdleDays: s.equipmentIdleDays,
+    shutteringPropsPerPlate: Number(s.shutteringPropsPerPlate),
+    shutteringSparePercent: s.shutteringSparePercent,
   };
 }
 

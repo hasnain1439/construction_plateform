@@ -296,3 +296,32 @@ export const retentionReleaseDue = (tx: Tx, e: Base & { projectId: string; proje
     dedupeMs: 12 * 3_600_000,
     ...(e.at ? { at: e.at } : {}),
   });
+
+// ─── Equipment (Step 16) ────────────────────────────────────────────────────
+
+/** Once a week per rental: the holders of equipment.rental.manage for the project + its PMs (resolved by the caller). */
+export const EQUIPMENT_IDLE_DEDUPE_MS = 7 * 24 * 3_600_000;
+
+/**
+ * Rented units idle at a site (no milestone activity for `days` days). `withCost` users (fields.rates)
+ * get the daily rent being wasted; the others the same text without it.
+ */
+export const equipmentIdle = (
+  tx: Tx,
+  e: Base & { userIds: string[]; withCost: boolean; projectId: string; projectName: string; rentalId: string; number: string; items: string; days: number; dailyCostPaisa: bigint },
+) =>
+  notify(tx, {
+    tenantId: e.tenantId,
+    recipients: [{ userIds: e.userIds }],
+    type: 'EQUIPMENT_IDLE',
+    severity: 'WARNING',
+    text: e.withCost
+      ? { key: 'equipmentIdle', params: { number: e.number, project: e.projectName, items: e.items, days: e.days, amount: rs(e.dailyCostPaisa) } }
+      : { key: 'equipmentIdleNoCost', params: { number: e.number, project: e.projectName, items: e.items, days: e.days } },
+    projectId: e.projectId,
+    ref: { type: 'EQUIPMENT_RENTAL', id: e.rentalId },
+    actionUrl: `/equipment/rentals/${e.rentalId}`,
+    actorId: null,
+    dedupeMs: EQUIPMENT_IDLE_DEDUPE_MS,
+    ...(e.at ? { at: e.at } : {}),
+  });

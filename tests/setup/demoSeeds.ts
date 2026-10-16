@@ -8,6 +8,7 @@ import { seedMalikBilling } from '../../prisma/seedBilling.js';
 import { seedMalikEquipment } from '../../prisma/seedEquipment.js';
 import { seedMalikInventory } from '../../prisma/seedInventory.js';
 import { seedMalikLabor } from '../../prisma/seedLabor.js';
+import { seedMalikShuttering } from '../../prisma/seedShuttering.js';
 import type { seed } from '../../prisma/seed.js';
 import { prismaAdmin } from '../../src/core/db/prisma.js';
 
@@ -38,6 +39,13 @@ export const DEMO_SEEDS = {
   malik_equipment: {
     build: async (s: Seeded) => {
       await seedMalikEquipment(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, bilalId: s.users.bilal.id, rafaqatId: s.users.rafaqatMalik.id, projects: s.projects });
+    },
+  },
+  /** Step 16 part 2: + RNT-0002 (100 props idle at Johar Town for 12 days, idle alert sent). */
+  malik_shuttering: {
+    extends: 'malik_equipment',
+    build: async (s: Seeded) => {
+      await seedMalikShuttering(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, projects: s.projects });
     },
   },
 } satisfies Record<string, DemoSeedDef>;

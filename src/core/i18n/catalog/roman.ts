@@ -152,6 +152,10 @@ export const roman: Record<MessageKey, string> = {
   'notif.retentionReminder.body': 'Retention {amount} {date} ko waajib-ul-ada hai. Khuli kharabiyan: {snags}.',
   'notif.retentionDue.title': 'Retention waajib — {project}',
   'notif.retentionDue.body': 'Kharabi ki muddat {date} ko khatam ho gayi: retention ({amount}) ka bill banayein aur sub-contractors ki retention jaari karein. Khuli kharabiyan: {snags}.',
+  'notif.equipmentIdle.title': 'Kiraye ka saman bekaar khara hai — {project}',
+  'notif.equipmentIdle.body': '{number}: {items} {project} par kiraye par hai magar {days} din se koi milestone ka kaam nahi hua. Roz ka zaya kiraya: {amount}. Wapas karein ya us site par bhejein jahan zaroorat hai.',
+  'notif.equipmentIdleNoCost.title': 'Kiraye ka saman bekaar khara hai — {project}',
+  'notif.equipmentIdleNoCost.body': '{number}: {items} {project} par kiraye par hai magar {days} din se koi milestone ka kaam nahi hua. Wapas karein ya us site par bhejein jahan zaroorat hai.',
 
   'sms.otp.login': 'Aap ka login code {code} hai. Yeh {minutes} minute mein khatam ho jayega. Kisi ko na batayen.',
   'sms.otp.reset': 'Aap ka password reset code {code} hai. Yeh {minutes} minute mein khatam ho jayega. Agar aap ne nahi maanga to is message ko nazar andaaz karein.',

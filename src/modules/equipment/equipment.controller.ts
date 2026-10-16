@@ -4,6 +4,7 @@ import type * as S from './equipment.schema.js';
 import * as eq from './equipment.service.js';
 import * as losses from './losses.service.js';
 import * as rentals from './rentals.service.js';
+import * as shuttering from './shuttering.service.js';
 import * as transfers from './transfers.service.js';
 
 const id = (req: Request) => String(req.params['id']);
@@ -41,4 +42,9 @@ export const closeRental = async (req: Request, res: Response) => ok(res, await 
 export const listLosses = (req: Request, res: Response) => paged(res, losses.listLosses(query<S.ListLossesQuery>(req)));
 export const reportLoss = async (req: Request, res: Response) => created(res, await losses.reportLoss(req.body as S.ReportLossInput));
 export const getLoss = async (req: Request, res: Response) => ok(res, await losses.getLoss(id(req)));
+export const shutteringDemand = async (req: Request, res: Response) => ok(res, await shuttering.shutteringDemand(query<S.ShutteringDemandQuery>(req)));
+export const projectShutteringDemand = async (req: Request, res: Response) => ok(res, await shuttering.projectShutteringDemand(id(req), query<Omit<S.ShutteringDemandQuery, 'projectId'>>(req)));
+export const listIdle = async (req: Request, res: Response) => ok(res, await shuttering.listIdle(query<S.IdleQuery>(req)));
+export const runIdleCheck = async (_req: Request, res: Response) => ok(res, await shuttering.runIdleCheck());
+
 export const chargeLoss = async (req: Request, res: Response) => ok(res, await losses.chargeLoss(id(req), req.body as S.ChargeLossInput));

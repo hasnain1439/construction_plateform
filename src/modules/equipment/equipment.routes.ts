@@ -19,6 +19,9 @@ equipmentRouter.get('/balances', requirePerm('equipment.view'), validate({ query
 equipmentRouter.get('/movements', requirePerm('equipment.view'), validate({ query: S.movementsQuery }), h(c.listMovements));
 equipmentRouter.get('/charges', requirePerm('equipment.view'), validate({ query: S.listChargesQuery }), h(c.listCharges));
 equipmentRouter.post('/accruals/run', requirePerm('equipment.manage'), validate({ body: S.accrualBody }), h(c.runAccrual));
+equipmentRouter.get('/shuttering-demand', requirePerm('equipment.view'), validate({ query: S.shutteringDemandQuery }), h(c.shutteringDemand));
+equipmentRouter.get('/idle', requirePerm('equipment.view'), validate({ query: S.idleQuery }), h(c.listIdle));
+equipmentRouter.post('/idle/check', requirePerm('equipment.rental.manage'), h(c.runIdleCheck));
 
 equipmentRouter.get('/transfers', requirePerm('equipment.view'), validate({ query: S.listTransfersQuery }), h(c.listTransfers));
 equipmentRouter.post('/transfers', requirePerm('equipment.transfer.create'), validate({ body: S.createTransferBody }), h(c.createTransfer));
@@ -48,3 +51,4 @@ equipmentRouter.post('/:id/adjust', requirePerm('equipment.manage'), validate({ 
 /** Mounted at /api/v1/projects before the projects router (per-route middleware). */
 export const projectEquipmentRouter = Router();
 projectEquipmentRouter.get('/:id/equipment', ...company, requirePerm('equipment.view'), validate({ params: S.idParams }), h(c.projectEquipment));
+projectEquipmentRouter.get('/:id/shuttering-demand', ...company, requirePerm('equipment.view'), validate({ params: S.idParams, query: S.projectShutteringQuery }), h(c.projectShutteringDemand));
