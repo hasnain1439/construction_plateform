@@ -129,6 +129,28 @@ describe('cost variance, burn rate, projected margin', () => {
     expect(pnl.projectedMarginPaisa).toBe(p.projectedMarginPaisa);
     expect(pnl.projectedMarginBasis).toBe('EARNED_VALUE');
   });
+  it('approved change orders (Step 15): BAC = estimate + approved CO cost, the price counts once in the revised contract', async () => {
+    const auth = await owner();
+    const before = (await get(auth, `/api/v1/projects/${dha()}/control/cost-variance`)).projection;
+    const burnBefore = await get(auth, `/api/v1/projects/${dha()}/control/burn-rate`);
+    const tenantId = seeded().malik.id;
+    // an approved addition: Rs 50,000 cost, Rs 60,000 owner price; a DRAFT one must not count
+    await prismaAdmin.changeOrder.create({ data: { tenantId, projectId: dha(), number: 901, title: 'Extra boundary wall', type: 'ADDITION', status: 'APPROVED', costPaisa: 5_000_000n, totalPaisa: 6_000_000n, approvedAt: new Date() } });
+    await prismaAdmin.changeOrder.create({ data: { tenantId, projectId: dha(), number: 902, title: 'Draft only', type: 'ADDITION', status: 'DRAFT', costPaisa: 9_000_000n, totalPaisa: 9_900_000n } });
+    const after = (await get(auth, `/api/v1/projects/${dha()}/control/cost-variance`)).projection;
+    expect(before.approvedChangesPaisa).toBe('0');
+    expect(BigInt(after.budgetAtCompletionPaisa)).toBe(BigInt(before.budgetAtCompletionPaisa) + 5_000_000n); // estimate total + approved CO cost
+    expect(after.contractPaisa).toBe(before.contractPaisa); // the original contract
+    expect(after.approvedChangesPaisa).toBe('6000000');
+    expect(BigInt(after.revisedContractPaisa)).toBe(BigInt(before.revisedContractPaisa) + 6_000_000n); // once, not twice
+    expect(BigInt(after.revisedContractPaisa)).toBe(BigInt(after.contractPaisa) + 6_000_000n);
+    expect(BigInt(after.projectedMarginPaisa)).toBe(BigInt(after.revisedContractPaisa) - BigInt(after.estimateAtCompletionPaisa));
+    // the receivables agree on the revised contract; the burn rate uses it too
+    const burn = await get(auth, `/api/v1/projects/${dha()}/control/burn-rate`);
+    expect(BigInt(burn.contractPaisa)).toBe(BigInt(burnBefore.contractPaisa) + 6_000_000n);
+    const pnl = (await get(auth, `/api/v1/finance/pnl?projectId=${dha()}`)).projects[0];
+    expect(pnl.projectedMarginPaisa).toBe(after.projectedMarginPaisa);
+  });
 
   it('burn rate: cumulative cost % of contract vs physical progress per month', async () => {
     const d = await get(await owner(), `/api/v1/projects/${dha()}/control/burn-rate`);
@@ -255,14 +277,14 @@ describe('alert engine', () => {
     expect(after).toContain(bilal.id);
   });
 
-  it('lists the rule registry with the Step 16 hook pending', async () => {
+  it('lists the rule registry with the Step 16 plug-in active', async () => {
     const rules = (await get(await owner(), '/api/v1/control/alerts/rules')) as Array<{ rule: string; status: string; source: string; threshold: { value: unknown } | null }>;
     const by = new Map(rules.map((r) => [r.rule, r]));
-    expect(by.get('EQUIPMENT_IDLE')).toMatchObject({ status: 'PENDING_PLUGIN' });
+    expect(by.get('EQUIPMENT_IDLE')).toMatchObject({ status: 'ACTIVE', threshold: { setting: 'equipmentIdleDays', value: 5 } }); // wired to equipment/idle.ts
     expect(by.get('MATERIAL_OVERUSE')).toMatchObject({ status: 'ACTIVE', threshold: { setting: 'overuseAlertPercent', value: 10 } });
     expect(by.get('MISSING_DAILY_LOG')).toMatchObject({ source: 'EXTERNAL', threshold: { value: '18:00' } });
     expect(by.get('STAGE_READY_UNBILLED')).toMatchObject({ source: 'EXTERNAL' });
-    const bad = await api().post('/api/v1/control/alerts/run').set(await owner()).send({ rules: ['EQUIPMENT_IDLE'] });
+    const bad = await api().post('/api/v1/control/alerts/run').set(await owner()).send({ rules: ['MISSING_DAILY_LOG'] }); // external job: listed, not run by the engine
     expect(bad.body.error.code).toBe('UNKNOWN_RULE');
   });
 });

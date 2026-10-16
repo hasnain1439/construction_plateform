@@ -203,7 +203,7 @@ export function registerControlDocs(): void {
     responses: {
       ...ok('Rules', [
         { rule: 'MATERIAL_OVERUSE', source: 'CONTROL', trigger: 'DAILY_AND_ON_WRITE', severity: 'WARNING', permission: 'control.view', moneyPermissions: [], threshold: { setting: 'overuseAlertPercent', value: 10 }, dedupe: { key: 'MATERIAL_OVERUSE:<projectId>:<materialId>', renotifyHours: 168 }, actionUrl: '/projects/:projectId/control/material-variance', status: 'ACTIVE', description: 'A material is used …' },
-        { rule: 'EQUIPMENT_IDLE', source: 'CONTROL', trigger: 'DAILY', severity: 'WARNING', permission: 'equipment.rental.manage', moneyPermissions: [], threshold: { setting: 'equipmentIdleDays', value: null }, dedupe: { key: 'EQUIPMENT_IDLE:<rentalId>', renotifyHours: 24 }, actionUrl: '/equipment/rentals', status: 'PENDING_PLUGIN', description: 'Rented equipment …' },
+        { rule: 'EQUIPMENT_IDLE', source: 'CONTROL', trigger: 'DAILY', severity: 'WARNING', permission: 'equipment.rental.manage', moneyPermissions: [], threshold: { setting: 'equipmentIdleDays', value: 5 }, dedupe: { key: 'EQUIPMENT_IDLE:<rentalId>', renotifyHours: 24 }, actionUrl: '/equipment/rentals', status: 'ACTIVE', description: 'Rented equipment …' },
       ]),
       ...errors({ ...AUTH, 403: READ_403 }),
     },

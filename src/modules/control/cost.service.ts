@@ -48,13 +48,19 @@ export interface CostContext {
 }
 
 /**
- * Contract of the receivables (`moneyOf`). After Step 15, `moneyOf` also returns the revised
- * contract (`revisedContractPaisa` / `revisedContract`): then that is the contract and the approved
- * changes are already in it (inContract), so they are never added twice.
+ * Contract of the receivables (`moneyOf`). A revised contract (`revisedContractPaisa` /
+ * `revisedContract`) is the contract with the approved changes already in it (inContract). The
+ * real `moneyOf` returns `contract` = `originalContract` + `approvedChanges`: the projection then
+ * uses the original contract + those approved changes. Either way they are never added twice.
  */
 export function contractOf(m: { contract: bigint } & Record<string, unknown>, changes: ApprovedChanges): { contractPaisa: bigint; changes: ApprovedChanges } {
   const revised = m['revisedContract'] ?? m['revisedContractPaisa'];
   if (typeof revised === 'bigint' || (typeof revised === 'string' && /^-?\d+$/.test(revised))) return { contractPaisa: BigInt(revised), changes: { ...changes, inContract: true } };
+  // Receivables moneyOf(): `contract` = original + approved changes (Step 15) → split it back so the
+  // projection shows the original contract + the approved changes and the price counts once.
+  const original = m['originalContract'];
+  const approved = m['approvedChanges'];
+  if (typeof original === 'bigint' && typeof approved === 'bigint') return { contractPaisa: original, changes: { ...changes, pricePaisa: approved, inContract: false } };
   return { contractPaisa: m.contract, changes };
 }
 

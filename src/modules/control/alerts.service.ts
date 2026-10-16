@@ -103,11 +103,12 @@ export async function listRules() {
   assertPerm(CONTROL_VIEW, c);
   return withTenant(c.tenantId, async (tx) => {
     const s = await controlSettings(tx, c.tenantId);
-    const tenantSettings = await tx.tenantSettings.findUnique({ where: { tenantId: c.tenantId }, select: { missingLogAlertTime: true } });
+    const tenantSettings = await tx.tenantSettings.findUnique({ where: { tenantId: c.tenantId }, select: { missingLogAlertTime: true, equipmentIdleDays: true } });
     const value = (k: string | null) => {
       if (!k) return null;
       if (k in s) return s[k as keyof ControlSettings];
       if (k === 'missingLogAlertTime') return tenantSettings?.missingLogAlertTime ?? null;
+      if (k === 'equipmentIdleDays') return tenantSettings?.equipmentIdleDays ?? null; // Step 16 part 2
       return null;
     };
     return alertRules().map((r) => ({

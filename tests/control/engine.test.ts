@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { mayReceiveRule } from '../../src/modules/control/alerts/engine.js';
 import { alertRule, registerAlertRule, type AlertRule } from '../../src/modules/control/alerts/registry.js';
 import { equipmentIdlePlaceholder } from '../../src/modules/control/alerts/rules/builtin.js';
+import { equipmentIdleRule } from '../../src/modules/control/alerts/rules/equipmentIdle.js';
 import { computeProjection, contractOf } from '../../src/modules/control/cost.service.js';
 import { bucketOfLine, type EstimateData } from '../../src/modules/control/estimate.js';
 import { behindOf, physicalProgress, plannedProgress, progressAsOf, type PlanMilestone } from '../../src/modules/control/plan.js';
@@ -168,18 +169,26 @@ describe('Step 15 hook: revised contract from the receivables', () => {
     expect(contractOf({ contract: 1000n }, changes)).toEqual({ contractPaisa: 1000n, changes });
     expect(contractOf({ contract: 1000n, revisedContractPaisa: '1200' }, changes)).toEqual({ contractPaisa: 1200n, changes: { ...changes, inContract: true } });
     expect(contractOf({ contract: 1000n, revisedContract: 1200n }, changes).contractPaisa).toBe(1200n);
+    // the real moneyOf: contract = original + approved changes → split back, the price counts once
+    const split = contractOf({ contract: 1200n, originalContract: 1000n, approvedChanges: 200n }, { ...changes, inContract: true });
+    expect(split).toEqual({ contractPaisa: 1000n, changes: { pricePaisa: 200n, costPaisa: 100n, inContract: false } });
+    expect(computeProjection({ estimate: null, progress: { percent: 0, basis: 'NONE', stages: new Map() }, actualPaisa: 0n, ...split }).revisedContractPaisa).toBe(1200n);
   });
 });
 
 describe('alert rule registry', () => {
-  it('EQUIPMENT_IDLE is a placeholder until Step 16 registers the real rule; a placeholder never replaces it', () => {
-    expect(alertRule('EQUIPMENT_IDLE')).toMatchObject({ placeholder: true, notify: false }); // Step 16's own job notifies
+  it('EQUIPMENT_IDLE is the Step 16 plug-in (wraps idleRentals, notify: false); a placeholder never replaces a real rule', () => {
+    expect(alertRule('EQUIPMENT_IDLE')).toBe(equipmentIdleRule);
+    expect(alertRule('EQUIPMENT_IDLE')).toMatchObject({ placeholder: false, notify: false }); // Step 16's own job notifies
+    registerAlertRule(equipmentIdlePlaceholder);
+    expect(alertRule('EQUIPMENT_IDLE')).toBe(equipmentIdleRule);
     const real: AlertRule = { ...equipmentIdlePlaceholder, placeholder: false, evaluate: async () => [] };
     registerAlertRule(real);
     registerAlertRule(equipmentIdlePlaceholder);
     expect(alertRule('EQUIPMENT_IDLE')).toBe(real);
     registerAlertRule(equipmentIdlePlaceholder); // (still the real one)
     expect(alertRule('EQUIPMENT_IDLE')!.evaluate).toBeDefined();
+    registerAlertRule(equipmentIdleRule);
   });
 
   it('recipients: permission + money permissions + project scope; the owner always', () => {

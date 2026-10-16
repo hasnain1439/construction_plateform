@@ -1,7 +1,7 @@
 /**
  * Step 14 · registers every alert rule once (imported by the engine).
  *
- * ── EQUIPMENT_IDLE (Step 16 part 2) — how it plugs in on merge ─────────────────────────────────
+ * ── EQUIPMENT_IDLE (Step 16 part 2) — wired: see equipmentIdle.ts (the snippet below is what it does) ──────────────────────────────────
  * Step 16 part 2 owns the detection and the notifications: `idleRentals(tx, tenantId, today, opts)`
  * / `runIdleCheckTx` / `projectActivity` in src/modules/equipment/idle.ts, the `equipmentIdle`
  * alert (EQUIPMENT_IDLE notification, EQUIPMENT_IDLE_DEDUPE_MS) and the daily job `equipment-idle`
@@ -44,4 +44,4 @@ export function registerBuiltinRules(): void {
 
 registerBuiltinRules();
 // ─── Plug-in rules (one import per module) ───────────────────────────────────
-// Step 16 part 2: import './equipmentIdle.js';
+import './equipmentIdle.js'; // Step 16 part 2: EQUIPMENT_IDLE wraps idleRentals() (notify: false)
