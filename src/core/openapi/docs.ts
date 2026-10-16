@@ -33,6 +33,7 @@ import { registerTeamDocs } from '../../modules/team/team.docs.js';
 import { registerOnboardingDocs } from '../../modules/onboarding/onboarding.docs.js';
 import { registerPermissionsDocs } from '../../modules/permissions/permissions.docs.js';
 import { registerEquipmentDocs } from '../../modules/equipment/equipment.docs.js'; // Step 16
+import { registerTaxDocs } from '../../modules/tax/tax.docs.js'; // Step 18
 import { buildOpenApiDocument } from './registry.js';
 import { swaggerCss, swaggerFavicon } from './theme.js';
 
@@ -69,6 +70,7 @@ export function openApiDocument() {
     registerFinanceDocs();
     registerControlDocs(); // Step 14
     registerReportsDocs();
+    registerTaxDocs(); // Step 18
     registerDailyLogsDocs();
     registerCloseoutDocs();
     registerChangeOrderDocs(); // Step 15

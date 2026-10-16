@@ -47,6 +47,7 @@ import { rulebookRouter } from './modules/rulebook/rulebook.routes.js';
 import { equipmentRouter, projectEquipmentRouter } from './modules/equipment/equipment.routes.js'; // Step 16
 import { milestonesRouter, projectScheduleRouter, stoppagesRouter } from './modules/schedule/schedule.routes.js';
 import { controlRouter, projectControlRouter } from './modules/control/control.routes.js';
+import { projectTaxRouter, taxReportsRouter, taxRouter } from './modules/tax/tax.routes.js'; // Step 18
 import { quotesRouter } from './modules/sales/sales.routes.js';
 import { changeOrdersRouter, projectChangeOrdersRouter, siteInstructionsRouter, snagChangeOrderRouter } from './modules/change-orders/changeOrders.routes.js'; // Step 15
 import { dispatchesRouter, projectDispatchRouter, shortagesRouter } from './modules/dispatch/dispatch.routes.js';
@@ -183,6 +184,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/projects', projectChangeOrdersRouter); // Step 15: /projects/:id/change-orders, /projects/:id/site-instructions (per-route auth)
   mount('/projects', projectScheduleRouter); // Step 13: /projects/:id/schedule/*, /projects/:id/stoppages (per-route auth)
   mount('/projects', projectControlRouter); // Step 14: /projects/:id/control/* (per-route auth)
+  mount('/projects', projectTaxRouter); // Step 18: /projects/:id/tax (per-route auth)
   mount('/projects', projectsRouter);
   mount('/billing-stages', billingStagesRouter);
   mount('/billing-progress', billingProgressRouter);
@@ -196,6 +198,8 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/finance', financeRouter);
   mount('/control', controlRouter); // Step 14: /control/summary, /alerts, /settings (per-route auth)
   mount('/reports', reportsRouter);
+  mount('/reports', taxReportsRouter); // Step 18: /reports/wht-summary, /reports/tax-invoice-register
+  mount('/tax', taxRouter); // Step 18: /tax/settings
   mount('/daily-logs', dailyLogsRouter);
   mount('/drawings', drawingsRouter);
   mount('/drawing-revisions', drawingRevisionsRouter);

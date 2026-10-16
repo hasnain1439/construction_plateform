@@ -23,6 +23,7 @@ import {
   updateInvoiceBody,
   updateProgressBody,
   updateStageBody,
+  whtCertificateBody,
 } from './billing.schema.js';
 
 /**
@@ -71,6 +72,7 @@ invoicesRouter.get('/:id/pdf', ...view, validate({ params: idParams, query: lang
 export const clientPaymentsRouter = Router();
 clientPaymentsRouter.get('/:id', ...perm('billing.payment.view'), validate({ params: idParams }), h(c.getPayment));
 clientPaymentsRouter.patch('/:id/cheque-status', ...perm('billing.payment.manage'), validate({ params: idParams, body: chequeStatusBody }), h(c.chequeStatus));
+clientPaymentsRouter.patch('/:id/wht-certificate', ...perm('billing.payment.create'), validate({ params: idParams, body: whtCertificateBody }), h(c.whtCertificate)); // Step 18
 clientPaymentsRouter.get('/:id/receipt-pdf', ...perm('billing.payment.view'), validate({ params: idParams, query: langQuery }), h(c.receiptPdf));
 
 /** Mounted at /api/v1/receivables (THEKEDAR) */

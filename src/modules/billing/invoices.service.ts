@@ -35,6 +35,7 @@ import { applyCredit, LIVE, recomputeInvoice, resolveBouncedFor, resolveEvent, s
 import { track } from '../../core/observability/analytics.js';
 import { retentionDueDate } from '../closeout/retention.dates.js';
 import { markBilled, pendingStageLines, revertBilled } from '../change-orders/invoiceHooks.js'; // Step 15
+import { effectiveTax, taxableBase, taxOf } from '../tax/tax.rules.js'; // Step 18
 
 const include = {
   project: { select: { id: true, code: true, name: true, siteAddress: true, status: true } },
@@ -77,6 +78,12 @@ export function invoiceDto(inv: Row) {
     taxPaisa: inv.taxPaisa.toString(),
     taxLabel: inv.taxLabel,
     taxRatePercent: inv.taxRatePercent === null ? null : Number(inv.taxRatePercent),
+    // Step 18: tax snapshot (frozen at issue)
+    taxableBasePaisa: inv.taxableBasePaisa.toString(),
+    taxAuthority: inv.taxAuthority,
+    sellerNtn: inv.sellerNtn,
+    sellerStrn: inv.sellerStrn,
+    buyerNtn: inv.buyerNtn,
     totalPaisa: inv.totalPaisa.toString(),
     paidPaisa: inv.paidPaisa.toString(),
     pendingPaisa: inv.pendingPaisa.toString(),
@@ -235,17 +242,44 @@ async function buildLines(tx: Tx, a: BillingActor, project: { id: string; status
   return { stageId, forceNote, lines };
 }
 
-/** Recomputes subtotal / tax / total of an invoice from its lines (Step 15 uses it for VARIATION invoices). */
-export async function writeTotals(tx: Tx, a: BillingActor, invoiceId: string) {
-  const s = await billingSettings(tx, a.tenantId);
+/**
+ * Recomputes subtotal / tax / total of a DRAFT invoice from its lines (Step 15 uses it for
+ * VARIATION invoices). Step 18: tax follows the project's effective tax (company setting +
+ * project override) on the taxable base (src/modules/tax/tax.rules.ts); the tax snapshot
+ * (authority, rate, label, base, seller NTN / STRN, buyer NTN) is written here and frozen at issue.
+ */
+export async function writeTotals(tx: Tx, a: Pick<BillingActor, 'tenantId'>, invoiceId: string) {
+  const inv = await tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { projectId: true, clientId: true } });
   const lines = await tx.invoiceLine.findMany({ where: { tenantId: a.tenantId, invoiceId } });
   const subtotal = lines.reduce((sum, l) => sum + l.amountPaisa, 0n);
-  const taxOn = s.taxEnabled && s.taxRatePercent.gt(0) && subtotal > 0n;
-  const tax = taxOn ? percentOf(subtotal, s.taxRatePercent) : 0n;
+  const eff = await effectiveTax(tx, a.tenantId, inv.projectId);
+  const base = eff.applies ? taxableBase(lines) : 0n;
+  const taxOn = eff.applies && base > 0n;
+  const tax = taxOn ? taxOf(base, eff.ratePercent) : 0n;
+  const buyer = taxOn && inv.clientId ? await tx.client.findUnique({ where: { id: inv.clientId }, select: { ntn: true } }) : null;
   await tx.invoice.update({
     where: { id: invoiceId },
-    data: { subtotalPaisa: subtotal, taxPaisa: tax, taxLabel: taxOn ? (s.taxLabel ?? 'Sales tax') : null, taxRatePercent: taxOn ? s.taxRatePercent : null, totalPaisa: subtotal + tax, balancePaisa: subtotal + tax },
+    data: {
+      subtotalPaisa: subtotal,
+      taxableBasePaisa: base,
+      taxPaisa: tax,
+      taxLabel: taxOn ? (eff.label ?? 'Sales tax') : null,
+      taxRatePercent: taxOn ? eff.ratePercent : null,
+      taxAuthority: taxOn ? eff.authority : null,
+      sellerNtn: taxOn ? eff.company.ntn : null,
+      sellerStrn: taxOn ? eff.company.strn : null,
+      buyerNtn: buyer?.ntn ?? null,
+      totalPaisa: subtotal + tax,
+      balancePaisa: subtotal + tax,
+    },
   });
+}
+
+/** Step 18: tax settings changed → every DRAFT invoice (of one project, or all) is recalculated. */
+export async function recalcDrafts(tx: Tx, tenantId: string, projectId?: string) {
+  const drafts = await tx.invoice.findMany({ where: { tenantId, status: 'DRAFT', ...(projectId ? { projectId } : {}) }, select: { id: true } });
+  for (const d of drafts) await writeTotals(tx, { tenantId }, d.id);
+  return drafts.length;
 }
 
 export async function writeLines(tx: Tx, tenantId: string, invoiceId: string, lines: DraftLine[]) {
@@ -458,6 +492,8 @@ export async function makeInvoicePdf(tx: Tx, a: BillingActor, id: string, lang: 
     taxPaisa: inv.taxPaisa,
     taxLabel: inv.taxLabel,
     taxRatePercent: inv.taxRatePercent?.toString() ?? null,
+    taxableBasePaisa: inv.taxableBasePaisa,
+    taxRegistration: { sellerNtn: inv.sellerNtn, sellerStrn: inv.sellerStrn, buyerNtn: inv.buyerNtn },
     totalPaisa: inv.totalPaisa,
     paidPaisa: inv.paidPaisa,
     balancePaisa: inv.balancePaisa,

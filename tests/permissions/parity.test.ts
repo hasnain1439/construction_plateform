@@ -294,6 +294,14 @@ const NEW_ROUTES: Snapshot = {
   'GET /api/v1/reports/delay-analysis/:projectId': office(404),
   'GET /api/v1/reports/variance/:projectId': office(404),
   'GET /api/v1/reports/snags/:projectId': office(404),
+  // Step 18 · tax: tax.view (owner, Administrator, Accountant), tax.settings.manage (owner, Administrator); project tax read = billing.invoice.view; WHT certificate = billing.payment.create
+  'GET /api/v1/tax/settings': owner(200),
+  'PATCH /api/v1/tax/settings': owner(400),
+  'GET /api/v1/projects/:id/tax': { MUNSHI: 'DENIED', PM: 'DENIED', PM_FIN: 404, THEKEDAR: 404 },
+  'PATCH /api/v1/projects/:id/tax': owner(400),
+  'PATCH /api/v1/payments/:id/wht-certificate': { MUNSHI: 'DENIED', PM: 'DENIED', PM_FIN: 400, THEKEDAR: 400 },
+  'GET /api/v1/reports/wht-summary': owner(200),
+  'GET /api/v1/reports/tax-invoice-register': owner(200),
 };
 
 function all(status: Outcome): Record<Persona, Outcome> {

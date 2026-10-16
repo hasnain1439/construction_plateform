@@ -25,6 +25,7 @@ import { seedMalikEstimates } from './seedEstimate.js';
 import { seedMalikSchedule } from './seedSchedule.js';
 import { seedMalikShuttering } from './seedShuttering.js';
 import { seedMalikControl } from './seedControl.js';
+import { seedMalikTax } from './seedTax.js';
 import { seedMalikQuotes } from './seedSales.js';
 import { seedMalikChangeOrders } from './seedChangeOrders.js';
 import { ensureProjectRow, seedAhmedProject, seedMalikClients, seedMalikProjects } from './seedProjects.js';
@@ -369,6 +370,7 @@ export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: b
   if (opts.billing !== false) await seedMalikChangeOrders(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, dhaProjectId: malikProjects.dha.id }); // Step 15 (after the schedule + billing demo)
   if (opts.inventory !== false) await seedMalikShuttering(db, { tenantId: malik.id, ownerId: khalid.id, projects: malikProjects }); // Step 16 part 2 (idle rental + planner shortfall; after the schedule)
   if (opts.inventory !== false) await seedMalikControl(db, { tenantId: malik.id, ownerId: khalid.id, rafaqatId: rafaqatMalik.id, dhaProjectId: malikProjects.dha.id }); // Step 14: material history, cement overuse, slab behind plan
+  await seedMalikTax(db, { tenantId: malik.id, dhaProjectId: malikProjects.dha.id }); // Step 18: tax stays OFF; client NTN + STRN (SEED_TAX_DEMO=1 switches PRA 16 % on)
 
   return {
     malik,

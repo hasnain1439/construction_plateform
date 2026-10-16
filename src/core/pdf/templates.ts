@@ -138,6 +138,10 @@ export interface InvoicePdfData {
   taxPaisa: bigint;
   taxLabel: string | null;
   taxRatePercent: string | null;
+  /** Step 18: base the tax was worked out on (shown when it differs from the subtotal). */
+  taxableBasePaisa?: bigint;
+  /** Step 18: NTN / STRN printed when the invoice carries tax. */
+  taxRegistration?: { sellerNtn: string | null; sellerStrn: string | null; buyerNtn: string | null };
   totalPaisa: bigint;
   paidPaisa: bigint;
   balancePaisa: bigint;
@@ -154,17 +158,19 @@ export function invoiceHtml(d: InvoicePdfData, lang: Lang = 'en'): string {
     .join('');
   const body = `
   <div class="grid">
-    <div><div class="label">${L('pdf.billTo')}</div><strong>${esc(d.client?.name ?? '—')}</strong><div class="muted">${[d.client?.phone ? ltr(esc(d.client.phone)) : null, d.client?.address ? esc(d.client.address) : null].filter(Boolean).join('<br>')}</div></div>
+    <div><div class="label">${L('pdf.billTo')}</div><strong>${esc(d.client?.name ?? '—')}</strong><div class="muted">${[d.client?.phone ? ltr(esc(d.client.phone)) : null, d.client?.address ? esc(d.client.address) : null, d.taxRegistration?.buyerNtn ? `${L('pdf.ntn')} ${ltr(esc(d.taxRegistration.buyerNtn))}` : null].filter(Boolean).join('<br>')}</div></div>
     <div><div class="label">${L('pdf.project')}</div><strong>${esc(d.project.name)}</strong><div class="muted">${ltr(esc(d.project.code))}${d.project.siteAddress ? `<br>${esc(d.project.siteAddress)}` : ''}</div></div>
     <div><div class="label">${L('pdf.due')}</div><strong>${date(d.dueDate)}</strong></div>
   </div>
   <table><thead><tr><th>#</th><th>${L('pdf.description')}</th><th class="r">${L('pdf.qty')}</th><th class="r">${L('pdf.rate')}</th><th class="r">${L('pdf.amount')}</th></tr></thead><tbody>${rows}</tbody></table>
   <table class="totals">
     <tr><td>${L('pdf.subtotal')}</td><td class="r">${money(d.subtotalPaisa)}</td></tr>
+    ${d.taxPaisa > 0n && d.taxableBasePaisa !== undefined && d.taxableBasePaisa !== d.subtotalPaisa ? `<tr><td>${L('pdf.taxableValue')}</td><td class="r">${money(d.taxableBasePaisa)}</td></tr>` : ''}
     ${d.taxPaisa > 0n ? `<tr><td>${d.taxLabel ? esc(d.taxLabel) : L('pdf.salesTax')} ${ltr(`${esc(d.taxRatePercent ?? '')}%`)}</td><td class="r">${money(d.taxPaisa)}</td></tr>` : ''}
     <tr class="grand"><td>${L('pdf.total')}</td><td class="r">${money(d.totalPaisa)}</td></tr>
     ${d.paidPaisa > 0n ? `<tr><td>${L('pdf.received')}</td><td class="r">${money(d.paidPaisa)}</td></tr><tr><td><strong>${L('pdf.balanceDue')}</strong></td><td class="r"><strong>${money(d.balancePaisa)}</strong></td></tr>` : ''}
   </table>
+  ${d.taxPaisa > 0n && (d.taxRegistration?.sellerNtn || d.taxRegistration?.sellerStrn) ? `<p class="muted">${[d.taxRegistration.sellerNtn ? `${L('pdf.ntn')} ${ltr(esc(d.taxRegistration.sellerNtn))}` : null, d.taxRegistration.sellerStrn ? `${L('pdf.strn')} ${ltr(esc(d.taxRegistration.sellerStrn))}` : null].filter(Boolean).join(' · ')}</p>` : ''}
   ${d.notes ? `<div class="note">${esc(d.notes)}</div>` : ''}`;
   return shell(d.company, tr(lang, 'pdf.invoice'), `${ltr(esc(d.number))}<br>${L('pdf.issued', {}, { date: date(d.issueDate) })}`, body, lang);
 }
@@ -177,6 +183,8 @@ export interface ReceiptPdfData {
   project: { name: string; code: string };
   amountPaisa: bigint;
   whtPaisa: bigint;
+  /** Step 18: the client's WHT certificate number, when received. */
+  whtCertificateNo?: string | null;
   /** Payment method enum (CASH, CHEQUE…) — labelled in the language. */
   method: string;
   bankName: string | null;
@@ -202,7 +210,7 @@ export function receiptHtml(d: ReceiptPdfData, lang: Lang = 'en'): string {
   </div>
   <table class="totals" style="width:60%;margin-inline-start:0">
     <tr class="grand"><td>${L('pdf.amountReceived')}</td><td class="r">${money(d.amountPaisa)}</td></tr>
-    ${d.whtPaisa > 0n ? `<tr><td>${L('pdf.wht')}</td><td class="r">${money(d.whtPaisa)}</td></tr>` : ''}
+    ${d.whtPaisa > 0n ? `<tr><td>${L('pdf.wht')}${d.whtCertificateNo ? `<div class="muted">${L('pdf.whtCertificate', { number: d.whtCertificateNo })}</div>` : ''}</td><td class="r">${money(d.whtPaisa)}</td></tr>` : ''}
   </table>
   ${rows ? `<table><thead><tr><th>${L('pdf.againstInvoice')}</th><th class="r">${L('pdf.amount')}</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
   ${d.creditPaisa > 0n ? `<div class="note">${L('pdf.creditKept', {}, { amount: `<strong>${money(d.creditPaisa)}</strong>` })}</div>` : ''}

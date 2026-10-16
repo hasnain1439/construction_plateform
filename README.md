@@ -1312,6 +1312,25 @@ Audit actions: `drawing.create|update|delete|revision_add|revision_update`, `sna
 
 **Seed (`prisma/seedCloseout.ts`, CLI seed with the billing demo, skipped when drawings exist).** DHA: 4 drawings (A-101 and S-201 with R0 superseded + R1 latest, E-301, DHA approved plan), 2 snags (one deducted Rs 4,500 from Ustad Sharif's sub-contract). Johar Town moved to CLOSEOUT: snags in every status (overdue OPEN, OPEN with Haji Plumbing, FIXED with an after photo, VERIFIED with Rs 12,000 rework), as-built drawing, checklist 4 of 7 done, no sign-off. Valencia (HANDED_OVER): handover ~6 months ago, retention due in 10 days, one defect-period snag.
 
+## Tax (Step 18)
+
+`src/modules/tax/`: `tax.rules.ts` (the one place for tax rules: authorities + default rates, effective tax of a project, taxable base, rounding, WHT from a rate, Pakistan tax year), `tax.service.ts` (settings + project override, audited, drafts recalculated), `taxReports.ts` (WHT summary + tax-wise invoice register through the reports export pipeline), routes / schema / docs. Contract: `PHASE_2_3_CONTRACTS.md` → Step 18 — Tax. **Off by default**; every rate and rule is a default for the company's tax adviser to confirm.
+
+- **Settings** (`TenantSettings.taxEnabled / taxAuthority / taxRatePercent / taxLabel / taxStrn / whtDefaultRatePercent`, company NTN = `Tenant.ntn`): authorities PRA (16 %), SRB (15 %), KPRA (15 %), ICT (16 %) — defaults only pre-fill the form. Switching on needs an authority and a rate > 0 (`400 TAX_SETTINGS_INCOMPLETE`). The legacy `PATCH /company/settings` tax fields still work (owner only).
+- **Project override** (`Project.taxMode` INHERIT / ON / OFF + `taxAuthority` / `taxRatePercent`): a project in another province uses its own authority / rate.
+- **Invoices**: taxable base = every line except `CASH_ENTRY` (owner purchases passed through at cost); change-order lines and the running-bill retention deduction count; tax = round half-up (base × rate ÷ 100) on the paisa, once per invoice. Drafts follow the settings (recalculated on every settings change); **issue freezes** `taxAuthority`, `taxRatePercent`, `taxLabel`, `taxableBasePaisa`, `taxPaisa`, `sellerNtn`, `sellerStrn`, `buyerNtn` (`Client.ntn`). Cancel keeps the snapshot. The PDF prints the tax line, the taxable value (when it differs from the subtotal), seller NTN / STRN and the client's NTN.
+- **Client WHT** (`ClientPayment.whtDeductedPaisa / whtRatePercent / whtCertificateNo / whtCertificateDate / whtCertificateAttachmentId`): only when tax is on for the project; rate alone → WHT = round(cash × r ÷ (100 − r)) (r % of the gross); amount + rate must agree within Rs 1; WHT settles invoices like cash (paid, balance, receivables "received"). Certificate later: `PATCH /payments/:id/wht-certificate`.
+
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| GET / PATCH | `/tax/settings` | `tax.view` / `tax.settings.manage` | Audit `tax.settings.update` (before / after, drafts recalculated) |
+| GET / PATCH | `/projects/:id/tax` | `billing.invoice.view` / `tax.settings.manage` | Effective tax + company WHT default; audit `project.tax.update` |
+| PATCH | `/payments/:id/wht-certificate` | `billing.payment.create` | 409 NO_WHT / PAYMENT_BOUNCED; audit `payment.wht_certificate` |
+| GET | `/reports/wht-summary` | `tax.view` + `fields.amounts` | Per client × month: gross, cash, WHT, WHT %, certificates received / missing; default period = current tax year (1 Jul – 30 Jun) |
+| GET | `/reports/tax-invoice-register` | `tax.view` + `fields.amounts` | Issued invoices (cancelled listed, not counted): taxable value, rate, tax, authority, status; notes = subtotal per authority + rate |
+
+Seed `prisma/seedTax.ts`: Malik stays **tax OFF**; the DHA client gets an NTN and the company a STRN. `SEED_TAX_DEMO=1` (tests: `seedMalikTax(db, { …, enable: true })`) switches PRA 16 % on — existing invoices are never touched. Tests: `tests/tax/tax.test.ts`.
+
 ## Daily Logs
 
 `src/modules/dailylogs` — the site diary. Table `DailyLog` (RLS; SELECT / INSERT / UPDATE): project, `logDate`, `conditions[]` (NORMAL, RAIN, POWER_CUT, WATER_SHORTAGE, CURING, LABOUR_SHORT, MATERIAL_SHORT, OTHER), `workDone`, `note` (≤ 2000), `photoAttachmentIds[]` (SITE_PHOTO), `voiceAttachmentIds[]` (VOICE_NOTE), author, `clientId`, `deviceCreatedAt`; unique (project, day, author).
