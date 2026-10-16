@@ -277,6 +277,13 @@ describe('alert engine', () => {
     expect(after).toContain(bilal.id);
   });
 
+  it('the notification list filters by CONTROL_ALERT (every Prisma NotificationType is a valid filter)', async () => {
+    const res = await api().get('/api/v1/notifications').query({ type: 'CONTROL_ALERT' }).set(await owner());
+    expect(res.status, JSON.stringify(res.body).slice(0, 300)).toBe(200);
+    expect((res.body.data as Array<{ type: string }>).every((n) => n.type === 'CONTROL_ALERT')).toBe(true);
+    expect(res.body.data.length).toBeGreaterThan(0); // the seed ran the engine once
+  });
+
   it('lists the rule registry with the Step 16 plug-in active', async () => {
     const rules = (await get(await owner(), '/api/v1/control/alerts/rules')) as Array<{ rule: string; status: string; source: string; threshold: { value: unknown } | null }>;
     const by = new Map(rules.map((r) => [r.rule, r]));
