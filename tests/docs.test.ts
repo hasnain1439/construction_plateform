@@ -34,9 +34,20 @@ import * as ob from '../src/modules/onboarding/onboarding.schema.js';
 import { estimateSettingsBody } from '../src/modules/estimate/settings.js';
 import { contractFromEstimateBody } from '../src/modules/estimate/contractValue.js';
 import { autoWallsBody, setWallsBody } from '../src/modules/projects/walls.js';
+import { approveEstimateBody, generateEstimateBody, lineOverrideBody } from '../src/modules/estimate/estimate.schema.js';
+import { setOverridesBody } from '../src/modules/rulebook/rulebook.schema.js';
+import { createRulebookBody, updateParameterBody, updateRulebookBody } from '../src/modules/platform-admin/rulebook.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
+  // Step 11
+  'post /api/v1/projects/{id}/estimates': generateEstimateBody,
+  'patch /api/v1/estimates/{id}/lines/{lineId}': lineOverrideBody,
+  'post /api/v1/estimates/{id}/approve': approveEstimateBody,
+  'put /api/v1/rulebook/overrides': setOverridesBody,
+  'post /api/v1/admin/rulebooks': createRulebookBody,
+  'patch /api/v1/admin/rulebooks/{id}': updateRulebookBody,
+  'patch /api/v1/admin/rulebooks/{id}/parameters/{key}': updateParameterBody,
   'post /api/v1/onboarding/checklist/dismiss': ob.dismissBody,
   'post /api/v1/opening-balances': ob.openingBody,
   'put /api/v1/projects/{id}/estimate/settings': estimateSettingsBody,
@@ -206,6 +217,7 @@ describe('API docs', () => {
       'Project Wizard',
       'Floors & Rooms',
       'Estimate',
+      'Rulebook',
       'Stock',
       'Purchases',
       'Purchase Orders',
@@ -239,7 +251,7 @@ describe('API docs', () => {
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(259); // +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
+    expect(Object.keys(res.body.paths)).toHaveLength(275); // +16: Step 11 (9 estimate revision / shopping list paths, 3 company rulebook, 4 admin rulebook), +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

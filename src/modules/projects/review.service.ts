@@ -129,7 +129,7 @@ export async function activate(id: string) {
     const activated = await tx.project.update({ where: { id }, data: { status: 'ACTIVE', activatedAt: new Date() } });
     await siteLocation(tx, c.tenantId, activated); // stock can now be sent to the site
     await audit(tx, c, 'project.activate', id, { code: project.code, warnings: review.warnings.map((w) => w.code) });
-    return { ...(await detail(tx, c, id)), nextStep: 'ESTIMATE' as const };
+    return { ...(await detail(tx, c, id)), nextStep: 'GENERATE_ESTIMATE' as const };
   });
   track('project_activated');
   return result;

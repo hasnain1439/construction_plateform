@@ -27,7 +27,7 @@ describe('review + activation', () => {
     expect(codes(blocked.body.error.details.errors)).toContain('NO_ROOMS');
   });
 
-  it('a complete draft activates (ACTIVE, activatedAt, nextStep ESTIMATE) and starts counting against the plan', async () => {
+  it('a complete draft activates (ACTIVE, activatedAt, nextStep GENERATE_ESTIMATE) and starts counting against the plan', async () => {
     const auth = await owner();
     const p = await createReadyDraft(auth, { endDate: '2026-12-15' });
     const review = await api().get(`/api/v1/projects/${p.id}/review`).set(auth);
@@ -44,7 +44,7 @@ describe('review + activation', () => {
     const before = await usage(auth);
     const res = await api().post(`/api/v1/projects/${p.id}/activate`).set(auth);
     expect(res.status).toBe(200);
-    expect(res.body.data).toMatchObject({ status: 'ACTIVE', nextStep: 'ESTIMATE', activatedAt: expect.any(String) });
+    expect(res.body.data).toMatchObject({ status: 'ACTIVE', nextStep: 'GENERATE_ESTIMATE', activatedAt: expect.any(String) });
     expect(await usage(auth)).toBe(before + 1);
     expect(await prismaAdmin.auditLog.count({ where: { action: 'project.activate', entityId: p.id } })).toBe(1);
 

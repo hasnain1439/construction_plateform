@@ -22,6 +22,7 @@ import { registerPlatformAdminDocs } from '../../modules/platform-admin/platform
 import { registerProcurementDocs } from '../../modules/procurement/procurement.docs.js';
 import { registerProjectsDocs } from '../../modules/projects/projects.docs.js';
 import { registerEstimateDocs } from '../../modules/estimate/estimate.docs.js';
+import { registerRevisionDocs } from '../../modules/estimate/revisions.docs.js';
 import { registerSubscriptionDocs } from '../../modules/subscription/subscription.docs.js';
 import { registerTeamDocs } from '../../modules/team/team.docs.js';
 import { registerOnboardingDocs } from '../../modules/onboarding/onboarding.docs.js';
@@ -46,6 +47,7 @@ export function openApiDocument() {
     registerOnboardingDocs();
     registerProjectsDocs();
     registerEstimateDocs();
+    registerRevisionDocs(); // Step 11
     registerInventoryDocs();
     registerProcurementDocs();
     registerDispatchDocs();

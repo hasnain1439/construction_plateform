@@ -52,6 +52,9 @@ export const PERMISSION_MODULES = {
   company: { en: 'Company', roman: 'Company', urdu: 'کمپنی' },
   subscription: { en: 'Subscription', roman: 'Subscription', urdu: 'سبسکرپشن' },
   fields: { en: 'Data visibility', roman: 'Kya nazar aaye', urdu: 'کیا نظر آئے' },
+  // Step 11
+  estimate: { en: 'Estimates', roman: 'Estimate (takhmeena)', urdu: 'تخمینہ' },
+  rulebook: { en: 'Estimation rulebook', roman: 'Estimate ke qawaid', urdu: 'تخمینے کے قواعد' },
 } as const satisfies Record<string, PermissionLabel>;
 
 export type PermissionModule = keyof typeof PERMISSION_MODULES;
@@ -77,7 +80,12 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   def('projects.project.manage', L('Change project status / delete drafts', 'Project ka status / draft delete', 'پراجیکٹ کا اسٹیٹس / ڈرافٹ ڈیلیٹ'), 'Close-out, hand over, close, reopen; delete a draft.', S),
   def('projects.team.manage', L('Assign project team', 'Project team muqarrar karna', 'پراجیکٹ ٹیم مقرر کرنا'), 'Choose the PM and munshis of a project.', S),
   def('projects.estimate.view', L('View estimate (BoQ)', 'Estimate (BoQ) dekhna', 'تخمینہ (BoQ) دیکھنا'), 'Grey-structure material estimate of a project (rates and amounts follow the data-visibility permissions).', S),
-  def('projects.estimate.manage', L('Change estimate settings', 'Estimate ki settings badalna', 'تخمینے کی سیٹنگز بدلنا'), 'Change the assumptions of a project estimate (wall / slab thickness, mixes, steel, wastage, labour rate).', S),
+  def('projects.estimate.manage', L('Change estimate settings', 'Estimate ki settings badalna', 'تخمینے کی سیٹنگز بدلنا'), 'Change the assumptions of a project estimate (wall / slab thickness, mixes, steel, wastage, labour rate); generate / regenerate draft estimate revisions and change their lines.', S),
+
+  // ─── Step 11 · Estimates + rulebook ────────────────────────────────────────
+  def('estimate.revision.approve', L('Approve estimates', 'Estimate manzoor karna', 'تخمینہ منظور کرنا'), 'Approve a draft estimate revision: its rates and rulebook are frozen and the previous approved revision is superseded.', S),
+  def('rulebook.override.view', L('View estimation rulebook', 'Estimate ke qawaid dekhna', 'تخمینے کے قواعد دیکھنا'), 'The rule-of-thumb values the estimates use (platform rulebook + company values).'),
+  def('rulebook.override.manage', L('Change company rulebook values', 'Company ke qawaid badalna', 'کمپنی کے قواعد بدلنا'), 'Set the company own values for rulebook parameters (within the safe range).'),
 
   // ─── Clients ───────────────────────────────────────────────────────────────
   def('clients.client.view', L('View clients', 'Clients dekhna', 'کلائنٹس دیکھنا'), 'Project owners (clients) list and detail.'),
@@ -287,6 +295,7 @@ const PM_KEYS = [
   'projects.project.approve',
   'projects.estimate.view',
   'projects.estimate.manage',
+  'rulebook.override.view',
   'clients.client.view',
   'clients.client.create',
   'clients.client.edit',

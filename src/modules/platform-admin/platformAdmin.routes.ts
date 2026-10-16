@@ -4,6 +4,7 @@ import { requirePlatformAdmin } from '../../core/middleware/requirePlatformAdmin
 import { validate } from '../../core/middleware/validate.js';
 import { assertAdminSessionActive } from '../auth/admin.service.js';
 import * as c from './platformAdmin.controller.js';
+import { adminRulebookRouter } from './rulebook.routes.js';
 import {
   approvePaymentBody,
   catalogMaterialsQuery,
@@ -72,3 +73,4 @@ platformAdminRouter.get('/material-groups', h(c.listMaterialGroups));
 platformAdminRouter.get('/materials', validate({ query: catalogMaterialsQuery }), h(c.listCatalogMaterials));
 platformAdminRouter.post('/materials', validate({ body: createCatalogMaterialBody }), h(c.createCatalogMaterial));
 platformAdminRouter.patch('/materials/:id', validate({ params: idParams, body: updateCatalogMaterialBody }), h(c.updateCatalogMaterial));
+platformAdminRouter.use('/rulebooks', adminRulebookRouter); // Step 11: estimation rulebook versions

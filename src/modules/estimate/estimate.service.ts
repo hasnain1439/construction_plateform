@@ -1,7 +1,9 @@
 /**
  * Estimate (BoQ) of a project — computed live on every read from the project's current plot,
- * structure, foundation, floors / rooms / openings, the estimate settings and the company price
- * list. Nothing is stored except the settings the user changed (`Project.estimateSettings`).
+ * structure, foundation, floors / rooms / openings, the rulebook (platform → company → project
+ * layers, rulebook.ts) and the company price list. `GET /projects/:id/estimate` is the live
+ * preview (grey-structure stages + the full `boq` that Generate would save); saved revisions live
+ * in revisions.service.ts.
  *
  * Money visibility follows the field permissions: rates / amounts / cost need `fields.rates`,
  * the contract value `fields.contract`, the margin `fields.profit` + `fields.contract`.
@@ -21,22 +23,22 @@ import { contractTotalPaisa } from '../projects/projects.dto.js';
 import * as repo from '../projects/projects.repository.js';
 import { audit, detail } from '../projects/projects.service.js';
 import { recomputeStageAmounts } from '../projects/wizard.service.js';
+import { BOQ_LABOUR_ITEMS, BOQ_MATERIALS, BOQ_SECTIONS, BUILD_STAGES, buildBoq, type Boq, type BoqLabourItem, type BoqLabourRates, type BoqLine, type BoqMaterialKey, type BoqPriceBook } from './boq.js';
 import { suggest } from './contractValue.js';
 import {
   estimateQuantities,
-  LABOUR_ITEMS,
   MATERIALS,
   priceEstimate,
   STAGES,
   type EstimateInput,
   type LabourItem,
-  type LabourRates,
   type MaterialKey,
-  type PriceBook,
   type PricedEstimate,
   type EstimateQuantities,
 } from './engine.js';
-import { effectiveSettings, ESTIMATE_DEFAULTS, readOverrides, type EstimateSettings, type EstimateSettingsInput } from './settings.js';
+import { assertProjectOverrides, loadRulebook, settingsBase, withProject, type ParamSource, type ResolvedRulebook } from './rulebook.js';
+import { PARAM_BY_KEY, fromSettingValue } from './rulebookDefs.js';
+import { effectiveSettings, readOverrides, type EstimateSettings, type EstimateSettingsInput } from './settings.js';
 
 /**
  * Which company material prices each estimate material: platform rulebook keys first, then a name
@@ -44,9 +46,14 @@ import { effectiveSettings, ESTIMATE_DEFAULTS, readOverrides, type EstimateSetti
  * "Grade-40 #n" material when a roof uses G40); without a rate for that size it falls back to the
  * generic steel rate (`fallbackTo`) and the material is flagged `rateFallback`.
  */
-export const MATERIAL_SOURCES: Record<MaterialKey, { rulebook: string[]; name?: RegExp; supply: SupplyCategoryKey | null; fallbackTo?: MaterialKey; bar?: number }> = {
+export const MATERIAL_SOURCES: Record<BoqMaterialKey, { rulebook: string[]; name?: RegExp; supply: SupplyCategoryKey | null; fallbackTo?: MaterialKey; bar?: number }> = {
   cement: { rulebook: ['cement_opc', 'cement_src'], supply: 'CEMENT' },
   bricks: { rulebook: ['bricks_class1', 'bricks_class2'], supply: 'BRICKS' },
+  blocks: { rulebook: [], name: /\bblock/i, supply: 'BRICKS' },
+  floorTiles: { rulebook: [], name: /floor\s*tile/i, supply: 'TILES_FLOORING' },
+  wallTiles: { rulebook: [], name: /wall\s*tile/i, supply: 'TILES_FLOORING' },
+  paint: { rulebook: [], name: /emulsion|wall\s*paint/i, supply: 'PAINT' },
+  primer: { rulebook: [], name: /primer|sealer/i, supply: 'PAINT' },
   sand: { rulebook: ['sand_chenab', 'sand_ravi'], supply: 'SAND_BAJRI' },
   crush: { rulebook: ['bajri_margalla', 'bajri_sargodha'], supply: 'SAND_BAJRI' },
   steel: { rulebook: ['steel_g60_4', 'steel_g60_3', 'steel_g60_5', 'steel_g60_6'], supply: 'STEEL' },
@@ -83,6 +90,7 @@ function engineInput(p: repo.ProjectFull): EstimateInput {
       rooms: fl.rooms.map((r) => ({
         id: r.id,
         name: r.name,
+        type: r.type,
         walls: readWalls(r.walls),
         lengthFt: Number(r.lengthFt),
         widthFt: Number(r.widthFt),
@@ -96,7 +104,7 @@ function engineInput(p: repo.ProjectFull): EstimateInput {
 }
 
 /** The company price book for the estimate materials, in the project's quality category per supply category. */
-async function loadPriceBook(tx: Tx, tenantId: string, p: repo.ProjectFull): Promise<PriceBook> {
+export async function loadPriceBook(tx: Tx, tenantId: string, p: repo.ProjectFull): Promise<BoqPriceBook> {
   const materials = await tx.material.findMany({
     where: { isHidden: false },
     select: { id: true, name: true, unit: true, altUnits: true, platformMaterial: { select: { rulebookKey: true } } },
@@ -108,7 +116,7 @@ async function loadPriceBook(tx: Tx, tenantId: string, p: repo.ProjectFull): Pro
 
   // Candidates per estimate material, in priority order
   const candidates = Object.fromEntries(
-    MATERIALS.map((m) => {
+    BOQ_MATERIALS.map((m) => {
       const src = MATERIAL_SOURCES[m];
       // A roof in Grade-40 steel: the company's own "Grade-40 #n" material first
       const grade40 = g40 && src.bar ? materials.filter((x) => /(grade|g)[\s-]*40/i.test(x.name) && new RegExp(`#\\s*${src.bar}\\b`).test(x.name)) : [];
@@ -116,23 +124,23 @@ async function loadPriceBook(tx: Tx, tenantId: string, p: repo.ProjectFull): Pro
       const byName = src.name ? materials.filter((x) => src.name!.test(x.name) && !byKey.includes(x)) : [];
       return [m, [...grade40, ...byKey, ...byName]];
     }),
-  ) as Record<MaterialKey, typeof materials>;
+  ) as Record<BoqMaterialKey, typeof materials>;
 
   // Current rates, one query per quality category in use (sequential: one connection)
-  const categoryOf = (m: MaterialKey) => {
+  const categoryOf = (m: BoqMaterialKey) => {
     const r = rule(MATERIAL_SOURCES[m].supply);
     return r?.qualityCategory ? { id: r.qualityCategory.id, name: r.qualityCategory.name } : fallback ? { id: fallback.id, name: fallback.name } : null;
   };
   const rates = new Map<string, Map<string, bigint>>();
-  for (const m of MATERIALS) {
+  for (const m of BOQ_MATERIALS) {
     const cat = categoryOf(m);
     if (!cat || rates.has(cat.id)) continue;
-    const ids = [...new Set(MATERIALS.filter((x) => categoryOf(x)?.id === cat.id).flatMap((x) => candidates[x].map((c) => c.id)))];
+    const ids = [...new Set(BOQ_MATERIALS.filter((x) => categoryOf(x)?.id === cat.id).flatMap((x) => candidates[x].map((c) => c.id)))];
     rates.set(cat.id, new Map((await currentRates(tx, tenantId, cat.id, ids)).map((r) => [r.materialId, r.ratePaisa])));
   }
 
-  const book: PriceBook = {};
-  for (const m of MATERIALS) {
+  const book: BoqPriceBook = {};
+  for (const m of BOQ_MATERIALS) {
     const cat = categoryOf(m);
     const catRates = cat ? rates.get(cat.id) : undefined;
     const list = candidates[m];
@@ -157,10 +165,10 @@ async function loadPriceBook(tx: Tx, tenantId: string, p: repo.ProjectFull): Pro
   return book;
 }
 
-async function loadLabourRates(tx: Tx): Promise<LabourRates> {
-  const rows = await tx.laborRate.findMany({ where: { kind: 'SUBCONTRACT', isActive: true, key: { in: [...LABOUR_ITEMS] } } });
-  const pieceRates: LabourRates['pieceRates'] = {};
-  for (const r of rows) pieceRates[r.key as LabourItem] = { unit: r.unit, ratePaisa: r.ratePaisa, label: r.label };
+export async function loadLabourRates(tx: Tx): Promise<BoqLabourRates> {
+  const rows = await tx.laborRate.findMany({ where: { kind: 'SUBCONTRACT', isActive: true, key: { in: [...BOQ_LABOUR_ITEMS] } } });
+  const pieceRates: BoqLabourRates['pieceRates'] = {};
+  for (const r of rows) pieceRates[r.key as BoqLabourItem] = { unit: r.unit, ratePaisa: r.ratePaisa, label: r.label };
   return { pieceRates };
 }
 
@@ -177,16 +185,8 @@ export interface EstimateWarning {
   items?: LabourItem[];
 }
 
-function toDto(
-  p: repo.ProjectFull,
-  overrides: EstimateSettingsInput,
-  settings: EstimateSettings,
-  q: EstimateQuantities,
-  priced: PricedEstimate,
-  fa: FieldAccess,
-  generatedAt: Date,
-  margins: MarginDefaults,
-) {
+function toDto(ctx: EstimateContext, fa: FieldAccess, generatedAt: Date, margins: MarginDefaults) {
+  const { p, overrides, settings, q, priced } = ctx;
   const rates = fa.rates;
   const warnings: EstimateWarning[] = [...q.warnings];
   if (rates && priced.missingRates.length) {
@@ -245,7 +245,7 @@ function toDto(
     contractType: p.contractType,
     generatedAt: generatedAt.toISOString(),
     settings,
-    defaults: ESTIMATE_DEFAULTS,
+    defaults: ctx.base,
     customised: Object.keys(overrides).sort(),
     basis: q.basis,
     stages: STAGES.map((stage) => ({
@@ -384,11 +384,7 @@ export async function contractFromEstimate(projectId: string, input: FromEstimat
     const project = await findEditableProject(tx, c, projectId);
     if (!project.contractType) throw new BadRequest('CONTRACT_MISSING', 'Choose the contract type (step 2) first');
     const p = await repo.loadFull(tx, projectId);
-    const settings = effectiveSettings(readOverrides(p.estimateSettings));
-    const q = estimateQuantities(engineInput(p), settings);
-    const prices = await loadPriceBook(tx, c.tenantId, p);
-    const labourRates = await loadLabourRates(tx);
-    const priced = priceEstimate(q, prices, labourRates, { settings, contractTotalPaisa: contractTotalPaisa(p) });
+    const { q, priced } = await computeEstimate(tx, c.tenantId, p);
     const company = await marginDefaults(tx, c.tenantId);
     const s = contractSuggestion(p, q.basis.coveredAreaSqft, priced.cost, company, input)!;
     if (s.suggestedPaisa === null) {
@@ -431,16 +427,118 @@ export async function contractFromEstimate(projectId: string, input: FromEstimat
   });
 }
 
-/** Builds the estimate inside a transaction (the project scope is checked by the caller). */
-export async function buildEstimate(tx: Tx, c: Caller, projectId: string): Promise<EstimateDto> {
-  const p = await repo.loadFull(tx, projectId);
+// ─── Computation (shared with the saved revisions) ──────────────────────────
+
+/** Everything an estimate is computed from and what came out — the live preview and Generate use the same. */
+export interface EstimateContext {
+  p: repo.ProjectFull;
+  rb: ResolvedRulebook;
+  /** Project overrides (layer 3) as stored. */
+  overrides: EstimateSettingsInput;
+  /** Engine settings from the rulebook + company (the "defaults" of this project). */
+  base: EstimateSettings;
+  /** Engine settings in effect (base ⊕ project). */
+  settings: EstimateSettings;
+  /** Every rulebook value in effect, with its source. */
+  params: Record<string, number>;
+  sources: Record<string, { value: number; source: ParamSource }>;
+  q: EstimateQuantities;
+  prices: BoqPriceBook;
+  labourRates: BoqLabourRates;
+  priced: PricedEstimate;
+  boq: Boq;
+}
+
+export async function computeEstimate(tx: Tx, tenantId: string, p: repo.ProjectFull): Promise<EstimateContext> {
+  const rb = await loadRulebook(tx, tenantId);
   const overrides = readOverrides(p.estimateSettings);
-  const settings = effectiveSettings(overrides);
-  const q = estimateQuantities(engineInput(p), settings);
-  const prices = await loadPriceBook(tx, c.tenantId, p);
+  const base = settingsBase(rb.values);
+  const settings = effectiveSettings(overrides, base);
+  const { params, sources } = withProject(rb, overrides);
+  const input = engineInput(p);
+  const q = estimateQuantities(input, settings);
+  const prices = await loadPriceBook(tx, tenantId, p);
   const labourRates = await loadLabourRates(tx);
-  const priced = priceEstimate(q, prices, labourRates, { settings, contractTotalPaisa: contractTotalPaisa(p) });
-  return toDto(p, overrides, settings, q, priced, c.fields ?? fieldAccess(c), new Date(), await marginDefaults(tx, c.tenantId));
+  const contract = contractTotalPaisa(p);
+  const priced = priceEstimate(q, prices, labourRates, { settings, contractTotalPaisa: contract });
+  const boq = buildBoq({ input, quantities: q, settings, params, contractType: p.contractType, prices, labourRates, contractTotalPaisa: contract });
+  return { p, rb, overrides, base, settings, params, sources, q, prices, labourRates, priced, boq };
+}
+
+/** The rates an estimate used (stored on a saved revision). */
+export function ratesSnapshot(ctx: EstimateContext) {
+  return {
+    materials: BOQ_MATERIALS.filter((m) => ctx.prices[m]).map((m) => {
+      const e = ctx.prices[m]!;
+      return { material: m, materialId: e.materialId, name: e.materialName, unit: e.unit, ratePaisa: str(e.ratePaisa), category: e.qualityCategory?.name ?? null, suppliedBy: e.suppliedBy, fallback: Boolean(e.fallback) };
+    }),
+    labour: BOQ_LABOUR_ITEMS.filter((i) => ctx.labourRates.pieceRates[i]).map((i) => ({ item: i, unit: ctx.labourRates.pieceRates[i]!.unit, ratePaisa: ctx.labourRates.pieceRates[i]!.ratePaisa.toString() })),
+  };
+}
+
+/** BoQ line → response (rates / amounts with fields.rates only). */
+export function boqLineDto(l: BoqLine, fa: FieldAccess) {
+  return {
+    id: l.lineKey,
+    lineKey: l.lineKey,
+    section: l.section,
+    stageKey: l.stageKey,
+    kind: l.kind,
+    description: l.description,
+    material: l.material,
+    materialId: l.materialId,
+    unit: l.unit,
+    quantity: l.quantity,
+    wastagePercent: l.wastagePercent,
+    quantityWithWastage: l.quantityWithWastage,
+    suppliedBy: l.suppliedBy,
+    formula: l.formula,
+    trace: l.trace,
+    override: null,
+    effectiveQuantity: l.quantityWithWastage,
+    ...(fa.rates
+      ? { ratePaisa: str(l.ratePaisa), effectiveRatePaisa: str(l.ratePaisa), rateUnit: l.rateUnit, rateQuantity: l.rateQuantity, amountPaisa: str(l.amountPaisa), rateStatus: l.rateStatus }
+      : {}),
+  };
+}
+
+/** The live BoQ preview (what Generate would save). */
+function boqDto(ctx: EstimateContext, fa: FieldAccess) {
+  const { boq } = ctx;
+  const t = boq.totals;
+  return {
+    rulebook: ctx.rb.rulebook ? { id: ctx.rb.rulebook.id, region: ctx.rb.region, version: ctx.rb.rulebook.version } : null,
+    region: ctx.rb.region,
+    coveredAreaSqft: boq.coveredAreaSqft,
+    parameters: ctx.sources,
+    sections: BOQ_SECTIONS.map((section) => ({
+      section,
+      lines: boq.lines.filter((l) => l.section === section).map((l) => boqLineDto(l, fa)),
+      ...(fa.rates ? { amountPaisa: t.sections[section].toString() } : {}),
+    })).filter((s) => s.lines.length),
+    stages: BUILD_STAGES.map((stageKey) => ({ stageKey, ...(fa.rates ? { amountPaisa: t.stages[stageKey].toString() } : {}) })),
+    warnings: boq.warnings,
+    ...(fa.rates
+      ? {
+          directCostPaisa: t.directCostPaisa.toString(),
+          overheadPaisa: t.overheadPaisa.toString(),
+          contingencyPaisa: t.contingencyPaisa.toString(),
+          totalPaisa: t.totalPaisa.toString(),
+          perSqftPaisa: str(t.perSqftPaisa),
+          ...(fa.contract ? { contractTotalPaisa: str(t.contractTotalPaisa) } : {}),
+          ...(fa.contract && fa.profit ? { marginPaisa: str(t.marginPaisa), marginPercent: t.marginPercent } : {}),
+        }
+      : {}),
+  };
+}
+
+/** Builds the estimate inside a transaction (the project scope is checked by the caller). */
+export async function buildEstimate(tx: Tx, c: Caller, projectId: string) {
+  const p = await repo.loadFull(tx, projectId);
+  const ctx = await computeEstimate(tx, c.tenantId, p);
+  const fa = c.fields ?? fieldAccess(c);
+  const dto = toDto(ctx, fa, new Date(), await marginDefaults(tx, c.tenantId));
+  return { ...dto, boq: boqDto(ctx, fa) };
 }
 
 export async function getEstimate(projectId: string) {
@@ -451,24 +549,31 @@ export async function getEstimate(projectId: string) {
   });
 }
 
-/** Replaces the stored overrides: fields sent are kept, fields left out go back to the default, `{}` resets. */
+/**
+ * Replaces the stored overrides (the PROJECT layer): fields sent are kept, fields left out go back
+ * to the company's rulebook value, `{}` resets. Rulebook keys must be inside their safe range.
+ */
 export async function updateSettings(projectId: string, input: EstimateSettingsInput) {
   const c = caller();
   return withTenant(c.tenantId, async (tx) => {
     const project = await assertProjectScope(tx, 'projects.estimate.manage', projectId, c);
     assertEditable(project);
+    const rb = await loadRulebook(tx, c.tenantId);
+    assertProjectOverrides(rb, input);
+    const base = settingsBase(rb.values) as unknown as Record<string, unknown>;
     const before = readOverrides(project.estimateSettings);
-    // Store only what differs from the defaults, so a later default change still reaches this project.
-    const stored = Object.fromEntries(
-      Object.entries(input).filter(([k, v]) => v !== undefined && v !== ESTIMATE_DEFAULTS[k as keyof EstimateSettings]),
-    ) as EstimateSettingsInput;
+    // Store only what differs from the company values, so a later rulebook change still reaches this project.
+    const isDefault = (k: string, v: unknown) => {
+      if (k in base) return v === base[k];
+      const d = PARAM_BY_KEY.get(k);
+      return d !== undefined && fromSettingValue(d, v) === rb.values[k];
+    };
+    const stored = Object.fromEntries(Object.entries(input).filter(([k, v]) => v !== undefined && !isDefault(k, v))) as EstimateSettingsInput;
     await tx.project.update({
       where: { id: projectId },
       data: { estimateSettings: Object.keys(stored).length ? (stored as Prisma.InputJsonValue) : Prisma.DbNull },
     });
-    const changed = [...new Set([...Object.keys(before), ...Object.keys(stored)])].filter(
-      (k) => JSON.stringify(before[k as keyof EstimateSettingsInput]) !== JSON.stringify(stored[k as keyof EstimateSettingsInput]),
-    );
+    const changed = [...new Set([...Object.keys(before), ...Object.keys(stored)])].filter((k) => JSON.stringify(before[k]) !== JSON.stringify(stored[k]));
     await audit(tx, c, 'project.estimate_settings_update', projectId, {
       code: project.code,
       changed: changed.sort(),

@@ -173,7 +173,9 @@ const EXAMPLE = {
   ],
 };
 
-const DESCRIPTION = `Computed live from the project's plot, structure type, foundation (bunyaad), floors / rooms / openings, the estimate settings and the company price list — nothing is stored but the settings.
+const DESCRIPTION = `Computed live from the project's plot, structure type, foundation (bunyaad), floors / rooms / openings, the rulebook (platform version of the company region → company values → the project's own settings) and the company price list — nothing is stored but the settings.
+
+**BoQ preview** \`boq\` = exactly what POST /projects/{id}/estimates would save: 14 sections with lines per build stage (\`stageKey\`), trace, wastage, supplier, rates / amounts (fields.rates), direct cost, overheads, contingency, total, cost per sq ft, \`parameters\` (value + source per rulebook key), \`warnings\` (RATES_MISSING, LABOUR_RATES_MISSING, STEEL_NORM_DEVIATION, RCC_NORM_DEVIATION). The fields below (grey-structure stages, materials, labour, cost) are unchanged.
 
 **Stages** FOUNDATION (excavation, PCC, RCC footing / raft / piles, brick or stone foundation walls to plinth, DPC + waterproofing compound or bitumen, termite), WALLS (brickwork per floor + roof parapet), RCC (roof slab per floor, beams + columns for an RCC frame, lintels, shuttering), PLASTER (room faces, ceilings, external faces, parapet). Each line: \`kind\` WORK (volume / area / shuttering) or MATERIAL, \`netQuantity\`, \`wastagePercent\`, \`quantity\` (to order), \`unit\`, \`formula\` { key, params } and \`formulaText\`.
 

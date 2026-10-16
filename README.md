@@ -744,9 +744,9 @@ Audit actions: `client.create`, `client.update`, `project.create`, `project.dele
 
 **Seed.** Malik & Sons: 6 clients; DHA Phase 6 · 10 Marla (`MSB-2026-012`, ACTIVE, grey structure, Rs 1,85,00,000, full wizard with 17 rooms on Ground / First / Mumty, PM Bilal, Munshi Rafaqat), Johar Town · 5 Marla (`MSB-2026-008`, ACTIVE, PM Bilal), Bahria Town · 1 Kanal (`MSB-2026-014`, ACTIVE, basement, Munshi **Asif Mehmood** `03224567890` OTP), Valencia · 7 Marla (`MSB-2025-031`, HANDED_OVER, labour-only Rs 450/sq ft) and a DRAFT Model Town · 1 Kanal (tabs 1–2). Ahmed Constructions: Wapda Town · 5 Marla (`AC-2026-001`, ACTIVE). Older seed rows are renamed in place, so foreign keys survive.
 
-## Estimate (BoQ) — grey structure
+## Estimate (BoQ) — rulebook, revisions and the full BoQ
 
-`src/modules/estimate/`: `engine.ts` (pure quantities + costing, no database — unit-tested in `tests/unit/estimateEngine.test.ts` with a hand-checked 5-marla example), `settings.ts` (assumptions, defaults, ranges), `estimate.service.ts` (loads the project + price list, field visibility), routes / controller / docs. Computed **live** on every read from the project's plot, structure type, foundation (bunyaad), floors / rooms / openings, the estimate settings and the company price list; nothing is stored but the settings the user changed (`Project.estimateSettings` JSONB, migration `20261027090000_project_estimate_settings`). No snapshots / versions yet (Phase 2 "Estimate revisions").
+`src/modules/estimate/`: `engine.ts` (pure grey-structure quantities + costing, no database — unit-tested in `tests/unit/estimateEngine.test.ts` with a hand-checked 5-marla example), `boq.ts` (pure BoQ builder: 14 sections, build stages, traces, lump sums, overheads, contingency — `tests/unit/estimateBoq.test.ts`, a hand-checked 10-marla example), `rulebookDefs.ts` (every rule-of-thumb number as a rulebook parameter: key, labels, unit, v1 value per region, safe range), `rulebook.ts` (the three layers), `settings.ts` (the per-project layer: engine settings + BoQ keys, ranges), `estimate.service.ts` (live estimate + preview), `revisions.service.ts` (saved revisions, compare, owner shopping list, PDFs), routes / controller / docs. `src/modules/rulebook/` = the company rulebook API; `src/modules/platform-admin/rulebook.*` = the admin versions. The live `GET /projects/:id/estimate` keeps its grey-structure shape and adds `boq` — a preview of what Generate would save. See [Rulebook, revisions and the full BoQ](#rulebook-revisions-and-the-full-boq-step-11).
 
 | Method | Path | Permission | Notes |
 |---|---|---|---|
@@ -779,14 +779,14 @@ The contract value is usually agreed **after** seeing the estimate, so tab 2 can
 
 ### How the estimate is calculated
 
-Units: ft, sq ft, cft (inches only in settings). Every default below is a setting the owner can change per project (`PUT …/estimate/settings`); the range is what the API accepts.
+Units: ft, sq ft, cft (inches only in settings). **Every number below is a rulebook parameter** resolved in three layers — (1) the platform rulebook: the highest PUBLISHED version for the company's region (`Tenant.region`: PUNJAB_KP or KARACHI_SINDH; built-in v1 when none is published), (2) the company's own value (`PUT /rulebook/overrides`, inside the parameter's safe range), (3) the project's own value (`PUT /projects/:id/estimate/settings`). The bold values are Punjab v1; the ranges in brackets are what the project API accepts (rulebook safe ranges are narrower — `GET /rulebook`). Karachi / Sindh v1 differs in: concrete blocks (`blockMasonry` 1, 1.125 blocks per sq ft of wall face), 6″ external / 4″ internal walls, 6″ lintels, 0.10 cft mortar per cft.
 
 **Materials (dry-volume method)**
 - Concrete: dry volume = wet volume × **1.54** (1.2–1.7). Mix *c : s : a* → cement = dry × c / (c+s+a) ÷ **1.25 cft per 50 kg bag** (1–1.5); sand = dry × s / Σ; crush = dry × a / Σ. RCC mix **1:2:4** (or 1:1.5:3); foundation PCC and RCC footings use the foundation's own `pccMix` / `rccMix`; DPC is always 1:2:4.
 - Brickwork: **13.5 bricks per cft** with mortar (10–16); wet mortar **0.25 cft per cft** of brickwork (0.15–0.4) × **1.33** dry factor (1.1–1.6), mix **1:6** (1:3 – 1:8) → cement = dry / 7 ÷ 1.25 bags, sand = dry × 6/7.
-- Plaster: area × thickness ÷ 12 × 1.33, mix **1:4** internal + ceilings (**0.5″**) and **1:4** external (**0.75″**; 1:6 option).
+- Plaster: area × thickness ÷ 12 × 1.33, mix **1:6** internal + ceilings (**0.5″**; Phase 1 default was 1:4) and **1:4** external (**0.75″**; 1:6 option).
 - Steel: concrete volume × steel % × **222 kg per cft** (7,850 kg/m³ ÷ 35.315; 1 % ≈ 2.22 kg/cft). Slab **1 %** (0.3–3), beams + columns **2.5 %** (0.8–6), lintels **1 %**, footings / raft / piles **0.8 %**.
-- Wastage on every material line: **5 %** (0–25), bricks **5 %** (0–25). Work lines (volumes, areas, shuttering) carry none.
+- Wastage per material: bricks / blocks **5 %**, cement **2 %**, sand + crush **5 %**, steel **4 %**, tiles **7 %**, paint **5 %**, everything else **5 %** (`wastagePercent`; a project `wastagePercent` also covers cement / sand / steel unless those are set too — the Phase 1 meaning). Work lines (volumes, areas, shuttering) carry none.
 
 **Walls and floors** (rooms are clear inside sizes; height = the floor's ceiling height)
 - Σ room perimeters *P* counts every internal wall twice (once from each room) and every external wall once: *P = E + 2·I* → **internal run I = (P − E) ÷ 2**.
@@ -838,6 +838,65 @@ Units: ft, sq ft, cft (inches only in settings). Every default below is a settin
 - *Party wall already built* (12 × 10 room, LEFT): 9″ brickwork 34 ft × 10 × 0.75 = 255 cft (330 when the party wall is new). *Double wall* on TOP: 9″ 330 cft + 4.5″ inner leaf 45 cft.
 
 **Worked example** (the unit test): 5 marla 25 × 45, covered 1,125 sq ft, single storey 10 ft, load-bearing, brick strip footing 5 ft × 3 ft × 9″, rooms 1,000 sq ft with P = 320 ft, 7 doors 3 × 7, 5 windows 4 × 4, 2 ventilators 2 × 1.5. E = 2 × (√(1125/1.8) + √(1125 × 1.8)) = 2 × (25 + 45) = 140 ft, I = (320 − 140) / 2 = 90 ft, foundation run 230 ft. Excavation 230 × 3 × 5 = 3,450 cft; walls (140 × 10 − 86) × 0.75 + (90 × 10 − 147) × 0.375 = 1,267.88 cft → 17,116 bricks; slab 1,125 × 5/12 = 468.75 cft → 82.5 bags, 1,040.6 kg steel. Totals with wastage: cement **289.04 bags**, bricks **38,849**, sand **1,481.85 cft**, crush **645.14 cft**, steel **1,144.23 kg**, waterproofing 3.98 kg, termite 5.91 L. At Malik's A-standard rates (cement 1,450, bricks 17, sand 70, crush 180, steel 2,85,000 / ton) materials ≈ Rs 16,25,505; piece-rate labour Rs 5,34,018; total ≈ Rs 21,59,524 (≈ Rs 1,920 / sq ft).
+
+### Rulebook, revisions and the full BoQ (Step 11)
+
+**Rulebook.** Platform tables `Rulebook` (region PUNJAB_KP / KARACHI_SINDH, version, DRAFT / PUBLISHED, publishedAt, notes) + `RulebookParameter` (key, group, labels en / roman / ur, unit, value, safeMin, safeMax, reviewStatus PENDING_ENGINEER_REVIEW / REVIEWED) — read-only for companies (GRANT SELECT to app_user), written by platform admins. The parameter set is defined in code (`estimate/rulebookDefs.ts`, 68 keys in 14 groups); v1 of both regions is inserted PUBLISHED by migration `20261101090000_estimation_rulebook` (and by the seed) with **every value PENDING_ENGINEER_REVIEW**. A company's own values live in `CompanyRulebookOverride` (tenant table, RLS) and must stay in the safe range (`400 OUT_OF_SAFE_RANGE { key, value, safeMin, safeMax }`); a project's own values in `Project.estimateSettings` (the Phase 1 setting keys are the same rulebook keys — stored mixes "1:6" are read as 6; a stored `wastagePercent` still covers cement / sand / steel). Region = `Tenant.region` (chosen at sign-up; PUNJAB_KP when missing).
+
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| GET | `/rulebook` | `rulebook.override.view` | Every parameter with platform value, company value / note, value in effect + `source` RULEBOOK / COMPANY, safe range, review status, `projectOverridable`. |
+| GET | `/rulebook/overrides` | `rulebook.override.view` | The company's own values. |
+| PUT | `/rulebook/overrides` | `rulebook.override.manage` | `{ overrides: [{ key, value, note? }] }` upsert; `UNKNOWN_PARAMETER`, `OUT_OF_SAFE_RANGE`. Audit `rulebook.override_set`. |
+| DELETE | `/rulebook/overrides/:key` | `rulebook.override.manage` | Back to the platform value (`404 OVERRIDE_NOT_FOUND`). Audit `rulebook.override_delete`. |
+| GET / POST | `/admin/rulebooks` | platform admin | List per region; create DRAFT version n + 1 copied from `copyFromId` or the latest. |
+| GET / PATCH / DELETE | `/admin/rulebooks/:id` | platform admin | Detail with parameters; notes; delete a DRAFT (`409 RULEBOOK_PUBLISHED`). |
+| PATCH | `/admin/rulebooks/:id/parameters/:key` | platform admin | Value / safe range on a DRAFT only; review status and labels any time. |
+| POST | `/admin/rulebooks/:id/publish` | platform admin | DRAFT → PUBLISHED; companies of the region use it from now on. All admin writes audited `admin.rulebook_*`. |
+
+**Saved estimates.** `Estimate` (projectId, revision, status DRAFT / APPROVED / SUPERSEDED, `rulebookVersionId`, region, `overridesSnapshot` { company, project, parameters with source }, `ratesSnapshot` { materials, labour }, `basis` + warnings, covered area, direct / overhead / contingency / total paisa, `ratesOutdated`, generated / approved by + at) + `EstimateLine` (lineKey, section, stageKey, kind, description, material, materialId (snapshot reference, no FK), unit, quantity, wastage %, quantity with wastage, suppliedBy, formula, trace, rate, rate unit + factor, rate quantity, amount, rate status, override quantity / rate / note / by / at). Stored line amounts are the effective ones (after overrides). One APPROVED per project (partial unique index), one DRAFT at a time.
+
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| POST | `/projects/:id/estimates` | `projects.estimate.manage` | Generate DRAFT Rev n (`409 ESTIMATE_DRAFT_EXISTS { estimateId }`, `409 PROJECT_LOCKED`). Audit `estimate.generate`. |
+| GET | `/projects/:id/estimates` | `projects.estimate.view` | Revisions, newest first. |
+| GET | `/estimates/:id` | `projects.estimate.view` | Sections with lines + trace + overrides, stage totals, direct / overheads / contingency / total, cost per sq ft, margin vs the contract. |
+| POST | `/estimates/:id/regenerate` | `projects.estimate.manage` | DRAFT only (`409 ESTIMATE_LOCKED`): current project, rulebook and rates; overrides kept by lineKey; `ratesOutdated` cleared. |
+| PATCH | `/estimates/:id/lines/:lineId` | `projects.estimate.manage` | `{ quantity?, ratePaisa?, note }` (null clears; note required; rate needs `fields.rates`; `LINE_NOT_EDITABLE` for overheads / contingency; `OWNER_SUPPLIED_NO_RATE`). Totals recomputed. Audit `estimate.line_override`. |
+| POST | `/estimates/:id/approve` | `estimate.revision.approve` | DRAFT → APPROVED, the previous APPROVED → SUPERSEDED (`409 ESTIMATE_NOT_DRAFT`; `409 RATES_OUTDATED` unless `confirmOutdatedRates`). Audit `estimate.approve`. |
+| GET | `/estimates/:a/compare/:b` | `projects.estimate.view` | Line diffs by lineKey (ADDED / REMOVED / CHANGED / UNCHANGED), section and total deltas (b − a). `400 DIFFERENT_PROJECTS`. |
+| GET | `/estimates/:id/pdf?lang=` | `projects.estimate.view` | Internal BoQ PDF (money columns only with `fields.rates`), stored as a REPORT attachment, signed link + WhatsApp text. |
+| GET | `/projects/:id/owner-shopping-list[?estimateId]` | `projects.estimate.view` | Owner-supplied materials: item, quantity, unit, `neededBy` stage + per-stage quantities; from the APPROVED revision, else the DRAFT, else the live preview. Never a rate. |
+| GET | `/projects/:id/owner-shopping-list/pdf` | `projects.estimate.view` | The list as a PDF for the owner + WhatsApp text and the client phone. |
+
+A price-list change (`PUT /price-list`, `POST /price-list/bulk-percent`) marks DRAFT estimates that use a changed material `ratesOutdated` (APPROVED / SUPERSEDED never change). `POST /projects/:id/activate` answers `nextStep: "GENERATE_ESTIMATE"`. Field visibility as for the live estimate; the Munshi has no estimate permission.
+
+**The BoQ** (`boq.ts`, built from the engine lines). One line per section × build stage × material / labour item, with a `trace` (every contributing engine line with its formula and numbers) and a one-line `formula`:
+
+| Section | What | Stage (`stageKey`) |
+|---|---|---|
+| EXCAVATION_EARTHWORK | excavation cft × **Rs 12 / cft**; plinth filling = lowest footprint × plinth height × **Rs 10 / cft**; termite chemical | FOUNDATION_PLINTH |
+| CONCRETE | cement / sand / crush of PCC, footings, DPC, slabs, beams, columns, lintels, topping | per floor (basement → FOUNDATION_PLINTH, ground → GF_STRUCTURE, first → F1_STRUCTURE …, mumty → MUMTY_ROOF) |
+| STEEL | steel (by bar size when detailed) of footings, slabs, frame, lintels | per floor |
+| MASONRY | bricks (or blocks, or stone) + mortar of foundation walls, walls and the roof parapet | per floor; parapet → MUMTY_ROOF |
+| PLASTER | cement / sand of every plaster face | PLASTER_MEP |
+| ROOF_WATERPROOFING | DPC compound / bitumen; T-iron roofs (garders, infill, screed, earth at Rs 10 / cft), planks, deck; roof waterproofing over the main roof footprint at the company WATERPROOFING sub-contract rate, else **Rs 60 / sq ft** | FOUNDATION_PLINTH (DPC), the floor, MUMTY_ROOF |
+| FLOORING_TILES | floor tiles = Σ room floor areas; wall tiles = baths / wet rooms 2 (L + W) × **7 ft** (capped at the room height) and kitchens 2 (L + W) × **3 ft** splash, minus doors up to that height; **1″ 1:4** bed under the floor tiles | FINISHING |
+| PAINT | painted area = all plastered faces − wall tiles; emulsion = area × **2 coats** ÷ **350 sq ft per gallon**; primer = area × **1 coat** ÷ **400** | FINISHING |
+| MEP_ROUGH_IN | electrical **Rs 150 / sq ft** covered; plumbing **Rs 35,000 per wet room** (baths + kitchen); sewerage + gas **Rs 75,000** lump sum (always contractor work) | PLASTER_MEP |
+| GREY_LABOUR | sub-contract piece rates per stage: brick masonry (bricks / blocks), plaster, shuttering, steel fixing — or the project labour rate per sq ft × each floor's footprint | per stage |
+| FINISHING_LABOUR | TILE_LAYING × tile area, PAINT × painted area (left out for GREY_OWNER_FINISHING) | FINISHING |
+| EQUIPMENT_SHUTTERING | covered area × **Rs 60 / sq ft** (plates, props, mixer, vibrator, scaffolding) | FOUNDATION_PLINTH |
+| SITE_OVERHEADS | **3 %** of the direct cost | — |
+| CONTINGENCY | **5 %** of (direct + overheads) | — |
+
+Supply split: MATERIAL lines follow the project supply rules; for GREY_OWNER_FINISHING every FINISHING-stage material is the owner's. OWNER lines keep the quantity, never a rate / amount (`rateStatus: OWNER_SUPPLIED`) and feed the owner shopping list. Material rates are matched as before plus `blocks` (/block/), `floorTiles` (/floor tile/), `wallTiles` (/wall tile/), `paint` (/emulsion|wall paint/, per gallon — 1 gallon = 3.64 L) and `primer` (/primer|sealer/). Norm checks: steel kg and RCC cft per sq ft of covered area more than 30 % away from the rulebook norm (frame **4.0 kg** / **0.6 cft**, load-bearing **2.5 kg** / **0.45 cft**) → warnings `STEEL_NORM_DEVIATION` / `RCC_NORM_DEVIATION`.
+
+**Worked 10-marla BoQ** (`tests/unit/estimateBoq.test.ts`, every section total written out): plot 30 × 75, covered 1,440 sq ft, load-bearing single storey, Punjab v1, FULL contract → excavation & earthwork Rs 88,632 · concrete 3,74,093.90 · steel 4,11,597 · masonry 10,65,612.44 · plaster 1,30,069.60 · roof & waterproofing 45,640 · tiles 5,17,267.60 · paint 1,99,150 · MEP 3,96,000 · grey labour 6,58,995.42 · finishing labour 2,62,750 · equipment 86,400 → direct 42,36,207.96 + overheads 1,27,086.24 + contingency 2,18,164.71 = **Rs 45,81,458.91** (Rs 3,181.57 / sq ft).
+
+**Rulebook values still to be reviewed by a civil engineer** (all v1 values are PENDING_ENGINEER_REVIEW; these matter most): bricks per cft 13.5; blocks per sq ft 1.125 and block mortar 0.10 cft / cft (Karachi); mortar 0.25 cft / cft; masonry mortar 1:6; internal plaster 1:6 ½″ (Phase 1 used 1:4), external 1:4 ¾″; dry factors 1.54 / 1.33; cement bag 1.25 cft; slab 5″; beams + columns 45 % of slab concrete; steel % slab 1 / frame 2.5 / lintel 1 / footing 0.8 (the norm check flags these as far below the 4.0 / 2.5 kg per sq ft norms); norms RCC 0.6 / 0.45 cft and steel 4.0 / 2.5 kg per sq ft; wastage bricks 5, cement 2, sand 5, steel 4, tiles 7, paint 5, others 5 %; DPC compound 1 kg / bag, bitumen 0.15 kg / sq ft, termite 0.005 L / sq ft; paint 2 coats + 1 primer, coverage 350 / 400 sq ft per gallon; wall tiles 7 ft baths / 3 ft kitchen splash, 1″ 1:4 tile bed; all Rs rates (excavation 12, earth filling 10, roof waterproofing 60, MEP 150 / sq ft, 35,000 per wet room, 75,000 lump sum, equipment 60 / sq ft) and overheads 3 % / contingency 5 %; Karachi wall thicknesses 6″ / 4″ and lintel width 6″; productivity and curing days for the schedule (excavation 500 cft, bricks 1,500, blocks 400, concrete 400 cft, shuttering 300 sq ft, steel 400 kg, plaster 250 sq ft, tiles 120 sq ft, paint 600 sq ft per team-day; slab 14, columns 7, plaster 7 curing days).
+
+**Decisions.** Rulebook keys = the existing setting keys (no mapping table; mixes stored as the sand parts n of 1:n / 1:n:2n). The live estimate keeps its grey-structure `cost` (the contract-value suggestion still uses it) and adds the `boq` preview. Owner-supplied lines carry no money at all (Phase 1 valued them as `ownerSuppliedPaisa` in the live view, which stays). MEP rough-in lump sums are always contractor work. `materialId` on estimate lines is a snapshot reference without a foreign key (material deletes must not be blocked by old estimates). Estimate PDFs are REPORT attachments (no new enum value).
 
 ## Procurement & Inventory
 
