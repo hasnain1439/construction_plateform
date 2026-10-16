@@ -101,6 +101,11 @@ describe('attachments API with S3 (mocked SDK)', () => {
 });
 
 describe('npm run storage:migrate (local → s3)', () => {
+  // The base seed has two site photos (Step 13 stoppage days); these tests count only their own files.
+  beforeEach(async () => {
+    await prismaAdmin.attachment.deleteMany({});
+  });
+
   it('copies local files, updates the keys, and is idempotent', async () => {
     const s = await loginMobile(SEED.malik.owner.phone, SEED.malik.owner.password);
     const a = await upload(s.accessToken, 'LOGO', pngBytes(400), 'a.png');

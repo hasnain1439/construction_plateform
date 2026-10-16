@@ -218,6 +218,20 @@ export const previousStageUnpaid = (tx: Tx, e: Base & { projectId: string; proje
     ...(e.at ? { at: e.at } : {}),
   });
 
+/** Step 13 · stage-lock warning: a milestone that starts a payment stage while an earlier stage is unpaid. */
+export const milestoneStageLock = (tx: Tx, e: Base & { projectId: string; projectName: string; milestoneId: string; milestone: string; label: string; unpaid: number }) =>
+  notify(tx, {
+    tenantId: e.tenantId,
+    recipients: billingTeam(e.projectId),
+    type: 'PREVIOUS_STAGE_UNPAID',
+    severity: 'WARNING',
+    text: { key: 'milestoneStageLock', params: { project: e.projectName, milestone: e.milestone, label: e.label, count: e.unpaid } },
+    projectId: e.projectId,
+    ref: { type: 'MILESTONE', id: e.milestoneId },
+    actionUrl: `/projects/${e.projectId}/billing/schedule`,
+    ...(e.at ? { at: e.at } : {}),
+  });
+
 // ─── Subscription / team ────────────────────────────────────────────────────
 
 export const subscriptionRenewal = (tx: Tx, e: Base & { subscriptionId: string; plan: string; endsOn: string; days: number }) =>

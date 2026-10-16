@@ -109,6 +109,9 @@ describe('company settings', () => {
       defaultMarginPercent: 20,
       defaultFinishingAllowancePercent: 0,
       defaultLanguage: 'ROMAN_URDU',
+      ramadanDayFactor: 0.75,
+      ramadanPeriods: expect.arrayContaining([{ start: '2027-02-09', end: '2027-03-09' }]),
+      ramadanPeriodsCustom: false,
     });
   });
 

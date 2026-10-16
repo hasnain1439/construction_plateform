@@ -39,7 +39,7 @@ describe('i18n catalogues', () => {
   });
 
   it('every notification text key renders title + body in every language, no placeholder left', () => {
-    const params = { number: 'GP-0001', project: 'DHA', lines: [{ qty: 200, unit: 'bag', name: 'OPC cement', group: 'CEMENT' }], where: 'Site', count: 3, material: 'Sand', store: 'Central Store', left: '10', unit: 'cft', min: '50', supplier: 'Al-Madina', week: '14 Sep – 19 Sep', amount: 'Rs 1,000', comment: 'redo', holder: 'Rafaqat', description: 'tea', method: 'EASYPAISA', subcontractor: 'Sharif', quantity: '10', cheque: 'MCB cheque 1', reason: 'funds', label: 'Plinth', plan: 'Starter', endsOn: '3 Oct 2026', until: '3 Nov 2026', receipt: 'RCPT-2026-0001', transactionId: 'EP1', name: 'Kamran', role: 'PM', admin: 'Support', date: '15 Oct 2026', snags: 2 };
+    const params = { number: 'GP-0001', project: 'DHA', lines: [{ qty: 200, unit: 'bag', name: 'OPC cement', group: 'CEMENT' }], where: 'Site', count: 3, material: 'Sand', store: 'Central Store', left: '10', unit: 'cft', min: '50', supplier: 'Al-Madina', week: '14 Sep – 19 Sep', amount: 'Rs 1,000', comment: 'redo', holder: 'Rafaqat', description: 'tea', method: 'EASYPAISA', subcontractor: 'Sharif', quantity: '10', cheque: 'MCB cheque 1', reason: 'funds', label: 'Plinth', plan: 'Starter', endsOn: '3 Oct 2026', until: '3 Nov 2026', receipt: 'RCPT-2026-0001', transactionId: 'EP1', name: 'Kamran', role: 'PM', admin: 'Support', date: '15 Oct 2026', snags: 2, milestone: 'First floor — columns & brickwork' };
     for (const lang of LANGS) {
       for (const key of NOTIFICATION_TEXT_KEYS) {
         const r = renderNotification(lang, key, params);

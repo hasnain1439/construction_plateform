@@ -39,6 +39,9 @@ import { createWorkerBody } from '../master-data/master-data.schema.js';
 import { createWorkerTx } from '../master-data/workers.service.js';
 import { createPurchaseTx, receivePurchaseTx } from '../procurement/purchases.service.js';
 import { createPurchaseBody, receivePurchaseBody } from '../procurement/procurement.schema.js';
+import { updateProgressTx } from '../schedule/progress.service.js';
+import { progressBody, stoppageBody } from '../schedule/schedule.schema.js';
+import { createStoppageTx } from '../schedule/stoppages.service.js';
 import { sessionDevice, syncActor } from './sync.pull.js';
 import { createSnagBody, fixSnagBody } from '../closeout/closeout.schema.js';
 import { createTx as createSnagTx, fixTx as fixSnagTx } from '../closeout/snags.service.js';
@@ -86,6 +89,9 @@ export const HANDLERS: Record<string, Handler> = {
   // Step 17: snag capture with before / after photos
   SNAG_CREATE: { ref: project, body: createSnagBody, run: (tx, a, r, b) => createSnagTx(tx, a, r['projectId']!, b) },
   SNAG_FIX: { ref: z.object({ snagId: id }), body: fixSnagBody, run: (tx, a, r, b) => fixSnagTx(tx, a, r['snagId']!, b) },
+  // Step 13 · schedule
+  MILESTONE_PROGRESS: { ref: z.object({ milestoneId: id }), body: progressBody, run: (tx, a, r, b) => updateProgressTx(tx, a, r['milestoneId']!, b) },
+  STOPPAGE_LOG: { ref: project, body: stoppageBody, run: async (tx, a, r, b) => (await createStoppageTx(tx, a, r['projectId']!, b)).stoppage },
 };
 export const MUTATION_TYPES = Object.keys(HANDLERS) as [string, ...string[]];
 
@@ -125,6 +131,8 @@ export const MUTATION_PERMISSIONS: Record<string, string> = {
   EQUIPMENT_LOSS_REPORT: 'equipment.loss.create',
   SNAG_CREATE: 'closeout.snag.create',
   SNAG_FIX: 'closeout.snag.create',
+  MILESTONE_PROGRESS: 'schedule.progress.edit',
+  STOPPAGE_LOG: 'schedule.stoppage.create',
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -5,6 +5,7 @@ import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
 import { dateOnly, formatDateOnly, todayIn } from '../../core/utils/dates.js';
 import { optionalSignedUrl } from '../attachments/attachments.service.js';
+import { ramadanPeriodsOf } from '../schedule/calendar.js';
 import * as repo from './company.repository.js';
 import type {
   CompanyDto,
@@ -108,6 +109,9 @@ function toSettingsDto(s: SettingsRow): SettingsDto {
     defaultMarginPercent: Number(s.defaultMarginPercent),
     defaultFinishingAllowancePercent: Number(s.defaultFinishingAllowancePercent),
     defaultLanguage: s.defaultLanguage,
+    ramadanDayFactor: Number(s.ramadanDayFactor),
+    ramadanPeriods: ramadanPeriodsOf(s.ramadanPeriods ?? null),
+    ramadanPeriodsCustom: Array.isArray(s.ramadanPeriods),
   };
 }
 
@@ -121,8 +125,9 @@ export async function updateSettings(input: UpdateSettingsInput): Promise<Settin
   const { tenantId, userId } = current();
   return withTenant(tenantId, async (tx) => {
     const before = (await repo.findSettings(tx, tenantId)) ?? (await repo.upsertSettings(tx, tenantId, {}));
-    const data = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined));
-    const after = await repo.upsertSettings(tx, tenantId, data);
+    const data: Record<string, unknown> = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined));
+    if (input.ramadanPeriods === null) data['ramadanPeriods'] = Prisma.DbNull;
+    const after = await repo.upsertSettings(tx, tenantId, data as Prisma.TenantSettingsUncheckedUpdateInput);
 
     const changed = Object.keys(data) as Array<keyof SettingsDto>;
     const beforeDto = toSettingsDto(before);

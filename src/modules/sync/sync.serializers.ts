@@ -537,3 +537,81 @@ export const serializeDrawing = (d: {
     updatedAt: iso(d.updatedAt),
   };
 };
+// ─── Step 13 · schedule (quantities only, never money) ─────────────────────
+
+export const serializeMilestone = (
+  m: {
+    id: string;
+    projectId: string;
+    key: string;
+    name: string;
+    sortOrder: number;
+    durationDays: number;
+    plannedStart: Date;
+    plannedEnd: Date;
+    curingDays: number;
+    status: string;
+    progressPercent: number;
+    actualStart: Date | null;
+    actualEnd: Date | null;
+    updatedAt: Date;
+    stage: { stageKey: string; name: string };
+    dependsOn: Array<{ dependsOnId: string; type: string; lagDays: number }>;
+    quotas: Array<{ materialId: string | null; material: string; description: string; unit: string; ownerSupplied: boolean; plannedQty: Dec }>;
+  },
+  used: Map<string, number> | undefined,
+) => ({
+  id: m.id,
+  projectId: m.projectId,
+  stageKey: m.stage.stageKey,
+  stageName: m.stage.name,
+  key: m.key,
+  name: m.name,
+  sortOrder: m.sortOrder,
+  plannedStart: day(m.plannedStart),
+  plannedEnd: day(m.plannedEnd),
+  durationDays: m.durationDays,
+  curingDays: m.curingDays,
+  curingUntil: m.curingDays > 0 ? day(new Date((m.actualEnd ?? m.plannedEnd).getTime() + m.curingDays * 86_400_000)) : null,
+  status: m.status,
+  progressPercent: m.progressPercent,
+  actualStart: day(m.actualStart),
+  actualEnd: day(m.actualEnd),
+  dependsOn: m.dependsOn.map((d) => ({ milestoneId: d.dependsOnId, type: d.type, lagDays: d.lagDays })),
+  quotas: m.quotas.map((q) => {
+    const plannedQty = num(q.plannedQty) ?? 0;
+    const usedQty = q.materialId ? (used?.get(q.materialId) ?? 0) : 0;
+    return { materialId: q.materialId, material: q.material, description: q.description, unit: q.unit, ownerSupplied: q.ownerSupplied, plannedQty, usedQty, remainingQty: Math.max(0, Math.round((plannedQty - usedQty) * 1000) / 1000) };
+  }),
+  updatedAt: iso(m.updatedAt),
+});
+
+export const serializeStoppage = (s: {
+  id: string;
+  projectId: string;
+  dates: Date[];
+  reason: string;
+  category: string;
+  status: string;
+  note: string | null;
+  photoAttachmentIds: string[];
+  clientId: string | null;
+  reportedById: string | null;
+  createdAt: Date;
+  decidedAt: Date | null;
+  decisionNote: string | null;
+}) => ({
+  id: s.id,
+  projectId: s.projectId,
+  dates: s.dates.map((d) => day(d)!).sort(),
+  reason: s.reason,
+  category: s.category,
+  status: s.status,
+  note: s.note,
+  photoAttachmentIds: s.photoAttachmentIds,
+  clientId: s.clientId,
+  reportedById: s.reportedById,
+  reportedAt: iso(s.createdAt),
+  decidedAt: iso(s.decidedAt),
+  decisionNote: s.decisionNote,
+});

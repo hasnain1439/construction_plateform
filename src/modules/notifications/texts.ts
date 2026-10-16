@@ -28,6 +28,7 @@ export const NOTIFICATION_TEXT_KEYS = [
   'chequeBounced',
   'stageReadyUnbilled',
   'previousStageUnpaid',
+  'milestoneStageLock',
   'subscriptionRenewal',
   'subscriptionPaymentApproved',
   'subscriptionPaymentRejected',

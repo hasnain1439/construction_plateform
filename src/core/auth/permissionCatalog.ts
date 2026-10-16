@@ -57,6 +57,8 @@ export const PERMISSION_MODULES = {
   // Step 11
   estimate: { en: 'Estimates', roman: 'Estimate (takhmeena)', urdu: 'تخمینہ' },
   rulebook: { en: 'Estimation rulebook', roman: 'Estimate ke qawaid', urdu: 'تخمینے کے قواعد' },
+  // Step 13
+  schedule: { en: 'Schedule', roman: 'Schedule (kaam ka nizam)', urdu: 'شیڈول' },
 } as const satisfies Record<string, PermissionLabel>;
 
 export type PermissionModule = keyof typeof PERMISSION_MODULES;
@@ -87,6 +89,12 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   // ─── Step 11 · Estimates + rulebook ────────────────────────────────────────
   def('estimate.revision.approve', L('Approve estimates', 'Estimate manzoor karna', 'تخمینہ منظور کرنا'), 'Approve a draft estimate revision: its rates and rulebook are frozen and the previous approved revision is superseded.', S),
   def('rulebook.override.view', L('View estimation rulebook', 'Estimate ke qawaid dekhna', 'تخمینے کے قواعد دیکھنا'), 'The rule-of-thumb values the estimates use (platform rulebook + company values).'),
+  // ─── Step 13 · Schedule ────────────────────────────────────────────────────
+  def('schedule.plan.view', L('View schedule', 'Schedule dekhna', 'شیڈول دیکھنا'), 'Gantt, milestones, curing, baseline, delays, material quotas (quantities only) and stoppage days.', S),
+  def('schedule.plan.manage', L('Plan the schedule', 'Schedule banana / badalna', 'شیڈول بنانا / بدلنا'), 'Generate the schedule from the approved estimate, re-plan, change milestone dates, effort, dependencies and payment-stage links.', S),
+  def('schedule.progress.edit', L('Update site progress', 'Kaam ki progress likhna', 'کام کی پیش رفت لکھنا'), 'Update milestone progress and status from site (start, curing, done, blocked).', S),
+  def('schedule.stoppage.create', L('Log stoppage days', 'Kaam band ke din likhna', 'کام بند کے دن لکھنا'), 'Log days the site could not work (rain, smog ban, holiday, owner hold, shortages) with a photo.', S),
+  def('schedule.stoppage.approve', L('Approve stoppage days', 'Kaam band ke din manzoor karna', 'کام بند کے دن منظور کرنا'), 'Approve or reject stoppage days and decide who they are charged to (owner / excusable / contractor); approved days push the schedule.', S),
   def('rulebook.override.manage', L('Change company rulebook values', 'Company ke qawaid badalna', 'کمپنی کے قواعد بدلنا'), 'Set the company own values for rulebook parameters (within the safe range).'),
 
   // ─── Clients ───────────────────────────────────────────────────────────────
@@ -310,6 +318,9 @@ const MUNSHI_KEYS = [
   'closeout.drawing.view',
   'closeout.snag.view',
   'closeout.snag.create',
+  'schedule.plan.view',
+  'schedule.progress.edit',
+  'schedule.stoppage.create',
 ];
 
 /** What a PM could do before permissions existed, WITHOUT canSeeFinancials. */
@@ -321,6 +332,8 @@ const PM_KEYS = [
   'projects.estimate.view',
   'projects.estimate.manage',
   'rulebook.override.view',
+  'schedule.plan.manage',
+  'schedule.stoppage.approve',
   'clients.client.view',
   'clients.client.create',
   'clients.client.edit',
@@ -415,6 +428,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
     grants: [
       'projects.project.view',
       'projects.estimate.view',
+      'schedule.plan.view',
       'clients.client.view',
       'labor.settlement.view',
       'labor.advance.view',
