@@ -51,6 +51,7 @@ export const PERMISSION_MODULES = {
   team: { en: 'Team', roman: 'Team', urdu: 'ٹیم' },
   company: { en: 'Company', roman: 'Company', urdu: 'کمپنی' },
   subscription: { en: 'Subscription', roman: 'Subscription', urdu: 'سبسکرپشن' },
+  closeout: { en: 'Closeout & handover', roman: 'Ikhtitaam aur hawalgi', urdu: 'اختتام اور حوالگی' },
   fields: { en: 'Data visibility', roman: 'Kya nazar aaye', urdu: 'کیا نظر آئے' },
 } as const satisfies Record<string, PermissionLabel>;
 
@@ -203,6 +204,15 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   def('company.holiday.manage', L('Manage holidays', 'Chhuttiyon ka intezam', 'چھٹیوں کا انتظام'), 'Add or delete company holidays.'),
   def('subscription.manage', L('Subscription & payments', 'Subscription aur adayegi', 'سبسکرپشن اور ادائیگی'), 'Plan, subscription payments, plan changes.', { ownerOnly: true }),
 
+  // ─── Step 17 · Closeout (drawings, snags, handover, retention) ─────────────
+  def('closeout.drawing.view', L('View drawings', 'Naqshe dekhna', 'نقشے دیکھنا'), 'Project drawings by folder and every revision (superseded ones too).', S),
+  def('closeout.drawing.manage', L('Manage drawings', 'Naqshon ka intezam', 'نقشوں کا انتظام'), 'Add drawings, upload new revisions, set approval dates, delete drawings.', S),
+  def('closeout.snag.view', L('View snag list', 'Kamiyon ki list dekhna', 'خامیوں کی فہرست دیکھنا'), 'Snags of a project with before / after photos (cost amounts also need fields.amounts).', S),
+  def('closeout.snag.create', L('Report snags', 'Kami darj karna', 'خامی درج کرنا'), 'Log a snag with photos and mark it fixed with after photos (site).', S),
+  def('closeout.snag.manage', L('Manage snags', 'Kamiyon ka intezam', 'خامیوں کا انتظام'), 'Edit / assign snags, verify or reopen them, delete, and set who pays (rework, sub-contractor deduction, change order — with fields.amounts).', S),
+  def('closeout.handover.manage', L('Handover to owner', 'Maalik ko hawalgi', 'مالک کو حوالگی'), 'Handover checklist, owner sign-off, handover certificate, retention reminders (completing the handover also needs projects.project.manage).', S),
+  def('closeout.retention.view', L('View retention', 'Retention dekhna', 'روکی گئی رقم دیکھنا'), 'Retention due dates of the owner and sub-contractors after handover (amounts also need fields.amounts).', S),
+
   // ─── Field permissions (data visibility) ───────────────────────────────────
   def('fields.rates', L('See rates & stock values', 'Rates aur stock ki qeemat dekhna', 'ریٹس اور اسٹاک کی قیمت دیکھنا'), 'Material / supplier / sub-contract rates, purchase amounts, stock values, supplier balances.', { field: true }),
   def('fields.amounts', L('See billing & money amounts', 'Billing aur raqam dekhna', 'بلنگ اور رقم دیکھنا'), 'Billing amounts, invoices, receivables, money KPIs.', { field: true }),
@@ -277,6 +287,9 @@ const MUNSHI_KEYS = [
   'masterdata.worker.view',
   'masterdata.worker.create',
   'masterdata.subcontractor.view',
+  'closeout.drawing.view',
+  'closeout.snag.view',
+  'closeout.snag.create',
 ];
 
 /** What a PM could do before permissions existed, WITHOUT canSeeFinancials. */
@@ -326,6 +339,10 @@ const PM_KEYS = [
   'team.member.view',
   'company.profile.view',
   'fields.rates',
+  'closeout.drawing.manage',
+  'closeout.snag.manage',
+  'closeout.handover.manage',
+  'closeout.retention.view',
 ];
 
 /**
@@ -400,6 +417,8 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'fields.rates',
       'fields.amounts',
       'fields.contract',
+      'closeout.snag.view',
+      'closeout.retention.view',
     ].map((key) => ({ key, ...(CATALOG_BY_KEY.get(key)?.scoped ? { scope: 'ALL_PROJECTS' as const } : {}) })),
   },
   {

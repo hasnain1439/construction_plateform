@@ -9,6 +9,7 @@
  *   subcontract running payments + retention released to sub-contractors
  *   kharcha    site cash expenses, except owner-recoverable and rejected ones
  *   losses     shortages written off (ACCEPT_LOSS)
+ *   rework     snags whose fix the contractor pays (Step 17, Snag.costAttribution REWORK)
  *
  * Every amount is one row of `costRows` (project × month × source), read in a single query.
  * P&L buckets regroup the same rows, so they always add up to the total:
@@ -17,7 +18,7 @@
  *   SUBCONTRACT    sub-contract payments + sub-contractor advances
  *   SITE_OVERHEAD  other kharcha (tea / water, transport, other)
  *   EQUIPMENT      kharcha marked EQUIPMENT (fuel, repairs, small tools)
- *   LOSSES         written-off shortages
+ *   LOSSES         written-off shortages + snag rework
  */
 import { Prisma } from '../../core/db/prisma.js';
 import type { Tx } from '../../core/db/withTenant.js';
@@ -43,6 +44,7 @@ export const COST_SOURCES = [
   'KHARCHA_MATERIAL',
   'KHARCHA_EQUIPMENT',
   'LOSSES',
+  'REWORK',
 ] as const;
 export type CostSource = (typeof COST_SOURCES)[number];
 
@@ -60,6 +62,7 @@ export const BUCKET_OF: Record<CostSource, PnlBucket> = {
   KHARCHA_OVERHEAD: 'SITE_OVERHEAD',
   KHARCHA_EQUIPMENT: 'EQUIPMENT',
   LOSSES: 'LOSSES',
+  REWORK: 'LOSSES',
 };
 
 export interface CostRow {
@@ -115,6 +118,10 @@ export async function costRows(tx: Tx, tenantId: string, opts: { projectIds?: st
       SELECT sh."projectId", COALESCE(sh."resolvedAt", sh."createdAt"), 'LOSSES', sh."valuePaisa"
         FROM "Shortage" sh
        WHERE sh."tenantId" = ${tenantId}::uuid AND sh.resolution = 'ACCEPT_LOSS'
+      UNION ALL
+      SELECT sn."projectId", sn."costPostedAt", 'REWORK', sn."costAmountPaisa"
+        FROM "Snag" sn
+       WHERE sn."tenantId" = ${tenantId}::uuid AND sn."costAttribution" = 'REWORK' AND sn."costPostedAt" IS NOT NULL
     )
     SELECT r.project, to_char(r.at AT TIME ZONE 'Asia/Karachi', 'YYYY-MM') AS month, r.source, SUM(r.amount)::bigint AS amount
       FROM r
@@ -136,6 +143,7 @@ const FIELD_OF: Record<CostSource, keyof Omit<ProjectCost, 'totalPaisa'>> = {
   KHARCHA_MATERIAL: 'kharchaPaisa',
   KHARCHA_EQUIPMENT: 'kharchaPaisa',
   LOSSES: 'lossesPaisa',
+  REWORK: 'lossesPaisa',
 };
 
 export function costOf(rows: CostRow[]): ProjectCost {

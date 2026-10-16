@@ -463,3 +463,77 @@ export const serializeNotification = (
   read: n.readAt !== null,
   createdAt: iso(n.createdAt),
 });
+
+// ─── Step 17 · Closeout ─────────────────────────────────────────────────────
+
+/** Snag for the phone: never money (no cost amount / attribution). */
+export const serializeSnag = (s: {
+  id: string;
+  projectId: string;
+  number: number;
+  roomId: string | null;
+  location: string | null;
+  description: string;
+  status: string;
+  targetDate: Date | null;
+  inDefectPeriod: boolean;
+  workerId: string | null;
+  subcontractorId: string | null;
+  beforePhotoIds: string[];
+  afterPhotoIds: string[];
+  fixNote: string | null;
+  fixedAt: Date | null;
+  verifiedAt: Date | null;
+  clientId: string | null;
+  createdById: string | null;
+  updatedAt: Date;
+}) => ({
+  id: s.id,
+  projectId: s.projectId,
+  number: s.number,
+  code: `SN-${String(s.number).padStart(3, '0')}`,
+  roomId: s.roomId,
+  location: s.location,
+  description: s.description,
+  status: s.status,
+  targetDate: day(s.targetDate),
+  inDefectPeriod: s.inDefectPeriod,
+  assigneeType: s.workerId ? 'WORKER' : s.subcontractorId ? 'SUBCONTRACTOR' : null,
+  workerId: s.workerId,
+  subcontractorId: s.subcontractorId,
+  beforePhotoIds: s.beforePhotoIds,
+  afterPhotoIds: s.afterPhotoIds,
+  fixNote: s.fixNote,
+  fixedAt: iso(s.fixedAt),
+  verifiedAt: iso(s.verifiedAt),
+  clientId: s.clientId,
+  createdById: s.createdById,
+  updatedAt: iso(s.updatedAt),
+});
+
+/** Drawing with its latest revision (the file is fetched with GET /attachments/:id, cached by attachment id). */
+export const serializeDrawing = (d: {
+  id: string;
+  projectId: string;
+  folder: string;
+  title: string;
+  number: string | null;
+  updatedAt: Date;
+  revisions: Array<{ id: string; revisionNo: number; attachmentId: string; approvedAt: Date | null; isLatest: boolean }>;
+  _count: { revisions: number };
+}) => {
+  const latest = d.revisions.find((r) => r.isLatest) ?? d.revisions[0] ?? null;
+  return {
+    id: d.id,
+    projectId: d.projectId,
+    folder: d.folder,
+    title: d.title,
+    number: d.number,
+    latestRevisionId: latest?.id ?? null,
+    latestRevisionNo: latest?.revisionNo ?? null,
+    latestAttachmentId: latest?.attachmentId ?? null,
+    latestApprovedAt: day(latest?.approvedAt),
+    revisionCount: d._count.revisions,
+    updatedAt: iso(d.updatedAt),
+  };
+};

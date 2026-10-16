@@ -155,6 +155,10 @@ export const en = {
   'notif.missingLogWaiting.title.other': '{project}: {count} entries waiting to sync',
   'notif.missingLogWaiting.body.one': 'The munshi’s phone has 1 unsent entry — no log or hazri has reached the office today yet.',
   'notif.missingLogWaiting.body.other': 'The munshi’s phone has {count} unsent entries — no log or hazri has reached the office today yet.',
+  'notif.retentionReminder.title': 'Retention due soon — {project}',
+  'notif.retentionReminder.body': 'Retention {amount} is due on {date}. Open defect snags: {snags}.',
+  'notif.retentionDue.title': 'Retention due — {project}',
+  'notif.retentionDue.body': 'The defect period ended on {date}: bill the retention ({amount}) and release sub-contractor retention. Open defect snags: {snags}.',
 
   // ─── SMS ──────────────────────────────────────────────────────────────────
   'sms.otp.login': 'Your login code is {code}. It expires in {minutes} minutes. Do not share it with anyone.',
@@ -190,6 +194,7 @@ export const en = {
   'share.invoice': '{salutation}, invoice {number} for {project} ({amount}), due {due}. Link: {url}',
   'share.receipt': '{salutation}, receipt {number} for your payment of {amount} ({method}) on {project}. Thank you! Link: {url}',
   'share.statement': '{salutation}, {project} account ({from} – {to}): balance {amount}. Link: {url}',
+  'share.handover': '{salutation}, handover certificate for {project} (handed over {date}). Link: {url}',
 
   // ─── PDF documents ────────────────────────────────────────────────────────
   'pdf.page': 'Page',
@@ -232,6 +237,27 @@ export const en = {
   'pdf.creditHeld': 'Advance / credit held',
   'pdf.invoiceDue': 'Invoice due {date}',
   'pdf.inclWht': 'incl. WHT {amount}',
+  'pdf.handoverCertificate': 'HANDOVER CERTIFICATE',
+  'pdf.handoverIntro': 'This is to certify that the construction works of {project} have been completed and the property was handed over to the owner on {date}.',
+  'pdf.handoverDate': 'Handover date',
+  'pdf.siteAddress': 'Site address',
+  'pdf.handoverChecklist': 'Handover checklist',
+  'pdf.handoverItem.KEYS': 'Keys handed over',
+  'pdf.handoverItem.ELECTRICITY_CONNECTION': 'Electricity connection (meter)',
+  'pdf.handoverItem.GAS_CONNECTION': 'Gas connection',
+  'pdf.handoverItem.WATER_CONNECTION': 'Water connection',
+  'pdf.handoverItem.WARRANTY_CARDS': 'Warranty cards',
+  'pdf.handoverItem.FINAL_DRAWINGS': 'Final drawings',
+  'pdf.handoverItem.FINAL_PHOTOS': 'Final photos',
+  'pdf.itemDone': 'Done',
+  'pdf.itemPending': 'Pending',
+  'pdf.defectPeriod': 'Defect liability period',
+  'pdf.defectPeriodUntil': '{months} months — until {date}',
+  'pdf.defectPeriodNote': 'Defects reported during this period are repaired by the contractor.',
+  'pdf.ownerSignOff': 'Owner sign-off',
+  'pdf.receivedByOwner': 'Received by (owner)',
+  'pdf.forContractor': 'For the contractor',
+  'pdf.signature': 'Signature',
 
   // ─── Reports (CSV / Excel / PDF) ──────────────────────────────────────────
   'report.title.project-summary': 'Project Summary',

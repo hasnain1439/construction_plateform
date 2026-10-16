@@ -34,9 +34,25 @@ import * as ob from '../src/modules/onboarding/onboarding.schema.js';
 import { estimateSettingsBody } from '../src/modules/estimate/settings.js';
 import { contractFromEstimateBody } from '../src/modules/estimate/contractValue.js';
 import { autoWallsBody, setWallsBody } from '../src/modules/projects/walls.js';
+import * as co from '../src/modules/closeout/closeout.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
+  // Step 17 · Closeout
+  'post /api/v1/projects/{id}/drawings': co.createDrawingBody,
+  'patch /api/v1/drawings/{id}': co.updateDrawingBody,
+  'post /api/v1/drawings/{id}/revisions': co.addRevisionBody,
+  'patch /api/v1/drawing-revisions/{id}': co.updateRevisionBody,
+  'post /api/v1/projects/{id}/snags': co.createSnagBody,
+  'patch /api/v1/snags/{id}': co.updateSnagBody,
+  'post /api/v1/snags/{id}/fix': co.fixSnagBody,
+  'post /api/v1/snags/{id}/verify': co.verifySnagBody,
+  'post /api/v1/snags/{id}/reopen': co.reopenSnagBody,
+  'put /api/v1/snags/{id}/cost': co.snagCostBody,
+  'put /api/v1/projects/{id}/handover/items/{key}': co.handoverItemBody,
+  'post /api/v1/projects/{id}/handover/sign-off': co.signOffBody,
+  'post /api/v1/projects/{id}/handover/complete': co.completeHandoverBody,
+  'patch /api/v1/projects/{id}/retention': co.retentionSettingsBody,
   'post /api/v1/onboarding/checklist/dismiss': ob.dismissBody,
   'post /api/v1/opening-balances': ob.openingBody,
   'put /api/v1/projects/{id}/estimate/settings': estimateSettingsBody,
@@ -234,12 +250,13 @@ describe('API docs', () => {
       'Dashboard',
       'Finance',
       'Daily Logs',
+      'Closeout',
       'Sync',
       'Reports',
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(259); // +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
+    expect(Object.keys(res.body.paths)).toHaveLength(275); // +16: Step 17 closeout (drawings, snags, handover, retention), +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

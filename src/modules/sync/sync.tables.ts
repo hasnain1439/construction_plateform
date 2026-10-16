@@ -97,6 +97,8 @@ export const TABLE_PERMISSIONS: Record<string, string[]> = {
   daily_logs: ['dailylog.log.view'],
   cash_entries: ['cashbook.account.view', 'cashbook.expense.view'],
   topup_requests: ['cashbook.topup.view'],
+  snags: ['closeout.snag.view'],
+  drawings: ['closeout.drawing.view'],
 };
 
 /** May the caller pull this table? */
@@ -274,6 +276,30 @@ export const TABLES: TableDef[] = [
           include: { createdBy: { select: { name: true } } },
         })
       ).map(S.serializeDailyLog),
+  },
+  {
+    // Step 17: open / fixed snags + anything changed in the last 60 days
+    name: 'snags',
+    sources: ['Snag'],
+    load: async (tx, sc, ids) =>
+      (
+        await tx.snag.findMany({
+          where: { tenantId: sc.a.tenantId, ...byIds(ids), projectId: { in: sc.projectIds }, OR: [{ status: { in: ['OPEN', 'FIXED'] } }, { updatedAt: { gte: since(sc, 60) } }] },
+          orderBy: { number: 'asc' },
+        })
+      ).map(S.serializeSnag),
+  },
+  {
+    // Step 17: drawings with the latest revision (revisions are recorded as a change of their drawing)
+    name: 'drawings',
+    sources: ['Drawing'],
+    load: async (tx, sc, ids) =>
+      (
+        await tx.drawing.findMany({
+          where: { tenantId: sc.a.tenantId, ...byIds(ids), projectId: { in: sc.projectIds } },
+          include: { revisions: { where: { isLatest: true } }, _count: { select: { revisions: true } } },
+        })
+      ).map(S.serializeDrawing),
   },
   {
     name: 'cash_accounts',

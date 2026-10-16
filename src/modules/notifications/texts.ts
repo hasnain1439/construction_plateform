@@ -35,6 +35,8 @@ export const NOTIFICATION_TEXT_KEYS = [
   'platformSupportAccess',
   'missingLog',
   'missingLogWaiting',
+  'retentionReminder',
+  'retentionDue',
 ] as const;
 export type NotificationTextKey = (typeof NOTIFICATION_TEXT_KEYS)[number];
 

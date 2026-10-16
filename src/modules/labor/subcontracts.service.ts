@@ -10,6 +10,8 @@ import type { DeductionInput, ProgressInput, SubcontractPaymentInput } from './l
 import { actor, audit, laborSettings, num, projectFor, today, type Actor } from './labor.shared.js';
 import * as alerts from '../notifications/alerts.js';
 import { accountDto, postSubLedger, subAccounts } from './subcontractLedger.js';
+import { assertEditable } from '../projects/access.js';
+import { assertRetentionReleasable } from '../closeout/retention.dates.js';
 
 const OFFICE_ONLY = 'Only the owner or a project manager can see sub-contract accounts';
 
@@ -119,7 +121,10 @@ export async function payTx(tx: Tx, a: Actor, id: string, input: SubcontractPaym
     throw new Forbidden('PERMISSION_DENIED', 'Only the owner can pay sub-contractors (the company setting does not allow project managers)', { permission: 'labor.subcontractpayment.create' });
   }
   const s = await findAssignment(tx, a, id);
-  await projectFor(tx, a, s.projectId, true);
+  // Step 17: retention is released after handover too, but not before the retention due date.
+  const project = await projectFor(tx, a, s.projectId);
+  assertEditable(project, input.type === 'RETENTION_RELEASE' ? ['ACTIVE', 'CLOSEOUT', 'HANDED_OVER'] : ['ACTIVE', 'CLOSEOUT']);
+  if (input.type === 'RETENTION_RELEASE') await assertRetentionReleasable(tx, a.tenantId, project);
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`subcontract:${s.id}`}))`;
   const acc = (await subAccounts(tx, a.tenantId, [s])).get(s.id)!;
   if (input.type === 'RETENTION_RELEASE') {

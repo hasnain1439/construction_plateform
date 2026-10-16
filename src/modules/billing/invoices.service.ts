@@ -33,6 +33,7 @@ import { documentLang, letterhead, pdfFileName, salutation, shareOf, shortDay, s
 import { tr, type Lang } from '../../core/i18n/index.js';
 import { applyCredit, LIVE, recomputeInvoice, resolveBouncedFor, resolveEvent, syncStage } from './ledger.js';
 import { track } from '../../core/observability/analytics.js';
+import { retentionDueDate } from '../closeout/retention.dates.js';
 
 const include = {
   project: { select: { id: true, code: true, name: true, siteAddress: true, status: true } },
@@ -265,6 +266,8 @@ export async function createInvoiceTx(tx: Tx, a: BillingActor, projectId: string
   const project = await billingProject(tx, a, projectId);
   if (project.status === 'DRAFT') throw new Conflict('PROJECT_IS_DRAFT', 'Activate the project first');
   const { stageId, forceNote, lines } = await buildLines(tx, a, project, input);
+  // Step 17: the retention is due at the end of the defect period (handover + defect months).
+  const retentionDue = input.type === 'RETENTION' ? await retentionDueDate(tx, a.tenantId, project.id) : null;
   const inv = await tx.invoice.create({
     data: {
       tenantId: a.tenantId,
@@ -274,6 +277,7 @@ export async function createInvoiceTx(tx: Tx, a: BillingActor, projectId: string
       billingStageId: stageId,
       notes: input.notes ?? null,
       forceNote,
+      ...(retentionDue ? { dueDate: dateOnly(retentionDue) } : {}),
       createdById: a.userId,
       ...(opts.at ? { createdAt: opts.at } : {}),
     },
