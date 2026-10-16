@@ -41,6 +41,7 @@ import { dailyLogsRouter, projectDailyLogsRouter } from './modules/dailylogs/dai
 import { syncRouter } from './modules/sync/sync.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 import { floorsRouter, openingsRouter, projectsRouter, roomsRouter, supplyPresetsRouter } from './modules/projects/projects.routes.js';
+import { projectEstimateRouter } from './modules/estimate/estimate.routes.js';
 import { dispatchesRouter, projectDispatchRouter, shortagesRouter } from './modules/dispatch/dispatch.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import {
@@ -168,6 +169,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/projects', projectCashbookRouter); // /projects/:id/cashbook (per-route auth)
   mount('/projects', projectBillingRouter);
   mount('/projects', projectDailyLogsRouter); // /projects/:id/daily-logs (per-route auth) // /projects/:id/billing-stages, /invoices, /payments, /receivables, ... (per-route auth)
+  mount('/projects', projectEstimateRouter); // /projects/:id/estimate, /estimate/settings (per-route auth)
   mount('/projects', projectsRouter);
   mount('/billing-stages', billingStagesRouter);
   mount('/billing-progress', billingProgressRouter);

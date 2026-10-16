@@ -55,6 +55,8 @@ const settingsExample = {
     taxRatePercent: 0,
     taxLabel: null,
     pmCanRecordPayments: false,
+    defaultMarginPercent: 20,
+    defaultFinishingAllowancePercent: 0,
     defaultLanguage: 'ROMAN_URDU',
   },
 };
@@ -117,7 +119,8 @@ export function registerCompanyDocs(): void {
       'THEKEDAR only.\n\n- `kharchaApprovalLimitPaisa` ≥ 0 (paisa string)\n- `overuseAlertPercent` 1–20\n- `missingLogAlertTime` HH:MM\n- `quoteValidityDays` 1–90\n\n' +
       '`pmCanSeeFinancials` is the default for new PM invitations. `blindCountEnabled` hides sent / challan quantities while a site counts a delivery.\n\n' +
       'Labour: `settlementWeekStart`, `workingDays`, `hoursPerDay` (1–16), `overtimeMultiplier` (1–3, null = the DAILY labour rate multiplier) and `subcontractPaymentsByPm`.\n\n' +
-      'Billing: `paymentTermsDays` (0–90), `taxRatePercent` (0–30) and `taxLabel` (used only when `taxEnabled`), `pmCanRecordPayments`.',
+      'Billing: `paymentTermsDays` (0–90), `taxRatePercent` (0–30) and `taxLabel` (used only when `taxEnabled`), `pmCanRecordPayments`.\n\n' +
+      'Estimate → contract value: `defaultMarginPercent` (0–100, default 20) and `defaultFinishingAllowancePercent` (0–200, default 0, FULL contracts only) pre-fill the “contract value from this estimate” card and POST /projects/{id}/contract/from-estimate; a project may override both.',
     security: companySecurity,
     request: {
       body: jsonBody(updateSettingsBody, {

@@ -171,7 +171,7 @@ async function buildLines(tx: Tx, a: BillingActor, project: { id: string; status
     }
     case 'RUNNING_BILL': {
       if (project.billingModel !== 'RUNNING_BILLS') throw new BadRequest('NOT_RUNNING_BILLS', 'This project is billed by stages, not running bills');
-      if (!project.ratePerSqftPaisa) throw new BadRequest('RATE_REQUIRED', 'Set the labour rate per sq ft in the contract first');
+      if (!project.ratePerSqftPaisa) throw new BadRequest('RATE_REQUIRED', 'Set the rate per sq ft for running bills in the contract first');
       const rows = await tx.billingProgress.findMany({
         where: { tenantId: a.tenantId, projectId: project.id, billedInvoiceId: null, date: { gte: dateOnly(input.from!), lte: dateOnly(input.to!) } },
         orderBy: { date: 'asc' },

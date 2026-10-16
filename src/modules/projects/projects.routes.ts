@@ -22,6 +22,7 @@ import {
   updatePlotStructureBody,
   updateRoomBody,
 } from './projects.schema.js';
+import { autoWallsBody, setWallsBody } from './walls.js';
 
 /**
  * authenticate → tenantContext → readOnlyGuard → requirePerm → validate → handler.
@@ -58,6 +59,7 @@ export const floorsRouter = Router();
 floorsRouter.use(...company, edit);
 floorsRouter.post('/:id/rooms', validate({ params: idParams, body: createRoomBody }), h(c.createRoom));
 floorsRouter.post('/:id/copy', validate({ params: idParams, body: copyFloorBody }), h(c.copyFloor));
+floorsRouter.post('/:id/walls/auto', validate({ params: idParams, body: autoWallsBody }), h(c.autoFloorWalls));
 
 /** Mounted at /api/v1/rooms */
 export const roomsRouter = Router();
@@ -65,6 +67,7 @@ roomsRouter.use(...company, edit);
 roomsRouter.patch('/:id', validate({ params: idParams, body: updateRoomBody }), h(c.updateRoom));
 roomsRouter.delete('/:id', validate({ params: idParams }), h(c.deleteRoom));
 roomsRouter.post('/:id/openings', validate({ params: idParams, body: openingInputSchema }), h(c.createOpening));
+roomsRouter.put('/:id/walls', validate({ params: idParams, body: setWallsBody }), h(c.setRoomWalls));
 
 /** Mounted at /api/v1/openings */
 export const openingsRouter = Router();

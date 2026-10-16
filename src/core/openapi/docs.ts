@@ -21,6 +21,7 @@ import { registerNotificationsDocs } from '../../modules/notifications/notificat
 import { registerPlatformAdminDocs } from '../../modules/platform-admin/platformAdmin.docs.js';
 import { registerProcurementDocs } from '../../modules/procurement/procurement.docs.js';
 import { registerProjectsDocs } from '../../modules/projects/projects.docs.js';
+import { registerEstimateDocs } from '../../modules/estimate/estimate.docs.js';
 import { registerSubscriptionDocs } from '../../modules/subscription/subscription.docs.js';
 import { registerTeamDocs } from '../../modules/team/team.docs.js';
 import { registerOnboardingDocs } from '../../modules/onboarding/onboarding.docs.js';
@@ -44,6 +45,7 @@ export function openApiDocument() {
     registerClientsDocs();
     registerOnboardingDocs();
     registerProjectsDocs();
+    registerEstimateDocs();
     registerInventoryDocs();
     registerProcurementDocs();
     registerDispatchDocs();

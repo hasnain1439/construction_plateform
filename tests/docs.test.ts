@@ -31,11 +31,16 @@ import * as dl from '../src/modules/dailylogs/dailylogs.schema.js';
 import * as sy from '../src/modules/sync/sync.schema.js';
 import * as pe from '../src/modules/permissions/permissions.schema.js';
 import * as ob from '../src/modules/onboarding/onboarding.schema.js';
+import { estimateSettingsBody } from '../src/modules/estimate/settings.js';
+import { contractFromEstimateBody } from '../src/modules/estimate/contractValue.js';
+import { autoWallsBody, setWallsBody } from '../src/modules/projects/walls.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/onboarding/checklist/dismiss': ob.dismissBody,
   'post /api/v1/opening-balances': ob.openingBody,
+  'put /api/v1/projects/{id}/estimate/settings': estimateSettingsBody,
+  'post /api/v1/projects/{id}/contract/from-estimate': contractFromEstimateBody,
   'patch /api/v1/company': updateCompanyBody,
   'patch /api/v1/company/settings': updateSettingsBody,
   'post /api/v1/company/holidays': createHolidayBody,
@@ -99,6 +104,8 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'post /api/v1/floors/{id}/rooms': pr.createRoomBody,
   'post /api/v1/floors/{id}/copy': pr.copyFloorBody,
   'patch /api/v1/rooms/{id}': pr.updateRoomBody,
+  'put /api/v1/rooms/{id}/walls': setWallsBody,
+  'post /api/v1/floors/{id}/walls/auto': autoWallsBody,
   'post /api/v1/rooms/{id}/openings': pr.openingInputSchema,
   'patch /api/v1/openings/{id}': pr.updateOpeningBody,
   'put /api/v1/stores/{locationId}/low-stock-levels': inv.lowStockLevelsBody,
@@ -198,6 +205,7 @@ describe('API docs', () => {
       'Projects',
       'Project Wizard',
       'Floors & Rooms',
+      'Estimate',
       'Stock',
       'Purchases',
       'Purchase Orders',
@@ -231,7 +239,7 @@ describe('API docs', () => {
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(254); // +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
+    expect(Object.keys(res.body.paths)).toHaveLength(259); // +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

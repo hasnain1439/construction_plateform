@@ -83,8 +83,9 @@ describe('tab 2 — contract', () => {
       .set(auth)
       .send({ ...base, billingStages: [{ label: 'A', percent: 90 }, { label: 'R1', percent: 5, isRetention: true }, { label: 'R2', percent: 5, isRetention: true }] });
     expect(twoRet.body.error.code).toBe('RETENTION_STAGE_INVALID');
+    // A DRAFT may be saved without the value (set after the estimate — tests/estimate/contractFromEstimate.test.ts)
     const noValue = await api().patch(`/api/v1/projects/${id}/contract`).set(auth).send({ contractType: 'FULL', billingModel: 'STAGE_SCHEDULE' });
-    expect(noValue.body.error.code).toBe('CONTRACT_VALUE_REQUIRED');
+    expect(noValue.status).toBe(200);
   });
 
   it('applies the preset with the default quality category, the default template, and splits amounts to the rupee', async () => {
@@ -121,11 +122,12 @@ describe('tab 2 — contract', () => {
     expect(asPm.body.data.contract).not.toHaveProperty('contractTotalPaisa');
   });
 
-  it('labour-only needs a rate; stage amounts = rate × covered area once coverage is known', async () => {
+  it('labour-only: the rate may wait while DRAFT; stage amounts = rate × covered area once coverage is known', async () => {
     const auth = await owner();
     const id = await draft(auth);
     const noRate = await api().patch(`/api/v1/projects/${id}/contract`).set(auth).send({ contractType: 'LABOR_ONLY', billingModel: 'RUNNING_BILLS' });
-    expect(noRate.body.error.code).toBe('RATE_REQUIRED');
+    expect(noRate.status).toBe(200);
+    expect(noRate.body.data.contract.ratePerSqftPaisa).toBeNull();
 
     const res = await api()
       .patch(`/api/v1/projects/${id}/contract`)
