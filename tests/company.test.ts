@@ -115,6 +115,12 @@ describe('company settings', () => {
       equipmentIdleDays: 5,
       shutteringPropsPerPlate: 0.75,
       shutteringSparePercent: 5,
+      // Step 14 · control alert thresholds
+      behindPlanAlertPoints: 15,
+      lateFinishGraceDays: 3,
+      quotaAlertPercent: 100,
+      spendAheadAlertPoints: 10,
+      controlAlertsEnabled: true,
     });
   });
 

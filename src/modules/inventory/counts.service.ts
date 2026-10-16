@@ -1,4 +1,5 @@
 /** Physical stock counts: the difference to the system becomes a COUNT_ADJUSTMENT. */
+import { controlTrigger } from '../control/trigger.js';
 import { fieldsOf, visible } from '../../core/auth/fieldStrip.js';
 import { assertPerm, scopeAll } from '../../core/auth/access.js';
 import { NUMBER_FORMATS, nextNumber } from '../../core/db/counters.js';
@@ -127,6 +128,7 @@ export async function createCountTx(tx: Tx, a: Actor, input: StockCountInput, op
     location: locationRef(location),
     differences: lines.filter((l) => !l.difference.eq(0)).map((l) => ({ materialId: l.item.materialId, difference: qn(l.difference), reason: l.item.reason ?? null })),
   });
+  if (location.type === 'SITE') await controlTrigger(tx, a.tenantId, location.projectId, ['MATERIAL_OVERUSE'], opts); // Step 14
   return toCountDto(await tx.stockCount.findUniqueOrThrow({ where: { id: count.id }, include: countInclude }), a);
 }
 

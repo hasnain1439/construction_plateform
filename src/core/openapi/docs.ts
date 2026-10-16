@@ -25,6 +25,7 @@ import { registerProjectsDocs } from '../../modules/projects/projects.docs.js';
 import { registerEstimateDocs } from '../../modules/estimate/estimate.docs.js';
 import { registerRevisionDocs } from '../../modules/estimate/revisions.docs.js';
 import { registerScheduleDocs } from '../../modules/schedule/schedule.docs.js';
+import { registerControlDocs } from '../../modules/control/control.docs.js';
 import { registerSalesDocs } from '../../modules/sales/sales.docs.js';
 import { registerChangeOrderDocs } from '../../modules/change-orders/changeOrders.docs.js';
 import { registerSubscriptionDocs } from '../../modules/subscription/subscription.docs.js';
@@ -66,6 +67,7 @@ export function openApiDocument() {
     registerApprovalsDocs();
     registerDashboardDocs();
     registerFinanceDocs();
+    registerControlDocs(); // Step 14
     registerReportsDocs();
     registerDailyLogsDocs();
     registerCloseoutDocs();

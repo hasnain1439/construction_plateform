@@ -74,6 +74,16 @@ export const paisaSchema = z
   .transform((value) => BigInt(value))
   .meta({ example: '2500000', description: 'Paisa as a string (2500000 = Rs 25,000)' });
 
+/** Step 14 · control alert thresholds — also `PUT /control/settings` (control.manage). */
+const intIn = (min: number, max: number) => z.number().int(`Must be a whole number between ${min} and ${max}`).min(min, `Must be between ${min} and ${max}`).max(max, `Must be between ${min} and ${max}`);
+export const controlThresholdFields = {
+  behindPlanAlertPoints: intIn(5, 50).optional(),
+  lateFinishGraceDays: intIn(0, 30).optional(),
+  quotaAlertPercent: intIn(50, 150).optional(),
+  spendAheadAlertPoints: intIn(1, 50).optional(),
+  controlAlertsEnabled: z.boolean().optional(),
+};
+
 export const updateSettingsBody = z
   .object({
     kharchaApprovalLimitPaisa: paisaSchema.optional(),
@@ -114,6 +124,8 @@ export const updateSettingsBody = z
     equipmentIdleDays: z.number().int().min(1, 'Must be between 1 and 60').max(60, 'Must be between 1 and 60').optional(),
     shutteringPropsPerPlate: z.number().min(0, 'Must be between 0 and 5').max(5, 'Must be between 0 and 5').multipleOf(0.05).optional(),
     shutteringSparePercent: z.number().int().min(0, 'Must be between 0 and 30').max(30, 'Must be between 0 and 30').optional(),
+    // Step 14 · control alert thresholds ("Alerts & Limits")
+    ...controlThresholdFields,
   })
   .refine((value) => Object.values(value).some((v) => v !== undefined), { message: 'Nothing to update' });
 
@@ -152,6 +164,11 @@ export const settingsDto = z
     equipmentIdleDays: z.number().meta({ description: 'Rented equipment with no milestone activity at its site for this many days → EQUIPMENT_IDLE alert (1–60)', example: 5 }),
     shutteringPropsPerPlate: z.number().meta({ description: 'Shuttering planner: props needed per plate (0–5, engineer review)', example: 0.75 }),
     shutteringSparePercent: z.number().meta({ description: 'Shuttering planner: extra plates % for cut pieces / damage (0–30)', example: 5 }),
+    behindPlanAlertPoints: z.number().meta({ description: 'Step 14: a milestone is behind plan when planned − actual progress ≥ this many points (5–50)', example: 15 }),
+    lateFinishGraceDays: z.number().meta({ description: 'Step 14: a milestone is late when not finished this many days after its planned end (0–30)', example: 3 }),
+    quotaAlertPercent: z.number().meta({ description: 'Step 14: quota exhausted when used ≥ this % of the milestone quota (50–150)', example: 100 }),
+    spendAheadAlertPoints: z.number().meta({ description: 'Step 14: spend ahead of progress when cost % of contract − progress % > this many points (1–50)', example: 10 }),
+    controlAlertsEnabled: z.boolean().meta({ description: 'Step 14: false = the control alert engine stores / sends nothing' }),
   })
   .meta({ id: 'CompanySettings' });
 

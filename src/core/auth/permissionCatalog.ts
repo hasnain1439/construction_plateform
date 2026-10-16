@@ -63,6 +63,8 @@ export const PERMISSION_MODULES = {
   sales: { en: 'Sales & quotes', roman: 'Sales aur quotes', urdu: 'سیلز اور کوٹیشن' },
   // Step 15
   changeorder: { en: 'Change orders', roman: 'Tabdeeli orders', urdu: 'تبدیلی آرڈرز' },
+  // Step 14
+  control: { en: 'Control & alerts', roman: 'Control aur alerts', urdu: 'کنٹرول اور الرٹس' },
 } as const satisfies Record<string, PermissionLabel>;
 
 export type PermissionModule = keyof typeof PERMISSION_MODULES;
@@ -258,6 +260,10 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   def('closeout.handover.manage', L('Handover to owner', 'Maalik ko hawalgi', 'مالک کو حوالگی'), 'Handover checklist, owner sign-off, handover certificate, retention reminders (completing the handover also needs projects.project.manage).', S),
   def('closeout.retention.view', L('View retention', 'Retention dekhna', 'روکی گئی رقم دیکھنا'), 'Retention due dates of the owner and sub-contractors after handover (amounts also need fields.amounts).', S),
 
+  // ─── Step 14 · Control & alerts ────────────────────────────────────────────
+  def('control.view', L('View control (variance & alerts)', 'Control dekhna (farq aur alerts)', 'کنٹرول دیکھنا (فرق اور الرٹس)'), 'Material and cost variance, burn rate vs progress, delay analysis, projected margin and control alerts of a project (rupee values follow the data-visibility permissions).', S),
+  def('control.manage', L('Manage alert thresholds', 'Alert ki hadein badalna', 'الرٹ کی حدیں بدلنا'), 'Change the control alert thresholds (overuse %, behind-plan points, quota %, spend-ahead points) and run the alert check now.'),
+
   // ─── Field permissions (data visibility) ───────────────────────────────────
   def('fields.rates', L('See rates & stock values', 'Rates aur stock ki qeemat dekhna', 'ریٹس اور اسٹاک کی قیمت دیکھنا'), 'Material / supplier / sub-contract rates, purchase amounts, stock values, supplier balances.', { field: true }),
   def('fields.amounts', L('See billing & money amounts', 'Billing aur raqam dekhna', 'بلنگ اور رقم دیکھنا'), 'Billing amounts, invoices, receivables, money KPIs.', { field: true }),
@@ -408,6 +414,7 @@ const PM_KEYS = [
   'changeorder.edit', // Step 15
   'changeorder.approve', // Step 15
   'changeorder.instruction.view', // Step 15
+  'control.view', // Step 14
 ];
 
 /**
@@ -488,6 +495,7 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'closeout.retention.view',
       'changeorder.view', // Step 15
       'changeorder.manage', // Step 15
+      'control.view', // Step 14
     ].map((key) => ({ key, ...(CATALOG_BY_KEY.get(key)?.scoped ? { scope: 'ALL_PROJECTS' as const } : {}) })),
   },
   {

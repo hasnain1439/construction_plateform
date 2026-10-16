@@ -10,6 +10,7 @@
  *   contractor   = working days projectedEnd is past revisedEnd (contractor stoppages + slow progress)
  */
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
+import type { Project } from '../../generated/prisma/client.js';
 import { caller } from '../projects/access.js';
 import { addDays, diffDays } from './calendar.js';
 import { DELAY_CATEGORIES } from './schedule.schema.js';
@@ -27,6 +28,12 @@ async function scheduleFor(tx: Tx, projectId: string) {
 
 export async function delaysTx(tx: Tx, c: { tenantId: string; userId: string; role: 'THEKEDAR' | 'PM' | 'MUNSHI' }, projectId: string) {
   const project = await projectFor(tx, c as never, projectId, 'schedule.plan.view');
+  return delayBreakdown(tx, c.tenantId, project);
+}
+
+/** The delay breakdown of a project the caller may already see (Step 14 delay analysis reuses it). */
+export async function delayBreakdown(tx: Tx, tenantId: string, project: Pick<Project, 'id' | 'endDate'>) {
+  const c = { tenantId };
   const s = await scheduleFor(tx, project.id);
   const info = await loadCalendar(tx, c.tenantId, project.id);
   const rows = await loadMilestones(tx, s.id);

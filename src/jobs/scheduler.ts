@@ -10,6 +10,7 @@ import { runSyncRetention } from './syncRetention.js';
 import { runSubscriptionLifecycle } from './subscriptionLifecycle.js';
 import { runRetentionReminders } from './retentionReminders.js';
 import { runQuoteExpiry } from './quoteExpiry.js';
+import { runControlAlerts } from './controlAlerts.js';
 
 /** Karachi is UTC+5 all year (no DST). */
 const PKT_OFFSET_MS = 5 * 3_600_000;
@@ -138,6 +139,16 @@ export async function runQuoteExpiryJob(): Promise<void> {
   }
 }
 
+/** Daily 06:30 PKT: control alerts — variance, behind plan, quotas, spend ahead (Step 14). */
+export async function runControlAlertsJob(): Promise<void> {
+  try {
+    const result = await runExclusive('control-alerts', () => trackJobRun('control-alerts', () => runControlAlerts()));
+    if (result) logger.info({ job: 'control-alerts', companies: result.companies.length, projects: result.projects, opened: result.opened, resolved: result.resolved, notified: result.notified, failed: result.failed }, 'control alerts finished');
+  } catch (err) {
+    logger.error({ err, job: 'control-alerts' }, 'control alerts failed');
+  }
+}
+
 const timers: NodeJS.Timeout[] = [];
 
 /** On startup + daily at 02:00 Asia/Karachi. Disabled in tests. */
@@ -171,6 +182,10 @@ export function startScheduledJobs(): void {
     timers.push(setTimeout(() => void runQuoteExpiryJob().finally(scheduleQuoteExpiry), msUntilNextPkt(1)).unref());
   };
   scheduleQuoteExpiry();
+  const scheduleControlAlerts = () => {
+    timers.push(setTimeout(() => void runControlAlertsJob().finally(scheduleControlAlerts), msUntilNextPkt(6) + 30 * 60_000).unref());
+  };
+  scheduleControlAlerts();
   const scheduleNext = () => {
     const wait = msUntilNextPkt(2);
     timers.push(

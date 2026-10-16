@@ -115,6 +115,11 @@ function toSettingsDto(s: SettingsRow): SettingsDto {
     equipmentIdleDays: s.equipmentIdleDays,
     shutteringPropsPerPlate: Number(s.shutteringPropsPerPlate),
     shutteringSparePercent: s.shutteringSparePercent,
+    behindPlanAlertPoints: s.behindPlanAlertPoints,
+    lateFinishGraceDays: s.lateFinishGraceDays,
+    quotaAlertPercent: s.quotaAlertPercent,
+    spendAheadAlertPoints: s.spendAheadAlertPoints,
+    controlAlertsEnabled: s.controlAlertsEnabled,
   };
 }
 

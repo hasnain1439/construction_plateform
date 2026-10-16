@@ -166,6 +166,19 @@ export const en = {
   'notif.equipmentIdle.body': '{number}: {items} on rent at {project} with no milestone work for {days} days. Rent being wasted: {amount} a day. Return it or move it to a site that needs it.',
   'notif.equipmentIdleNoCost.title': 'Rented equipment idle — {project}',
   'notif.equipmentIdleNoCost.body': '{number}: {items} on rent at {project} with no milestone work for {days} days. Return it or move it to a site that needs it.',
+  // Step 14 · control alerts (never money)
+  'notif.controlMaterialOveruse.title': '{project}: {material} {percent}% over the estimate',
+  'notif.controlMaterialOveruse.body': '{used} {unit} used (with counted losses) against {planned} {unit} due for the work done so far. Check wastage, theft or a wrong entry.',
+  'notif.controlMilestoneBehind.title': '{project}: {milestone} is behind plan',
+  'notif.controlMilestoneBehind.body': 'Only {actual}% done — the plan says {planned}% by today.',
+  'notif.controlMilestoneLate.title': '{project}: {milestone} is late',
+  'notif.controlMilestoneLate.body': 'It should have finished on {date} ({days} days ago) and is {actual}% done.',
+  'notif.controlQuotaExhausted.title': '{project}: {material} quota used up',
+  'notif.controlQuotaExhausted.body': '{milestone}: {used} {unit} used of {planned} {unit} planned, and the work is not finished yet.',
+  'notif.controlSpendAhead.title': '{project}: spending ahead of progress',
+  'notif.controlSpendAhead.body': '{spent}% of the contract is spent but the work is only {progress}% done.',
+  'notif.controlEquipmentIdle.title': '{project}: rented {equipment} standing idle',
+  'notif.controlEquipmentIdle.body': '{qty} on rent with no work for {days} days — return it or move it to another site.',
 
   // ─── SMS ──────────────────────────────────────────────────────────────────
   'sms.otp.login': 'Your login code is {code}. It expires in {minutes} minutes. Do not share it with anyone.',

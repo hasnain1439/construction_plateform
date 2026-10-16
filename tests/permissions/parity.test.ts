@@ -273,6 +273,18 @@ const NEW_ROUTES: Snapshot = {
   'POST /api/v1/site-instructions/:id/convert': office(404),
   'POST /api/v1/site-instructions/:id/dismiss': office(400),
   'POST /api/v1/snags/:id/change-order': office(404),
+  // Step 14 · control: control.view (PM, Accountant, Administrator; never the Munshi), control.manage = thresholds + run now (owner / Administrator)
+  'GET /api/v1/projects/:id/control/material-variance': office(404),
+  'GET /api/v1/projects/:id/control/cost-variance': office(404),
+  'GET /api/v1/projects/:id/control/burn-rate': office(404),
+  'GET /api/v1/projects/:id/control/delay-analysis': office(404),
+  'GET /api/v1/projects/:id/control/alerts': office(404),
+  'GET /api/v1/control/summary': office(200),
+  'GET /api/v1/control/alerts': office(200),
+  'GET /api/v1/control/alerts/rules': office(200),
+  'POST /api/v1/control/alerts/run': owner(200),
+  'GET /api/v1/control/settings': office(200),
+  'PUT /api/v1/control/settings': owner(400),
 };
 
 function all(status: Outcome): Record<Persona, Outcome> {

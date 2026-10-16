@@ -46,6 +46,7 @@ import { estimatesRouter, projectEstimateRouter } from './modules/estimate/estim
 import { rulebookRouter } from './modules/rulebook/rulebook.routes.js';
 import { equipmentRouter, projectEquipmentRouter } from './modules/equipment/equipment.routes.js'; // Step 16
 import { milestonesRouter, projectScheduleRouter, stoppagesRouter } from './modules/schedule/schedule.routes.js';
+import { controlRouter, projectControlRouter } from './modules/control/control.routes.js';
 import { quotesRouter } from './modules/sales/sales.routes.js';
 import { changeOrdersRouter, projectChangeOrdersRouter, siteInstructionsRouter, snagChangeOrderRouter } from './modules/change-orders/changeOrders.routes.js'; // Step 15
 import { dispatchesRouter, projectDispatchRouter, shortagesRouter } from './modules/dispatch/dispatch.routes.js';
@@ -181,6 +182,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/projects', projectCloseoutRouter); // Step 17: /projects/:id/drawings, /snags, /handover, /retention (per-route auth)
   mount('/projects', projectChangeOrdersRouter); // Step 15: /projects/:id/change-orders, /projects/:id/site-instructions (per-route auth)
   mount('/projects', projectScheduleRouter); // Step 13: /projects/:id/schedule/*, /projects/:id/stoppages (per-route auth)
+  mount('/projects', projectControlRouter); // Step 14: /projects/:id/control/* (per-route auth)
   mount('/projects', projectsRouter);
   mount('/billing-stages', billingStagesRouter);
   mount('/billing-progress', billingProgressRouter);
@@ -192,6 +194,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/approvals', approvalsRouter);
   mount('/dashboard', dashboardRouter);
   mount('/finance', financeRouter);
+  mount('/control', controlRouter); // Step 14: /control/summary, /alerts, /settings (per-route auth)
   mount('/reports', reportsRouter);
   mount('/daily-logs', dailyLogsRouter);
   mount('/drawings', drawingsRouter);

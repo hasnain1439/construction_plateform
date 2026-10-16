@@ -1,4 +1,5 @@
 /** Material used on a site (USAGE_OUT at average cost; owner-supplied at 0). */
+import { controlTrigger } from '../control/trigger.js';
 import { fieldsOf, visible } from '../../core/auth/fieldStrip.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest } from '../../core/errors/AppError.js';
@@ -100,6 +101,7 @@ export async function recordUsageTx(tx: Tx, a: Actor, projectId: string, input: 
     usageDate: input.usageDate,
     items: lines.map((l) => ({ materialId: l.materialId, qty: qn(l.qty), ownerSupplied: l.ownerSupplied })),
   });
+  await controlTrigger(tx, a.tenantId, project.id, ['MATERIAL_OVERUSE', 'QUOTA_EXHAUSTED'], opts); // Step 14
   return toUsageDto(await tx.materialUsage.findUniqueOrThrow({ where: { id: usage.id }, include: usageInclude }), a);
 }
 

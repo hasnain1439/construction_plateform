@@ -5,6 +5,7 @@
  * `extends` starts from another demo snapshot instead of the base seed.
  */
 import { seedMalikBilling } from '../../prisma/seedBilling.js';
+import { seedMalikControl } from '../../prisma/seedControl.js';
 import { seedMalikEquipment } from '../../prisma/seedEquipment.js';
 import { seedMalikInventory } from '../../prisma/seedInventory.js';
 import { seedMalikLabor } from '../../prisma/seedLabor.js';
@@ -33,6 +34,13 @@ export const DEMO_SEEDS = {
     extends: 'malik_stock_labor',
     build: async (s: Seeded) => {
       await seedMalikBilling(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, projects: s.projects });
+    },
+  },
+  /** Step 14: the whole demo + DHA's material history (cement overuse) and the first-floor slab behind plan. */
+  malik_control: {
+    extends: 'malik_demo',
+    build: async (s: Seeded) => {
+      await seedMalikControl(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, rafaqatId: s.users.rafaqatMalik.id, dhaProjectId: s.projects.dha.id });
     },
   },
   /** Step 16: Malik & Sons equipment & shuttering on the base seed (no stock / labour). */
