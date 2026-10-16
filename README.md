@@ -1257,6 +1257,13 @@ Owner-recoverable and rejected kharcha are never cost. Dates: movement / payment
 | `supplier-ageing` | THEKEDAR | udhaar per supplier in 0–15 / 16–30 / 31–60 / 60+ (FIFO), oldest days, last payment |
 | `receivables-ageing` | THEKEDAR | outstanding per project / client in the same buckets, overdue, pending cheques |
 | `stock-valuation` | THEKEDAR | store + sites + transit: quantity × weighted-average cost (owner stock without value) |
+| `delay-analysis` (Step 18) | + `control.view` | per scheduled project: original / revised / projected end, owner / excusable / contractor / change-order days, days late, late / behind milestones, top reasons (Step 13 `delayBreakdown`) |
+| `variance` (Step 18) | + `control.view` | per running project: progress vs plan, materials over / under, material PKR impact (`fields.rates`), cost variance (`fields.amounts` + `fields.rates`), spent % vs progress, revised contract, projected margin (Step 14 rules) |
+| `change-orders` (Step 18) | + `changeorder.view` | every change order: project, code, title, type, status, total (`fields.rates` or `fields.amounts`), days, proof, billing invoice; `status`, `type`, dates; totals = approved set |
+| `equipment-utilisation` (Step 18) | + `equipment.view` | per item / `group=category`: days and unit-days on site vs idle (ledger end-of-day balances), utilisation %, rented unit-days, hire / rent / loss value (`fields.rates`); period ≤ 366 days (default 30), `category`, project |
+| `snags` (Step 18) | + `closeout.snag.view` | per project: open / fixed / verified, overdue, ageing 0–7 / 8–30 / 31+, defect period, cost attribution (`fields.amounts`) |
+
+**Step 18 reports** need `finance.reports.view` **and** the module key in the "Who" column (its project scope picks the rows; the Munshi never). Money columns follow the module's own field rule and are left out of the JSON and the files without it. Delay analysis, variance and snags also have a **per-project book** — `GET /reports/<name>/:projectId` — a summary + several tables (delay: categories, stoppages, change-order days, late / slipped milestones, `409 NO_SCHEDULE` without a schedule; variance: material variance, cost buckets, burn by month; snags: by assignee, open list, defect period) exported as CSV (sections one after the other), Excel (one sheet per section) or PDF (letterhead, summary, one table per section). Multi-project reports load each project's plan and estimate once and the cost rows of all projects in one query (~10–50 ms each on the seed, warm).
 
 ### Endpoints
 
