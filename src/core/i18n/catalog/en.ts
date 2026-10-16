@@ -162,6 +162,10 @@ export const en = {
   'notif.retentionReminder.body': 'Retention {amount} is due on {date}. Open defect snags: {snags}.',
   'notif.retentionDue.title': 'Retention due — {project}',
   'notif.retentionDue.body': 'The defect period ended on {date}: bill the retention ({amount}) and release sub-contractor retention. Open defect snags: {snags}.',
+  'notif.equipmentIdle.title': 'Rented equipment idle — {project}',
+  'notif.equipmentIdle.body': '{number}: {items} on rent at {project} with no milestone work for {days} days. Rent being wasted: {amount} a day. Return it or move it to a site that needs it.',
+  'notif.equipmentIdleNoCost.title': 'Rented equipment idle — {project}',
+  'notif.equipmentIdleNoCost.body': '{number}: {items} on rent at {project} with no milestone work for {days} days. Return it or move it to a site that needs it.',
 
   // ─── SMS ──────────────────────────────────────────────────────────────────
   'sms.otp.login': 'Your login code is {code}. It expires in {minutes} minutes. Do not share it with anyone.',

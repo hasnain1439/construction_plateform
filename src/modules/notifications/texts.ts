@@ -39,6 +39,8 @@ export const NOTIFICATION_TEXT_KEYS = [
   'retentionReminder',
   'retentionDue',
   'siteInstructionCreated', // Step 15
+  'equipmentIdle',
+  'equipmentIdleNoCost',
 ] as const;
 export type NotificationTextKey = (typeof NOTIFICATION_TEXT_KEYS)[number];
 

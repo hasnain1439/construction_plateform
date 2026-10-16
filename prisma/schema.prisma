@@ -484,6 +484,12 @@ model TenantSettings {
   ramadanDayFactor                 Decimal   @default(0.75) @db.Decimal(3, 2)
   /// Step 13: Ramadan periods [{ start, end }] (YYYY-MM-DD); null = built-in approximate Pakistan dates.
   ramadanPeriods                   Json?
+  /// Step 16: rented units with no milestone activity at their site for this many days → EQUIPMENT_IDLE alert (1–60).
+  equipmentIdleDays                Int       @default(5)
+  /// Step 16 shuttering planner: props needed per shuttering plate (0–5, engineer review).
+  shutteringPropsPerPlate          Decimal   @default(0.75) @db.Decimal(4, 2)
+  /// Step 16 shuttering planner: extra plates % for cut pieces / damage (0–30).
+  shutteringSparePercent           Int       @default(5)
   createdAt                        DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt                        DateTime  @updatedAt @db.Timestamptz(3)
   tenant                           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -2914,6 +2920,8 @@ enum NotificationType {
   RETENTION_RELEASE_DUE
   /// Step 15: a site instruction from the Munshi waits to become a change order
   SITE_INSTRUCTION_CREATED
+  /// Step 16: rented equipment idle at a site (no milestone activity for N days)
+  EQUIPMENT_IDLE
 }
 
 /// One in-app message for one user. Same (type, refId, user) is sent at most once per 24 h.

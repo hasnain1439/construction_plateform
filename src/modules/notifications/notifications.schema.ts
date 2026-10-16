@@ -23,6 +23,7 @@ export const NOTIFICATION_TYPES = [
   'SUBSCRIPTION_PAYMENT_REJECTED',
   'INVITE_ACCEPTED',
   'PLATFORM_SUPPORT_ACCESS',
+  'EQUIPMENT_IDLE',
 ] as const;
 export const notificationTypeSchema = z.enum(NOTIFICATION_TYPES);
 export const severitySchema = z.enum(['INFO', 'WARNING', 'CRITICAL']);

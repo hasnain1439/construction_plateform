@@ -295,3 +295,20 @@ export type ListLossesQuery = z.infer<typeof listLossesQuery>;
 export type ChargeLossInput = z.infer<typeof chargeLossBody>;
 export type ListChargesQuery = z.infer<typeof listChargesQuery>;
 export type AccrualInput = z.infer<typeof accrualBody>;
+
+// ─── Shuttering demand + idle rent (Step 16 part 2) ─────────────────────────
+
+const weeksQuery = z.coerce.number().int().min(1, 'Between 1 and 26 weeks').max(26, 'Between 1 and 26 weeks').optional().meta({ example: 8, description: 'Weeks to plan (default 8)' });
+export const shutteringDemandQuery = z.object({
+  projectId: uuid('projectId').optional(),
+  from: isoDateSchema.optional().meta({ description: 'First week (snapped back to Monday; default this week)', example: '2026-10-12' }),
+  weeks: weeksQuery,
+});
+export const projectShutteringQuery = shutteringDemandQuery.omit({ projectId: true });
+export const idleQuery = z.object({
+  projectId: uuid('projectId').optional(),
+  all: boolQuery.meta({ description: 'true = also rentals below the idle threshold' }),
+});
+
+export type ShutteringDemandQuery = z.infer<typeof shutteringDemandQuery>;
+export type IdleQuery = z.infer<typeof idleQuery>;

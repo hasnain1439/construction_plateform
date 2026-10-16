@@ -152,6 +152,10 @@ export const ur: Record<MessageKey, string> = {
   'notif.retentionReminder.body': 'ریٹینشن {amount} {date} کو واجب الادا ہے۔ کھلی خرابیاں: {snags}۔',
   'notif.retentionDue.title': 'ریٹینشن واجب — {project}',
   'notif.retentionDue.body': 'خرابی کی مدت {date} کو ختم ہو گئی: ریٹینشن ({amount}) کا بل بنائیں اور ذیلی ٹھیکیداروں کی ریٹینشن جاری کریں۔ کھلی خرابیاں: {snags}۔',
+  'notif.equipmentIdle.title': 'کرائے کا سامان بیکار کھڑا ہے — {project}',
+  'notif.equipmentIdle.body': '{number}: {items} {project} پر کرائے پر ہے مگر {days} دن سے کسی مرحلے کا کام نہیں ہوا۔ روزانہ ضائع کرایہ: {amount}۔ واپس کریں یا اس سائٹ پر بھیجیں جہاں ضرورت ہے۔',
+  'notif.equipmentIdleNoCost.title': 'کرائے کا سامان بیکار کھڑا ہے — {project}',
+  'notif.equipmentIdleNoCost.body': '{number}: {items} {project} پر کرائے پر ہے مگر {days} دن سے کسی مرحلے کا کام نہیں ہوا۔ واپس کریں یا اس سائٹ پر بھیجیں جہاں ضرورت ہے۔',
 
   'sms.otp.login': 'آپ کا لاگ اِن کوڈ {code} ہے۔ یہ {minutes} منٹ میں ختم ہو جائے گا۔ کسی کو نہ بتائیں۔',
   'sms.otp.reset': 'آپ کا پاس ورڈ ری سیٹ کوڈ {code} ہے۔ یہ {minutes} منٹ میں ختم ہو جائے گا۔ اگر آپ نے نہیں مانگا تو یہ پیغام نظر انداز کریں۔',

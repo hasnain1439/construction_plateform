@@ -110,6 +110,10 @@ export const updateSettingsBody = z
       .max(20)
       .nullable()
       .optional(),
+    // Step 16 · equipment alerts + shuttering planner
+    equipmentIdleDays: z.number().int().min(1, 'Must be between 1 and 60').max(60, 'Must be between 1 and 60').optional(),
+    shutteringPropsPerPlate: z.number().min(0, 'Must be between 0 and 5').max(5, 'Must be between 0 and 5').multipleOf(0.05).optional(),
+    shutteringSparePercent: z.number().int().min(0, 'Must be between 0 and 30').max(30, 'Must be between 0 and 30').optional(),
   })
   .refine((value) => Object.values(value).some((v) => v !== undefined), { message: 'Nothing to update' });
 
@@ -145,6 +149,9 @@ export const settingsDto = z
       .array(z.object({ start: z.string(), end: z.string() }))
       .meta({ description: 'Ramadan periods the schedule uses (the company own, else built-in approximate Pakistan dates)' }),
     ramadanPeriodsCustom: z.boolean().meta({ description: 'false = the built-in approximate dates' }),
+    equipmentIdleDays: z.number().meta({ description: 'Rented equipment with no milestone activity at its site for this many days → EQUIPMENT_IDLE alert (1–60)', example: 5 }),
+    shutteringPropsPerPlate: z.number().meta({ description: 'Shuttering planner: props needed per plate (0–5, engineer review)', example: 0.75 }),
+    shutteringSparePercent: z.number().meta({ description: 'Shuttering planner: extra plates % for cut pieces / damage (0–30)', example: 5 }),
   })
   .meta({ id: 'CompanySettings' });
 
