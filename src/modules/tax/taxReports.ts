@@ -242,7 +242,7 @@ export async function runTaxReport(name: TaxReportName, q: TaxReportQuery) {
   if (!fieldAccess().amounts) throw new Forbidden('FORBIDDEN', 'You need permission to see money amounts for tax reports');
   const { report, company, lang } = await withTenant(a.tenantId, async (tx) => ({
     report: await buildTaxReport(tx, a, name, q),
-    company: q.format === 'pdf' ? await letterhead(tx, a.tenantId) : null,
+    company: q.format === 'pdf' ? await letterhead(tx, a.tenantId, { taxIds: true }) : null,
     lang: q.format === 'json' ? ('en' as const) : await documentLang(tx, a.userId, q.lang),
   }));
   if (q.format === 'json') return report;

@@ -3,6 +3,11 @@
  * money is shown South-Asian style ("Rs 27,75,000"). Labels come from the i18n catalogue in the
  * document's language (`lang`, default English): Urdu documents are `dir="rtl"` with the embedded
  * Nastaliq font (fonts.ts); numbers, codes and money stay left-to-right inside <bdi>.
+ *
+ * Step 18 · one letterhead for every PDF: `shell()` is the only document frame (logo, company
+ * name, address, phone, NTN — and STRN on tax documents — then document title, number and date on
+ * the other side). Page size, margins and the footer ("Page X of Y", generated-on date) come from
+ * the renderer (renderer.ts `pdfPageOptions` + `pdfFooter` below), so every producer looks the same.
  */
 import { CATALOGS, enumLabel, isRtl, tr, unitLabel, type Lang, type MessageKey, type Params } from '../i18n/index.js';
 import { URDU_FONT_FAMILY, urduFontFace } from './fonts.js';
@@ -13,6 +18,8 @@ export interface Letterhead {
   address: string | null;
   phone: string | null;
   logoUrl: string | null;
+  /** Sales tax registration (STRN); set only for tax reports (taxed invoices print their issue-time snapshot). */
+  strn?: string | null;
 }
 
 export const esc = (v: unknown) =>
@@ -83,6 +90,8 @@ const CSS = `
   .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 9px; font-weight: 600; }
   .ok { background: #dcfce7; color: #166534; } .warn { background: #fef3c7; color: #92400e; } .bad { background: #fee2e2; color: #991b1b; }
   .note { margin-top: 18px; padding: 10px; background: #f8fafc; border-radius: 6px; }
+  h3 { font-size: 12px; margin: 16px 0 4px; }
+  thead { display: table-header-group; } tr { page-break-inside: avoid; }
 `;
 
 /** Urdu: Nastaliq (embedded) with room for its tall letters; no letter-spacing / upper-casing. */
@@ -100,14 +109,31 @@ function documentHead(lang: Lang): string {
   return `<!doctype html><html lang="${lang === 'ur' ? 'ur' : 'en'}" dir="${rtl ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><style>${CSS}${rtl ? URDU_CSS() : ''}</style></head>`;
 }
 
+/** Company line under the name: address · phone · NTN (· STRN when the letterhead carries it). */
+function companyLine(company: Letterhead, lang: Lang): string {
+  return [
+    company.address ? ltr(esc(company.address)) : null,
+    company.phone ? ltr(esc(company.phone)) : null,
+    company.ntn ? `${label(lang, 'pdf.ntn')} ${ltr(esc(company.ntn))}` : null,
+    company.strn ? `${label(lang, 'pdf.strn')} ${ltr(esc(company.strn))}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/**
+ * The one document frame for every PDF: `<html lang dir>` + styles (Urdu font embedded for `ur`),
+ * the letterhead block (logo, company, address, phone, NTN/STRN | document title, number, date)
+ * and the body. Page numbers and the generated-on date are in the renderer's footer.
+ */
 export function shell(company: Letterhead, docTitle: string, docMeta: string, body: string, lang: Lang): string {
   return `${documentHead(lang)}<body>
-  <div class="head">
+  <div class="head letterhead" data-pdf="letterhead">
     <div class="brand">
       ${company.logoUrl ? `<img src="${esc(company.logoUrl)}" alt="">` : ''}
       <div>
         <h1>${esc(company.name)}</h1>
-        <div class="muted">${[company.address, company.phone, company.ntn ? `NTN ${company.ntn}` : null].filter(Boolean).map((v) => ltr(esc(v))).join(' · ')}</div>
+        <div class="muted">${companyLine(company, lang)}</div>
       </div>
     </div>
     <div class="doc"><h2>${esc(docTitle)}</h2><div class="muted">${docMeta}</div></div>
@@ -116,13 +142,18 @@ export function shell(company: Letterhead, docTitle: string, docMeta: string, bo
   </body></html>`;
 }
 
-/** Footer (page numbers) for the renderer, in the language. */
-export function pdfFooter(text: string, lang: Lang): string {
+/**
+ * Footer for the renderer (Playwright footerTemplate), in the language: footer text, generated-on
+ * date and "Page X of Y" (Chromium fills .pageNumber / .totalPages). The footer is drawn in its own
+ * small document, so it names the Urdu family the page itself has already loaded.
+ */
+export function pdfFooter(text: string, lang: Lang, generatedOn: string = new Date().toISOString().slice(0, 10)): string {
   const rtl = isRtl(lang);
   return `
-  <div dir="${rtl ? 'rtl' : 'ltr'}" style="width:100%;font-family:Inter,${rtl ? URDU_FONT_FAMILY : 'Arial,sans-serif'};font-size:8px;color:#64748b;padding:0 14mm;display:flex;justify-content:space-between">
+  <div dir="${rtl ? 'rtl' : 'ltr'}" data-pdf="footer" style="width:100%;font-family:Inter,${rtl ? URDU_FONT_FAMILY : 'Arial,sans-serif'};font-size:8px;color:#64748b;padding:0 14mm;display:flex;justify-content:space-between;gap:12px">
     <span>${esc(text)}</span>
-    <span>${esc(tr(lang, 'pdf.page'))} <span class="pageNumber"></span> ${esc(tr(lang, 'pdf.of'))} <span class="totalPages"></span></span>
+    <span>${label(lang, 'pdf.generated', {}, { date: date(generatedOn) })}</span>
+    <span>${esc(tr(lang, 'pdf.page'))} <bdi dir="ltr"><span class="pageNumber"></span></bdi> ${esc(tr(lang, 'pdf.of'))} <bdi dir="ltr"><span class="totalPages"></span></bdi></span>
   </div>`;
 }
 
@@ -495,7 +526,7 @@ export function quoteCustomerHtml(d: QuotePdfData, lang: Lang = 'en'): string {
   const terms = (['pdf.quoteTerm.validity', 'pdf.quoteTerm.changes', 'pdf.quoteTerm.owner', 'pdf.quoteTerm.fees', 'pdf.quoteTerm.payments'] as MessageKey[])
     .map((k) => `<li>${L(k, {}, { date: date(d.validUntil) })}</li>`)
     .join('');
-  const html = `<style>h3 { font-size: 12px; margin: 16px 0 4px; }</style>
+  const html = `
   ${quoteHead(d, lang)}
   ${price}
   ${quoteSpecs(d, lang)}
@@ -510,7 +541,7 @@ export function quoteCustomerHtml(d: QuotePdfData, lang: Lang = 'en'): string {
 export function quoteInternalHtml(d: QuoteInternalPdfData, lang: Lang = 'en'): string {
   const L = (key: MessageKey, params?: Params, html?: Record<string, string>) => label(lang, key, params, html);
   const rows = d.costSections.map((s) => `<tr><td>${sectionLabel(lang, s.section)}</td><td class="r">${money(s.amountPaisa)}</td></tr>`).join('');
-  const html = `<style>h3 { font-size: 12px; margin: 16px 0 4px; }</style>
+  const html = `
   ${quoteHead(d, lang)}
   <h3>${L('pdf.estimatedCost')}</h3>
   <table><tbody>${rows}</tbody></table>
