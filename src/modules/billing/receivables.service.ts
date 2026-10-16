@@ -7,6 +7,7 @@
  *   overdue      outstanding of invoices past their due date
  *   own money    spent to date − received (negative = the owner has paid ahead)
  *   ageing       outstanding by days since the invoice was issued (0–15 / 16–30 / 31–60 / 60+)
+ *   contract     revised = original (stages / contract value) + approved change orders (Step 15)
  */
 import { assertPerm } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
@@ -19,6 +20,7 @@ import { LIVE, projectCredit } from './ledger.js';
 import { costDto, projectCost } from './projectCost.service.js';
 import { ageing, ageingDto, addAgeing } from '../finance/ageing.js';
 import { stageDto } from './stages.service.js';
+import { approvedChanges } from '../change-orders/totals.js'; // Step 15
 
 export async function moneyOf(tx: Tx, tenantId: string, project: Project) {
   const stages = await tx.projectBillingStage.findMany({ where: { tenantId, projectId: project.id }, orderBy: { sortOrder: 'asc' } });
@@ -28,7 +30,10 @@ export async function moneyOf(tx: Tx, tenantId: string, project: Project) {
   const received = (pay('CLEARED')?._sum.amountPaisa ?? 0n) + (pay('CLEARED')?._sum.whtDeductedPaisa ?? 0n);
   const pendingCheques = pay('PENDING')?._sum.amountPaisa ?? 0n;
 
-  const contract = stages.reduce((s, x) => s + x.amountPaisa, 0n) || (project.contractValuePaisa ?? 0n);
+  const originalContract = stages.reduce((s, x) => s + x.amountPaisa, 0n) || (project.contractValuePaisa ?? 0n);
+  // Step 15: revised contract = original + approved change orders (signed; deductions lower it).
+  const changes = (await approvedChanges(tx, tenantId, project.id)).totalPaisa;
+  const contract = originalContract + changes;
   const invoiced = invoices.reduce((s, i) => s + i.totalPaisa, 0n);
   const outstanding = invoices.reduce((s, i) => s + i.balancePaisa, 0n);
   let overdue = 0n;
@@ -66,6 +71,8 @@ export async function moneyOf(tx: Tx, tenantId: string, project: Project) {
   return {
     stages,
     invoiceOfStage,
+    originalContract,
+    approvedChanges: changes,
     contract,
     invoiced,
     received,
@@ -90,8 +97,8 @@ export async function projectReceivables(projectId: string) {
     const cost = await projectCost(tx, a.tenantId, project.id);
     return {
       project: { id: project.id, code: project.code, name: project.name, status: project.status, billingModel: project.billingModel },
-      originalContractPaisa: m.contract.toString(),
-      approvedChangesPaisa: '0',
+      originalContractPaisa: m.originalContract.toString(),
+      approvedChangesPaisa: m.approvedChanges.toString(),
       revisedContractPaisa: m.contract.toString(),
       invoicedPaisa: m.invoiced.toString(),
       receivedPaisa: m.received.toString(),

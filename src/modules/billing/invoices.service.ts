@@ -34,6 +34,7 @@ import { tr, type Lang } from '../../core/i18n/index.js';
 import { applyCredit, LIVE, recomputeInvoice, resolveBouncedFor, resolveEvent, syncStage } from './ledger.js';
 import { track } from '../../core/observability/analytics.js';
 import { retentionDueDate } from '../closeout/retention.dates.js';
+import { markBilled, pendingStageLines, revertBilled } from '../change-orders/invoiceHooks.js'; // Step 15
 
 const include = {
   project: { select: { id: true, code: true, name: true, siteAddress: true, status: true } },
@@ -168,6 +169,8 @@ async function buildLines(tx: Tx, a: BillingActor, project: { id: string; status
       forceNote = stage.status === 'UPCOMING' ? (input.forceNote ?? null) : null;
       lines = [{ description: `${stage.label} (${Number(stage.percent)}% of contract)`, amountPaisa: stage.amountPaisa, sourceType: 'BILLING_STAGE', sourceId: stage.id }];
       if (input.extraCashEntryIds?.length) lines.push(...(await recoverableLines(tx, a, project.id, input.extraCashEntryIds)));
+      // Step 15: approved change orders waiting for the next stage invoice.
+      lines.push(...(await pendingStageLines(tx, a.tenantId, project.id)));
       break;
     }
     case 'RUNNING_BILL': {
@@ -204,6 +207,8 @@ async function buildLines(tx: Tx, a: BillingActor, project: { id: string; status
         const gross = lines.reduce((s, l) => s + l.amountPaisa, 0n);
         lines.push({ description: `Less retention held (${Number(retention.percent)}%)`, amountPaisa: -percentOf(gross, retention.percent), sourceType: 'RETENTION', sourceId: retention.id });
       }
+      // Step 15: approved change orders waiting for the next bill.
+      lines.push(...(await pendingStageLines(tx, a.tenantId, project.id)));
       break;
     }
     case 'RECOVERABLE':
@@ -230,7 +235,8 @@ async function buildLines(tx: Tx, a: BillingActor, project: { id: string; status
   return { stageId, forceNote, lines };
 }
 
-async function writeTotals(tx: Tx, a: BillingActor, invoiceId: string) {
+/** Recomputes subtotal / tax / total of an invoice from its lines (Step 15 uses it for VARIATION invoices). */
+export async function writeTotals(tx: Tx, a: BillingActor, invoiceId: string) {
   const s = await billingSettings(tx, a.tenantId);
   const lines = await tx.invoiceLine.findMany({ where: { tenantId: a.tenantId, invoiceId } });
   const subtotal = lines.reduce((sum, l) => sum + l.amountPaisa, 0n);
@@ -242,7 +248,7 @@ async function writeTotals(tx: Tx, a: BillingActor, invoiceId: string) {
   });
 }
 
-async function writeLines(tx: Tx, tenantId: string, invoiceId: string, lines: DraftLine[]) {
+export async function writeLines(tx: Tx, tenantId: string, invoiceId: string, lines: DraftLine[]) {
   await tx.invoiceLine.createMany({
     data: lines.map((l, i) => ({
       tenantId,
@@ -342,7 +348,7 @@ export async function issueTx(tx: Tx, a: BillingActor, id: string, input: { issu
   if (issueDate > today()) throw new BadRequest('FUTURE_DATE', "An invoice can't be issued in the future");
 
   // Sources must still be free (another invoice may have taken them since the draft).
-  for (const type of ['BILLING_STAGE', 'BILLING_PROGRESS', 'CASH_ENTRY'] as const) {
+  for (const type of ['BILLING_STAGE', 'BILLING_PROGRESS', 'CASH_ENTRY', 'CHANGE_ORDER'] as const) {
     const ids = inv.lines.filter((l) => l.sourceType === type).map((l) => l.sourceId!);
     const taken = (await takenSources(tx, a.tenantId, type, ids, inv.id)).filter((t) => t.invoice.status !== 'DRAFT');
     if (taken.length) throw new Conflict('SOURCE_ALREADY_BILLED', 'Part of this invoice is already billed on another invoice', { taken });
@@ -362,6 +368,7 @@ export async function issueTx(tx: Tx, a: BillingActor, id: string, input: { issu
     await syncStage(tx, a.tenantId, inv.billingStageId);
     await resolveEvent(tx, a.tenantId, 'STAGE_READY_UNBILLED', inv.billingStageId);
   }
+  await markBilled(tx, a, { id: inv.id, number }, at); // Step 15
   const credit = await applyCredit(tx, a.tenantId, inv.id);
   await audit(tx, a, 'invoice.issue', 'Invoice', inv.id, { number, totalPaisa: inv.totalPaisa.toString(), creditAppliedPaisa: credit.toString() });
   return invoiceDto(await load(tx, inv.id));
@@ -391,6 +398,7 @@ export async function cancelTx(tx: Tx, a: BillingActor, id: string, reason: stri
   await tx.billingProgress.updateMany({ where: { tenantId: a.tenantId, billedInvoiceId: inv.id }, data: { billedInvoiceId: null } });
   await tx.cashEntry.updateMany({ where: { tenantId: a.tenantId, billedInvoiceId: inv.id }, data: { billedInvoiceId: null } });
   if (inv.billingStageId) await syncStage(tx, a.tenantId, inv.billingStageId);
+  await revertBilled(tx, a, inv); // Step 15
   await resolveEvent(tx, a.tenantId, 'INVOICE_OVERDUE', inv.id);
   await resolveBouncedFor(tx, a.tenantId, inv.id);
   await audit(tx, a, 'invoice.cancel', 'Invoice', inv.id, { number: inv.number, reason });

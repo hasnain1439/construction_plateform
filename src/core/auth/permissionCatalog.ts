@@ -61,6 +61,8 @@ export const PERMISSION_MODULES = {
   schedule: { en: 'Schedule', roman: 'Schedule (kaam ka nizam)', urdu: 'شیڈول' },
   // Step 12
   sales: { en: 'Sales & quotes', roman: 'Sales aur quotes', urdu: 'سیلز اور کوٹیشن' },
+  // Step 15
+  changeorder: { en: 'Change orders', roman: 'Tabdeeli orders', urdu: 'تبدیلی آرڈرز' },
 } as const satisfies Record<string, PermissionLabel>;
 
 export type PermissionModule = keyof typeof PERMISSION_MODULES;
@@ -238,6 +240,15 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   def('equipment.rental.manage', L('Manage equipment rentals', 'Kiraye ki shuttering ka intezam', 'کرائے کی شٹرنگ کا انتظام'), 'Hire from yards: create, extend, return with damage charges, close (supplier ledger).', S),
   def('equipment.loss.create', L('Report equipment loss', 'Gum / toota saman report karna', 'گم / ٹوٹا سامان رپورٹ کرنا'), 'Report missing or damaged equipment with a photo.', S),
   def('equipment.loss.approve', L('Charge equipment loss', 'Nuqsan ka faisla', 'نقصان کا فیصلہ'), 'Charge a loss to the project, a sub-contractor or write it off.', S),
+  // ─── Step 15 · Change orders + site instructions ──────────────────────────
+  def('changeorder.view', L('View change orders', 'Tabdeeli orders dekhna', 'تبدیلی آرڈرز دیکھنا'), 'Change orders of a project, their slip PDF and WhatsApp text (amounts also need fields.rates or fields.amounts).', S),
+  def('changeorder.create', L('Create change orders', 'Tabdeeli order banana', 'تبدیلی آرڈر بنانا'), 'New change order (mini BoQ: material / labour lines, markup, days), turn a site instruction or a snag into a change order draft, dismiss a site instruction.', S),
+  def('changeorder.edit', L('Edit change orders', 'Tabdeeli order badalna', 'تبدیلی آرڈر بدلنا'), 'Edit or delete a draft, send it to the owner, reopen it, mark the work started / completed.', S),
+  def('changeorder.approve', L('Record owner approval', 'Maalik ki manzoori darj karna', 'مالک کی منظوری درج کرنا'), 'Record that the owner approved (with proof: WhatsApp screenshot, signed slip or verbal note) or rejected a change order.', S),
+  def('changeorder.manage', L('Bill change orders', 'Tabdeeli orders ka bill', 'تبدیلی آرڈرز کا بل'), 'Put an approved change order on the next stage invoice or make a separate variation invoice (also needs billing.invoice.create).', S),
+  def('changeorder.instruction.create', L('Record site instructions', 'Site hidayat darj karna', 'سائٹ ہدایت درج کرنا'), 'Record what the owner asked for on site (photo + note) so the office can turn it into a change order; see own instructions.', S),
+  def('changeorder.instruction.view', L('View site instructions', 'Site hidayat dekhna', 'سائٹ ہدایات دیکھنا'), 'Every site instruction of a project (not only own).', S),
+
   // ─── Step 17 · Closeout (drawings, snags, handover, retention) ─────────────
   def('closeout.drawing.view', L('View drawings', 'Naqshe dekhna', 'نقشے دیکھنا'), 'Project drawings by folder and every revision (superseded ones too).', S),
   def('closeout.drawing.manage', L('Manage drawings', 'Naqshon ka intezam', 'نقشوں کا انتظام'), 'Add drawings, upload new revisions, set approval dates, delete drawings.', S),
@@ -330,6 +341,7 @@ const MUNSHI_KEYS = [
   'schedule.plan.view',
   'schedule.progress.edit',
   'schedule.stoppage.create',
+  'changeorder.instruction.create', // Step 15
 ];
 
 /** What a PM could do before permissions existed, WITHOUT canSeeFinancials. */
@@ -391,6 +403,11 @@ const PM_KEYS = [
   'closeout.snag.manage',
   'closeout.handover.manage',
   'closeout.retention.view',
+  'changeorder.view', // Step 15
+  'changeorder.create', // Step 15
+  'changeorder.edit', // Step 15
+  'changeorder.approve', // Step 15
+  'changeorder.instruction.view', // Step 15
 ];
 
 /**
@@ -469,6 +486,8 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'fields.contract',
       'closeout.snag.view',
       'closeout.retention.view',
+      'changeorder.view', // Step 15
+      'changeorder.manage', // Step 15
     ].map((key) => ({ key, ...(CATALOG_BY_KEY.get(key)?.scoped ? { scope: 'ALL_PROJECTS' as const } : {}) })),
   },
   {

@@ -15,6 +15,7 @@ import { addDays, diffDays } from './calendar.js';
 import { DELAY_CATEGORIES } from './schedule.schema.js';
 import { day, dtoContext, loadCalendar, loadMilestones, milestoneDto, planEnd, projection, projectFor, qty, scheduleNotFound, today, type MilestoneDto } from './schedule.shared.js';
 import { stoppageDays } from './stoppages.service.js';
+import { approvedChangeItems } from '../change-orders/totals.js'; // Step 15
 
 async function scheduleFor(tx: Tx, projectId: string) {
   const s = await tx.schedule.findFirst({ where: { projectId } });
@@ -50,7 +51,12 @@ export async function delaysTx(tx: Tx, c: { tenantId: string; userId: string; ro
     days[r.category] += n;
     reasons[r.category]!.push({ stoppageId: r.id, reason: r.reason, dates, days: n, note: r.note });
   }
+  // Step 15: approved change orders are owner-caused time (Schedule.changeOrderDays = Σ their days).
   const changeOrders = s.changeOrderDays;
+  const coItems = await approvedChangeItems(tx, c.tenantId, project.id);
+  const coReasons = coItems
+    .filter((i) => i.daysImpact > 0)
+    .map((i) => ({ stoppageId: null, changeOrderId: i.id, reason: 'CHANGE_ORDER', dates: [] as string[], days: i.daysImpact, note: `${i.code} · ${i.title}` }));
   const revisedEnd = info.cal.addWorkingDays(originalEnd, days.OWNER + days.EXCUSABLE + changeOrders);
   const projectedEnd = proj.end ?? plannedEnd ?? originalEnd;
   const late = projectedEnd > revisedEnd ? info.cal.workingDaysBetween(revisedEnd, projectedEnd) : 0;
@@ -69,9 +75,13 @@ export async function delaysTx(tx: Tx, c: { tenantId: string; userId: string; ro
     days: { owner: days.OWNER, excusable: days.EXCUSABLE, contractor, changeOrders, total: days.OWNER + days.EXCUSABLE + contractor + changeOrders },
     aheadDays: ahead,
     calendarDaysLate: Math.max(0, diffDays(originalEnd, projectedEnd)),
-    categories: DELAY_CATEGORIES.map((category) => ({ category, days: category === 'CONTRACTOR' ? contractor : days[category], reasons: reasons[category]! })),
+    categories: DELAY_CATEGORIES.map((category) => ({
+      category,
+      days: category === 'CONTRACTOR' ? contractor : category === 'OWNER' ? days.OWNER + changeOrders : days[category],
+      reasons: category === 'OWNER' ? [...reasons[category]!, ...coReasons] : reasons[category]!,
+    })),
     pending,
-    changeOrders: { days: changeOrders, items: [] as unknown[] },
+    changeOrders: { days: changeOrders, items: coItems },
   };
 }
 

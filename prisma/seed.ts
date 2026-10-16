@@ -24,6 +24,7 @@ import { seedMalikCloseout } from './seedCloseout.js';
 import { seedMalikEstimates } from './seedEstimate.js';
 import { seedMalikSchedule } from './seedSchedule.js';
 import { seedMalikQuotes } from './seedSales.js';
+import { seedMalikChangeOrders } from './seedChangeOrders.js';
 import { ensureProjectRow, seedAhmedProject, seedMalikClients, seedMalikProjects } from './seedProjects.js';
 
 export const SEED = {
@@ -363,6 +364,7 @@ export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: b
   if (opts.billing !== false) await seedMalikCloseout(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, projects: malikProjects }); // Step 17 closeout demo
 
   await seedMalikSchedule(db, { tenantId: malik.id, ownerId: khalid.id, rafaqatId: rafaqatMalik.id, dhaProjectId: malikProjects.dha.id }); // Step 13 (after the estimate; links the stock demo's usage)
+  if (opts.billing !== false) await seedMalikChangeOrders(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, dhaProjectId: malikProjects.dha.id }); // Step 15 (after the schedule + billing demo)
 
   return {
     malik,

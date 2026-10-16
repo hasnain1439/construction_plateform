@@ -29,6 +29,7 @@ import * as repo from '../projects/projects.repository.js';
 import { BOQ_SECTIONS, BUILD_STAGES, priceQuantity, summarize, type BoqLine, type BuildStageKey, type TotalsLine } from './boq.js';
 import { computeEstimate, ratesSnapshot, type EstimateContext } from './estimate.service.js';
 import { lineTexts, visibleParameters } from './rateRedaction.js';
+import { estimateChangesLayer } from '../change-orders/estimateLayer.js'; // Step 15
 
 const str = (v: bigint | null | undefined) => (v === null || v === undefined ? null : v.toString());
 const num = (d: Prisma.Decimal | null) => (d === null ? null : Number(d));
@@ -169,7 +170,10 @@ export type EstimateDetailDto = ReturnType<typeof detailDto>;
 
 async function detail(tx: Tx, c: Caller, id: string) {
   const e = (await tx.estimate.findFirstOrThrow({ where: { id }, include: withPeople })) as EstimateRow;
-  return detailDto(e, await projectInfo(tx, e.projectId), await lineRows(tx, id), c.fields ?? fieldAccess(c));
+  const fa = c.fields ?? fieldAccess(c);
+  const dto = detailDto(e, await projectInfo(tx, e.projectId), await lineRows(tx, id), fa);
+  // Step 15: approved change orders on top of the APPROVED baseline (which never changes).
+  return { ...dto, changes: e.status === 'APPROVED' ? await estimateChangesLayer(tx, c.tenantId, e.projectId, e.totalPaisa, fa) : null };
 }
 
 // ─── Writing lines ──────────────────────────────────────────────────────────

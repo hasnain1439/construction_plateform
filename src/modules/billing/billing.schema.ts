@@ -78,7 +78,7 @@ export const issueBody = z.object({ issueDate: isoDateSchema.optional().meta({ d
 export const cancelBody = z.object({ reason: requiredNote });
 export const invoicesQuery = paginationQuery.extend({
   status: invoiceStatusSchema.optional(),
-  type: invoiceTypeSchema.optional(),
+  type: z.enum(['STAGE', 'RUNNING_BILL', 'RECOVERABLE', 'RETENTION', 'OTHER', 'VARIATION']).optional(), // Step 15: VARIATION = change order invoices
   from: isoDateSchema.optional(),
   to: isoDateSchema.optional(),
 });

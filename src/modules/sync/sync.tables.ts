@@ -18,6 +18,7 @@ import * as S from './sync.serializers.js';
 import { readerLang } from '../notifications/notifications.service.js';
 import { EQUIPMENT_TABLE_PERMISSIONS, EQUIPMENT_TABLES } from '../equipment/equipment.sync.js'; // Step 16
 import { usedQuantities } from '../schedule/schedule.shared.js';
+import { CHANGE_ORDER_TABLE_PERMISSIONS, CHANGE_ORDER_TABLES } from '../change-orders/changeOrders.sync.js'; // Step 15
 
 export interface SyncActor {
   tenantId: string;
@@ -107,6 +108,7 @@ export const TABLE_PERMISSIONS: Record<string, string[]> = {
   // Step 13
   milestones: ['schedule.plan.view'],
   stoppages: ['schedule.plan.view', 'schedule.stoppage.create'],
+  ...CHANGE_ORDER_TABLE_PERMISSIONS, // Step 15
 };
 
 /** May the caller pull this table? */
@@ -395,4 +397,5 @@ export const TABLES: TableDef[] = [
     },
   },
   ...EQUIPMENT_TABLES, // Step 16
+  ...CHANGE_ORDER_TABLES, // Step 15
 ];

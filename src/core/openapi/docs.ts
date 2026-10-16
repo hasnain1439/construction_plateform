@@ -26,6 +26,7 @@ import { registerEstimateDocs } from '../../modules/estimate/estimate.docs.js';
 import { registerRevisionDocs } from '../../modules/estimate/revisions.docs.js';
 import { registerScheduleDocs } from '../../modules/schedule/schedule.docs.js';
 import { registerSalesDocs } from '../../modules/sales/sales.docs.js';
+import { registerChangeOrderDocs } from '../../modules/change-orders/changeOrders.docs.js';
 import { registerSubscriptionDocs } from '../../modules/subscription/subscription.docs.js';
 import { registerTeamDocs } from '../../modules/team/team.docs.js';
 import { registerOnboardingDocs } from '../../modules/onboarding/onboarding.docs.js';
@@ -68,6 +69,7 @@ export function openApiDocument() {
     registerReportsDocs();
     registerDailyLogsDocs();
     registerCloseoutDocs();
+    registerChangeOrderDocs(); // Step 15
     registerSyncDocs();
     registerPlatformAdminDocs();
     document = buildOpenApiDocument();

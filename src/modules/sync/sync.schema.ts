@@ -36,6 +36,7 @@ export const SYNC_MUTATION_TYPES = [
   'SNAG_FIX',
   'MILESTONE_PROGRESS',
   'STOPPAGE_LOG',
+  'SITE_INSTRUCTION_CREATE', // Step 15
 ] as const;
 
 export const pushBody = z.object({

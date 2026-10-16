@@ -430,6 +430,10 @@ model Tenant {
   snags                  Snag[]
   projectHandovers       ProjectHandover[]
   handoverItems          HandoverItem[]
+  // Step 15 · change orders
+  changeOrders           ChangeOrder[]
+  changeOrderLines       ChangeOrderLine[]
+  siteInstructions       SiteInstruction[]
 }
 
 model TenantSettings {
@@ -747,6 +751,9 @@ model Project {
   schedule                  Schedule[]
   milestones                Milestone[]
   stoppageDays              StoppageDay[]
+  // Step 15
+  changeOrders              ChangeOrder[]
+  siteInstructions          SiteInstruction[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, code])
@@ -1123,6 +1130,8 @@ model Material {
   ownerDeliveryItems OwnerDeliveryItem[]
   usageItems         MaterialUsageItem[]
   countItems         StockCountItem[]
+  // Step 15
+  changeOrderLines   ChangeOrderLine[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, name])
@@ -1191,6 +1200,8 @@ model LaborRate {
   createdAt          DateTime      @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime      @updatedAt @db.Timestamptz(3)
   tenant             Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Step 15
+  changeOrderLines   ChangeOrderLine[]
 
   @@unique([tenantId, id])
   @@unique([tenantId, kind, key])
@@ -2664,6 +2675,8 @@ enum InvoiceType {
   RECOVERABLE
   RETENTION
   OTHER
+  /// Step 15: change order billed on its own
+  VARIATION
 }
 
 enum InvoiceStatus {
@@ -2681,6 +2694,8 @@ enum InvoiceLineSource {
   /// Retention held back on a running bill (negative)
   RETENTION
   MANUAL
+  /// Step 15: approved change order (sourceId = ChangeOrder id)
+  CHANGE_ORDER
 }
 
 enum ClientPaymentMethod {
@@ -2897,6 +2912,8 @@ enum NotificationType {
   PLATFORM_SUPPORT_ACCESS
   /// Step 17: retention release coming up / due (handover + defect period)
   RETENTION_RELEASE_DUE
+  /// Step 15: a site instruction from the Munshi waits to become a change order
+  SITE_INSTRUCTION_CREATED
 }
 
 /// One in-app message for one user. Same (type, refId, user) is sent at most once per 24 h.
@@ -3562,6 +3579,8 @@ model Snag {
   project          Project             @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
   worker           Worker?             @relation(fields: [tenantId, workerId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
   subcontractor    Subcontractor?      @relation(fields: [tenantId, subcontractorId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  // Step 15: change orders made from this snag (CHANGE_ORDER attribution)
+  changeOrders     ChangeOrder[]
 
   @@unique([tenantId, id])
   @@unique([projectId, number])
@@ -4167,4 +4186,158 @@ model QuoteRevision {
 
   @@unique([tenantId, id])
   @@unique([tenantId, quoteId, revision])
+}
+
+// ─── Step 15 · Change orders + site instructions ────────────────────────────
+
+enum ChangeOrderType {
+  ADDITION
+  DEDUCTION
+}
+
+enum ChangeOrderStatus {
+  DRAFT
+  SENT
+  APPROVED
+  REJECTED
+  IN_PROGRESS
+  COMPLETED
+  BILLED
+}
+
+enum ChangeOrderProofType {
+  WHATSAPP_SCREENSHOT
+  SIGNED_SLIP
+  VERBAL
+}
+
+enum ChangeOrderSource {
+  MANUAL
+  SITE_INSTRUCTION
+  SNAG
+}
+
+enum ChangeOrderLineKind {
+  MATERIAL
+  LABOUR
+  OTHER
+}
+
+enum ChangeOrderBillingMode {
+  NEXT_STAGE
+  VARIATION
+}
+
+enum SiteInstructionStatus {
+  NEW
+  CONVERTED
+  DISMISSED
+}
+
+/// Owner-requested change to the contract work (extra / omitted work). Money in paisa; totalPaisa is
+/// signed (negative for a DEDUCTION). Approved ones (APPROVED / IN_PROGRESS / COMPLETED / BILLED)
+/// make the revised contract and push the revised end date by daysImpact working days.
+model ChangeOrder {
+  id                   String                  @id @default(uuid(7)) @db.Uuid
+  tenantId             String                  @db.Uuid
+  projectId            String                  @db.Uuid
+  /// Per project: 1, 2, 3 … (code CO-001)
+  number               Int
+  title                String
+  description          String?
+  type                 ChangeOrderType
+  status               ChangeOrderStatus       @default(DRAFT)
+  source               ChangeOrderSource       @default(MANUAL)
+  siteInstructionId    String?                 @db.Uuid
+  snagId               String?                 @db.Uuid
+  /// APPROVED estimate the material rates came from (when there was one)
+  estimateId           String?                 @db.Uuid
+  markupPercent        Decimal                 @default(0) @db.Decimal(5, 2)
+  /// Σ line cost (qty × rate), unsigned
+  costPaisa            BigInt                  @default(0)
+  /// Owner price: ± Σ line price amounts (cost + markup)
+  totalPaisa           BigInt                  @default(0)
+  daysImpact           Int                     @default(0)
+  affectedMilestoneIds String[]                @default([]) @db.Uuid
+  proofType            ChangeOrderProofType?
+  proofNote            String?
+  /// SITE_PHOTO / DOCUMENT attachments (WhatsApp screenshot, signed slip)
+  proofAttachmentIds   String[]                @default([]) @db.Uuid
+  billingMode          ChangeOrderBillingMode?
+  sentAt               DateTime?               @db.Timestamptz(3)
+  approvedOn           DateTime?               @db.Date
+  approvedAt           DateTime?               @db.Timestamptz(3)
+  approvedById         String?                 @db.Uuid
+  rejectedAt           DateTime?               @db.Timestamptz(3)
+  rejectionReason      String?
+  startedAt            DateTime?               @db.Timestamptz(3)
+  completedAt          DateTime?               @db.Timestamptz(3)
+  billedAt             DateTime?               @db.Timestamptz(3)
+  createdById          String?                 @db.Uuid
+  createdAt            DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime                @updatedAt @db.Timestamptz(3)
+  tenant               Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project              Project                 @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
+  siteInstruction      SiteInstruction?        @relation("SiteInstructionChangeOrder", fields: [tenantId, siteInstructionId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  snag                 Snag?                   @relation(fields: [tenantId, snagId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  lines                ChangeOrderLine[]
+
+  @@unique([tenantId, id])
+  @@unique([projectId, number])
+  @@index([tenantId, projectId, status])
+}
+
+model ChangeOrderLine {
+  id               String              @id @default(uuid(7)) @db.Uuid
+  tenantId         String              @db.Uuid
+  changeOrderId    String              @db.Uuid
+  sortOrder        Int
+  kind             ChangeOrderLineKind
+  materialId       String?             @db.Uuid
+  laborRateId      String?             @db.Uuid
+  description      String
+  unit             String
+  quantity         Decimal             @db.Decimal(14, 3)
+  /// Cost rate; ESTIMATE / PRICE_LIST / LABOUR_RATE / MANUAL
+  ratePaisa        BigInt
+  rateSource       String
+  amountPaisa      BigInt
+  /// Owner price (rate × (1 + markup %))
+  priceRatePaisa   BigInt
+  priceAmountPaisa BigInt
+  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  changeOrder      ChangeOrder         @relation(fields: [tenantId, changeOrderId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
+  material         Material?           @relation(fields: [tenantId, materialId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+  laborRate        LaborRate?          @relation(fields: [tenantId, laborRateId], references: [tenantId, id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenantId, id])
+  @@index([tenantId, changeOrderId])
+}
+
+/// Owner's instruction on site, recorded by the Munshi (photo + note); the PM turns it into a CO draft.
+model SiteInstruction {
+  id              String                @id @default(uuid(7)) @db.Uuid
+  tenantId        String                @db.Uuid
+  projectId       String                @db.Uuid
+  /// Per project: 1, 2, 3 … (code SI-001)
+  number          Int
+  note            String
+  photoIds        String[]              @default([]) @db.Uuid
+  status          SiteInstructionStatus @default(NEW)
+  dismissReason   String?
+  decidedById     String?               @db.Uuid
+  decidedAt       DateTime?             @db.Timestamptz(3)
+  clientId        String?               @db.Uuid
+  deviceCreatedAt DateTime?             @db.Timestamptz(3)
+  createdById     String?               @db.Uuid
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @db.Timestamptz(3)
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  project         Project               @relation(fields: [tenantId, projectId], references: [tenantId, id], onDelete: Cascade, onUpdate: NoAction)
+  changeOrders    ChangeOrder[]         @relation("SiteInstructionChangeOrder")
+
+  @@unique([tenantId, id])
+  @@unique([projectId, number])
+  @@unique([tenantId, clientId])
+  @@index([tenantId, projectId, status])
 }
