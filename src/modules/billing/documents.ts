@@ -9,7 +9,12 @@ import { signedUrlFor } from '../attachments/attachments.service.js';
 import { storage } from '../attachments/storage.provider.js';
 import { companyOf } from './billing.shared.js';
 
-export async function letterhead(tx: Tx, tenantId: string): Promise<Letterhead> {
+/**
+ * The company letterhead every PDF prints (templates.ts shell): name, logo, address, phone, NTN.
+ * `taxIds`: also the sales tax registration (STRN) — tax reports. (A taxed invoice prints the
+ * NTN / STRN snapshot taken when it was issued, under its totals.)
+ */
+export async function letterhead(tx: Tx, tenantId: string, opts: { taxIds?: boolean } = {}): Promise<Letterhead> {
   const c = await companyOf(tx, tenantId);
   return {
     name: c.name,
@@ -17,6 +22,7 @@ export async function letterhead(tx: Tx, tenantId: string): Promise<Letterhead> 
     address: c.address,
     phone: c.phone,
     logoUrl: c.logo ? await signedUrlFor(c.logo).then((s) => s.url).catch(() => null) : null,
+    strn: opts.taxIds ? ((await tx.tenantSettings.findUnique({ where: { tenantId }, select: { taxStrn: true } }))?.taxStrn ?? null) : null,
   };
 }
 

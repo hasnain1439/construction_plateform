@@ -8,6 +8,74 @@ Tenant = construction company. Company users are `THEKEDAR` (owner), `PM` (proje
 
 Changelog: see [CHANGELOG.md](CHANGELOG.md). Deployment (Docker, VPS, HTTPS, CI/CD, backups, rollback): see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
+## Product overview
+
+Everything below is built (Phase 1, the pilot parts and Phase 2 + 3, Steps 11–18). Each module has its own section further down; `docs/PROJECT_CONTEXT.md` is the short version for a new session.
+
+### Modules
+
+| Area | What it does | API module(s) |
+|---|---|---|
+| Sign-in and accounts | Password and OTP login, web cookies / mobile tokens, refresh rotation, sessions, devices, invitations | `auth`, `team` |
+| Company | Profile (NTN, logo, address, phone), settings, holidays, own audit log, onboarding checklist, Excel / CSV import, opening balances, demo data | `company`, `onboarding` |
+| Permissions | Role templates + per-user overrides, scopes, approval limits, field permissions | `permissions` |
+| Subscription + platform admin | Plans, manual payments, lifecycle; platform console (companies, payment review, plans, holidays, rulebook versions, act-as) | `subscription`, `platform-admin` |
+| Master data | Materials, quality categories + price list, labour rates, worker types, payment templates, suppliers, workers, sub-contractors | `master-data` |
+| Clients + projects | Owners, project wizard (contract, supply rules, billing stages, plot, foundation, floors / rooms / walls / openings, roof), statuses | `clients`, `projects` |
+| Estimate (BoQ) | Rulebook (platform → company → project), full 14-section BoQ, saved revisions, compare, owner shopping list | `estimate`, `rulebook` |
+| Sales | Quotes Q-YYYY-NNNN, quick estimate + price, customer / internal PDFs, won → draft project, insights | `sales` |
+| Schedule | Milestones from the approved estimate, curing, company calendar, baseline + re-plans, stoppages, delay breakdown | `schedule` |
+| Procurement + stock | Purchase orders, purchases, supplier ledger + payments, dispatch / receiving / shortages, owner deliveries, usage, counts | `procurement`, `inventory`, `dispatch` |
+| Equipment + shuttering | Register, movement ledger, transfers, yard rentals, losses, daily hire / rent, shuttering demand planner, idle-rent alert | `equipment` |
+| Labour + site cash | Team on site, hazri, measurements, peshgi, weekly settlements, sub-contract accounts, cash book (floats, kharcha, top-ups, counts) | `labor`, `cashbook` |
+| Billing + tax | Stages, invoices (stage / running / recoverable / retention / variation / manual), payments + WHT, cheques, receivables, owner statement, sales tax (off by default) | `billing`, `tax` |
+| Change orders | CO-001 per project, owner price + markup, days impact, approval proof, billing, site instructions | `change-orders` |
+| Control & alerts | Material / cost variance, burn rate vs progress, projected margin, delay analysis, alert engine | `control` |
+| Closeout | Drawings, snag list, handover checklist + sign-off + certificate, retention | `closeout` |
+| Dashboard, finance, reports | Company + site dashboards, approvals inbox, notifications, receivables ageing, cash-flow outlook, P&L, reports (Phase 1 + Step 18) with per-project books, tax reports | `dashboard`, `approvals`, `notifications`, `finance`, `reports`, `tax` |
+| Site work + offline | Daily logs, offline sync for the Munshi app | `dailylogs`, `sync` |
+
+### Permissions in short
+
+- Accounts: **THEKEDAR** (owner — every permission, cannot be limited), **PM** (office seat), **MUNSHI** (site, phone OTP, free). What a PM or Munshi may do comes only from permission keys (`<module>.<resource>.<action>`, catalogue in `src/core/auth/permissionCatalog.ts`, `GET /permissions/catalog`).
+- System role templates per company: Administrator, Project Manager, Munshi, Accountant, Store Keeper (read-only; duplicate to change) + custom roles; several roles per member (union, widest scope, highest limit) + per-user ALLOW / DENY overrides.
+- Scopes `ASSIGNED_PROJECTS` / `ALL_PROJECTS` (outside the scope → 404); approval limits (`maxAmountPaisa`) on approve keys → `403 APPROVAL_LIMIT_EXCEEDED`.
+- Field permissions decide which money is sent at all: `fields.rates` (rates, purchase / stock values), `fields.amounts` (billing money), `fields.profit` (P&L, margins), `fields.contract` (contract value, price). Applied on REST, sync, report files and PDFs.
+- Phase 2 + 3 modules: `estimate.*` / `rulebook.*`, `sales.quote.*`, `schedule.*`, `equipment.*`, `changeorder.*`, `control.*`, `closeout.*`, `tax.*`; reports need `finance.reports.view` + the module's view key. Existing companies: `npm run backfill:permissions` after a deploy that adds keys.
+
+### Scheduled jobs
+
+In-process (`src/jobs/scheduler.ts`), Pakistan time, one instance at a time (`pg_try_advisory_lock`), off in tests. Every run is recorded in `JobRun` (platform admin → health).
+
+| Job | When (PKT) | What |
+|---|---|---|
+| `quote-expiry` | daily 01:00 | SENT / NEGOTIATION quotes past their validity → EXPIRED |
+| `equipment-accrual` | daily 01:30 | yesterday's internal hire + rent → `EquipmentCharge` (P&L EQUIPMENT) |
+| `subscription-lifecycle` | start-up + daily 02:00 | trial end, grace, lapse, downgrades, reminder SMS (`npm run jobs:subscriptions` by hand) |
+| `billing-overdue` | start-up + daily 02:30 | overdue invoices, billing alerts |
+| `retention-reminders` | daily 02:45 | owner / sub-contractor retention due |
+| `sync-retention` | daily 03:00 | sync change rows older than 30 days dropped |
+| `control-alerts` | daily 06:30 | material overuse, behind plan / late, quota exhausted, spend ahead, equipment idle rows |
+| `equipment-idle` | daily 09:00 | rented equipment idle at a site → EQUIPMENT_IDLE |
+| `missing-logs` | every 15 min | missing daily log, at each company's own alert time |
+
+### PDFs
+
+All PDFs share one look (`src/core/pdf`): the same letterhead (logo, company name, address, phone, NTN — STRN on tax reports — and the document title, number and date), A4 with the same margins and typography, and a footer with the document line, the generated-on date and "Page X of Y". Every PDF is made in the requesting user's language or `?lang=en|roman|ur`; Urdu is right-to-left with the embedded Nastaliq font. Owner-facing documents never show costs, overheads, contingency, margins or markups (`tests/pdf/pdfDocuments.test.ts`).
+
+| PDF | Endpoint | Reader | Stored as |
+|---|---|---|---|
+| Invoice | `GET /invoices/:id/pdf` (also made on issue) | owner | `INVOICE_PDF` |
+| Receipt (RV) | `GET /payments/:id/receipt-pdf` (also made on record) | owner | `RECEIPT_PDF` |
+| Owner statement | `GET /projects/:id/owner-statement/pdf` | owner | `STATEMENT_PDF` |
+| Customer quotation | `GET /quotes/:id/pdf?variant=customer` (also on send) | client | `REPORT` |
+| Change order slip | `GET /change-orders/:id/pdf` | owner | `DOCUMENT` |
+| Handover certificate | `GET /projects/:id/handover/certificate` | owner | `DOCUMENT` |
+| Owner shopping list | `GET /projects/:id/owner-shopping-list/pdf` | owner | `REPORT` |
+| Quote costing | `GET /quotes/:id/pdf?variant=internal` | internal | `REPORT` |
+| Estimate (BoQ) | `GET /estimates/:id/pdf` (money only with `fields.rates`) | internal | `REPORT` |
+| Reports | `GET /reports/<name>?format=pdf`; books `GET /reports/<name>/:projectId?format=pdf`; tax `GET /reports/wht-summary` / `tax-invoice-register` `?format=pdf` | internal | `REPORT` |
+
 ## Getting started
 
 ```bash
@@ -1157,7 +1225,7 @@ Spent to date (`projectCost.service.ts`, reused by P&L in Step 9) = contractor m
 
 ### PDFs and sharing
 
-`src/core/pdf`: Playwright chromium, A4, letterhead (logo, name, NTN, address, phone), Inter, page numbers. Templates: invoice, receipt (RV), owner statement. Stored as attachments (`INVOICE_PDF`, `RECEIPT_PDF`, `STATEMENT_PDF`). Every PDF endpoint returns `{ url, expiresAt, whatsappText, clientPhone }`, in the requesting user's language or `?lang=en|roman|ur` (see **Languages**; Urdu = RTL with an embedded Nastaliq font). If chromium is missing → `503 PDF_UNAVAILABLE` (tests use a fake renderer). **Windows / new machine:** `npx playwright install chromium` once.
+`src/core/pdf`: Playwright chromium; every PDF in the product goes through `templates.ts` `shell()` (one letterhead: logo, name, address, phone, NTN — STRN on tax reports — document title, number, date) and `renderer.ts` `pdfPageOptions()` (A4, 14 / 18 mm margins, footer: document line, generated-on date, "Page X of Y"); the full list is in [Product overview → PDFs](#pdfs). Billing templates: invoice, receipt (RV), owner statement. Stored as attachments (`INVOICE_PDF`, `RECEIPT_PDF`, `STATEMENT_PDF`). Every PDF endpoint returns `{ url, expiresAt, whatsappText, clientPhone }`, in the requesting user's language or `?lang=en|roman|ur` (see **Languages**; Urdu = RTL with an embedded Nastaliq font). If chromium is missing → `503 PDF_UNAVAILABLE` (tests use a fake renderer). **Windows / new machine:** `npx playwright install chromium` once.
 
 ### Alerts
 
@@ -1451,6 +1519,11 @@ curl -s localhost:4000/api/v1/sync/push -H "authorization: Bearer $TOKEN" -H 'co
 | `20261103090000_closeout` | Step 17: `DrawingFolder`, `SnagStatus`, `SnagCostAttribution`, `HandoverItemKey`; `Drawing`, `DrawingRevision` (file FK → Attachment), `Snag` (worker / sub-contractor FKs, `(tenantId, clientId)` unique), `ProjectHandover`, `HandoverItem` — RLS (ENABLE + FORCE + `tenant_isolation`), grants, composite FKs (project FKs cascade so a deleted draft / demo project takes them along); `NotificationType.RETENTION_RELEASE_DUE`; `sync_track` triggers on Drawing, DrawingRevision (→ Drawing), Snag. Then `npm run backfill:permissions` for the `closeout.*` keys. |
 | `20261106090000_change_orders` | Step 15: `ChangeOrderType`, `ChangeOrderStatus`, `ChangeOrderProofType`, `ChangeOrderSource`, `ChangeOrderLineKind`, `ChangeOrderBillingMode`, `SiteInstructionStatus`; `ChangeOrder` (FKs → Project, SiteInstruction, Snag), `ChangeOrderLine` (FKs → Material, LaborRate), `SiteInstruction` (`(tenantId, clientId)` unique) — RLS (ENABLE + FORCE + `tenant_isolation`), grants, composite FKs; `InvoiceType.VARIATION`, `InvoiceLineSource.CHANGE_ORDER`, `NotificationType.SITE_INSTRUCTION_CREATED`; `sync_track` trigger on SiteInstruction. Then `npm run backfill:permissions` for the `changeorder.*` keys. |
 | `20261105090000_schedule` | Step 13: `MilestoneStatus`, `DependencyType`, `StoppageReason`, `StoppageStatus`, `DelayCategory`; `Schedule`, `ScheduleStage`, `Milestone`, `MilestoneDependency`, `MilestoneQuota`, `StoppageDay` (RLS, full grants), `MilestoneUpdate`, `ScheduleBaseline`, `SchedulePlanVersion` (RLS, SELECT / INSERT only — frozen); composite FKs, `Milestone.billingStageId` ON DELETE SET NULL; `TenantSettings.ramadanDayFactor` / `ramadanPeriods`; sync triggers on the milestone tables, stoppages and milestone-linked usage |
+| `20261017090000_system_user` | Hidden system user per company (platform admin working inside a company) |
+| `20261027090000_project_estimate_settings` | `Project.estimateSettings` JSONB (only changed keys) |
+| `20261102090000_equipment` | Step 16: 10 equipment tables (register, movement ledger, transfers, rentals, losses, charges) — RLS + grants; `EquipmentMovement` / `EquipmentCharge` SELECT + INSERT only; sync triggers |
+| `20261108090000_control_alerts` | Step 14: `ControlAlert` (RLS + grants), `NotificationType.CONTROL_ALERT`, alert threshold settings with a range check |
+| `20261109100000_tax` | Step 18: enums `TaxAuthority`, `ProjectTaxMode`; tax columns on TenantSettings, Project, Client (NTN), Invoice (snapshot), ClientPayment (WHT) — no new tables |
 
 Prisma's `migrate dev` refuses to run non-interactively when a change has warnings (enum value removed). Generate SQL with `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, hand-edit renames (e.g. `ALTER TYPE … RENAME VALUE`, `RENAME COLUMN`) so data is kept, save it as a new migration folder and run `npx prisma migrate deploy`.
 

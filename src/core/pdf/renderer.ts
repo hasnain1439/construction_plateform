@@ -9,6 +9,7 @@ import type { Browser } from 'playwright';
 import { logger } from '../../config/logger.js';
 import { AppError } from '../errors/AppError.js';
 import type { Lang } from '../i18n/lang.js';
+import { todayIn } from '../utils/dates.js';
 import { pdfFooter } from './templates.js';
 
 export interface PdfRenderer {
@@ -16,6 +17,21 @@ export interface PdfRenderer {
 }
 
 export const pdfUnavailable = () => new AppError(503, 'PDF_UNAVAILABLE', 'PDFs cannot be made right now — try again in a minute');
+
+/**
+ * The page setup every PDF shares (Step 18): A4, the same margins, backgrounds, an empty header
+ * and the footer with the footer text, generated-on date (Pakistan time) and "Page X of Y".
+ */
+export function pdfPageOptions(footerText: string, lang: Lang, generatedOn: string = todayIn('Asia/Karachi')) {
+  return {
+    format: 'A4' as const,
+    printBackground: true,
+    margin: { top: '14mm', bottom: '18mm', left: '14mm', right: '14mm' },
+    displayHeaderFooter: true,
+    headerTemplate: '<div></div>',
+    footerTemplate: pdfFooter(footerText, lang, generatedOn),
+  };
+}
 
 let browser: Promise<Browser> | null = null;
 
@@ -36,14 +52,7 @@ const chromiumRenderer: PdfRenderer = {
     try {
       await page.setContent(html, { waitUntil: 'load', timeout: 15_000 });
       await page.evaluate(() => document.fonts.ready).catch(() => undefined);
-      return await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '14mm', bottom: '18mm', left: '14mm', right: '14mm' },
-        displayHeaderFooter: true,
-        headerTemplate: '<div></div>',
-        footerTemplate: pdfFooter(footerText, lang),
-      });
+      return await page.pdf(pdfPageOptions(footerText, lang));
     } finally {
       await page.close();
     }
