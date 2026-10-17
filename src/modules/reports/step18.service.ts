@@ -21,14 +21,11 @@ import { day } from '../../core/pdf/templates.js';
 import { dateOnly } from '../../core/utils/dates.js';
 import type { ChangeOrderStatus, EquipmentCategory, Project, ProjectStatus } from '../../generated/prisma/client.js';
 import { addDays, daysBetween, today } from '../billing/billing.shared.js';
-import { costRows, type CostRow } from '../billing/projectCost.service.js';
-import { moneyOf } from '../billing/receivables.service.js';
 import { invoicesOf } from '../change-orders/changeOrders.shared.js';
 import { APPROVED_SET, changeOrderCode } from '../change-orders/totals.js';
-import { approvedChangesOf } from '../control/changeOrders.hook.js';
 import { bigPct, controlSettings, moneyView, p1, q3, type ControlSettings } from '../control/control.shared.js';
-import { computeBurn, computeCostVariance, computeProjection, contractOf, type CostContext, type Projection } from '../control/cost.service.js';
-import { loadApprovedEstimate, type EstimateData } from '../control/estimate.js';
+import { computeBurn, computeCostVariance, computeProjection, loadCostContext, loadCostContexts, type CostContext, type Projection } from '../control/cost.service.js';
+import type { EstimateData } from '../control/estimate.js';
 import { behindOf, loadPlan, physicalProgress, plannedProgress, type ProjectPlan } from '../control/plan.js';
 import { computeMaterialVariance, type VarianceResult } from '../control/variance.service.js';
 import { pktDayEnd, pktDayStart } from '../inventory/inventory.service.js';
@@ -272,13 +269,9 @@ interface ProjectVariance {
   spentPercent: number | null;
 }
 
-/** Control numbers of one project; `rows` = its cost rows (fetched for every project at once). */
-async function varianceOf(tx: Tx, tenantId: string, project: Project, settings: ControlSettings, rows: CostRow[]): Promise<ProjectVariance> {
-  const plan = await loadPlan(tx, tenantId, project.id);
-  const estimate = await loadApprovedEstimate(tx, tenantId, project.id);
-  const progress = plan ? physicalProgress(plan.milestones, estimate?.stageValues ?? null) : { percent: 0, basis: 'NONE' as const, stages: new Map<string, number>() };
-  const m = await moneyOf(tx, tenantId, project);
-  const cost: CostContext = { project, estimate, plan, progress, rows, actualPaisa: rows.reduce((t, r) => t + r.amountPaisa, 0n), ...contractOf(m, await approvedChangesOf(tx, tenantId, project.id)) };
+/** Control numbers of one project from its cost context (`loadCostContexts`: every project at once). */
+async function varianceOf(tx: Tx, tenantId: string, cost: CostContext, settings: ControlSettings): Promise<ProjectVariance> {
+  const { project, plan, estimate } = cost;
   const material = await computeMaterialVariance(tx, tenantId, project, settings, { plan, estimate });
   const revised = cost.contractPaisa + (cost.changes.inContract ? 0n : cost.changes.pricePaisa);
   const spent = bigPct(cost.actualPaisa, revised);
@@ -301,12 +294,10 @@ export async function varianceReport(c: Step18Ctx): Promise<Built> {
   const money = moneyView(fields());
   const projects = await scopedProjects(c, 'control.view', RUNNING);
   const settings = await controlSettings(c.tx, c.a.tenantId);
-  const all = await costRows(c.tx, c.a.tenantId, { projectIds: projects.map((p) => p.id) });
-  const byProject = new Map<string, CostRow[]>();
-  for (const r of all) byProject.set(r.projectId, [...(byProject.get(r.projectId) ?? []), r]);
+  const contexts = await loadCostContexts(c.tx, c.a.tenantId, projects);
   const rows: Row[] = [];
   for (const p of projects) {
-    const v = await varianceOf(c.tx, c.a.tenantId, p, settings, byProject.get(p.id) ?? []);
+    const v = await varianceOf(c.tx, c.a.tenantId, contexts.get(p.id)!, settings);
     const count = (st: string) => v.material.rows.filter((r) => r.status === st).length;
     const t = v.costVariance.totals;
     rows.push({
@@ -360,7 +351,7 @@ const MAT_MONEY = ['estimateRate', 'actualAvgCost', 'quantityImpact', 'priceImpa
 export async function varianceBook(c: Step18Ctx, project: Project): Promise<BuiltBook> {
   const money = moneyView(fields());
   const settings = await controlSettings(c.tx, c.a.tenantId);
-  const v = await varianceOf(c.tx, c.a.tenantId, project, settings, await costRows(c.tx, c.a.tenantId, { projectIds: [project.id] }));
+  const v = await varianceOf(c.tx, c.a.tenantId, await loadCostContext(c.tx, c.a.tenantId, project), settings);
   const burn = await computeBurn(c.tx, c.a.tenantId, v.cost, settings);
   const pr = v.projection;
   const summary: SummaryItem[] = [

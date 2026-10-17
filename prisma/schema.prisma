@@ -2187,6 +2187,7 @@ model MaterialUsage {
 
   @@unique([tenantId, id])
   @@index([tenantId, projectId, usageDate])
+  @@index([tenantId, milestoneId]) // Step 18 · used quantities per milestone
 }
 
 model MaterialUsageItem {
@@ -2845,6 +2846,7 @@ model InvoiceLine {
 
   @@unique([tenantId, id])
   @@index([tenantId, invoiceId])
+  @@index([tenantId, sourceType, sourceId]) // Step 18 · retention held, change-order lines
 }
 
 /// Money received from the owner (receipt voucher RV-…). Locked once recorded.
@@ -2922,6 +2924,7 @@ model BillingEvent {
   @@unique([tenantId, id])
   @@unique([tenantId, type, refId])
   @@index([tenantId, resolvedAt])
+  @@index([tenantId, projectId, resolvedAt]) // Step 18 · open events of the visible projects
 }
 
 // ─── Notifications (Phase 1 · Step 9) ───────────────────────────────────────

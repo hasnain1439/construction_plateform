@@ -23,16 +23,25 @@ export interface ApprovedChanges {
 
 /** Approved-set change orders of one project. */
 export async function approvedChanges(tx: Tx, tenantId: string, projectId: string): Promise<ApprovedChanges> {
+  return (await approvedChangesMany(tx, tenantId, [projectId])).get(projectId)!;
+}
+
+/** Approved-set change orders of several projects in one query (every id gets an entry). */
+export async function approvedChangesMany(tx: Tx, tenantId: string, projectIds: string[]): Promise<Map<string, ApprovedChanges>> {
+  const out = new Map<string, ApprovedChanges>(projectIds.map((id) => [id, { count: 0, totalPaisa: 0n, costPaisa: 0n, days: 0 }]));
+  if (!projectIds.length) return out;
   const rows = await tx.changeOrder.findMany({
-    where: { tenantId, projectId, status: { in: APPROVED_SET } },
-    select: { type: true, totalPaisa: true, costPaisa: true, daysImpact: true },
+    where: { tenantId, projectId: projectIds.length === 1 ? projectIds[0]! : { in: projectIds }, status: { in: APPROVED_SET } },
+    select: { projectId: true, type: true, totalPaisa: true, costPaisa: true, daysImpact: true },
   });
-  return {
-    count: rows.length,
-    totalPaisa: rows.reduce((s, r) => s + r.totalPaisa, 0n),
-    costPaisa: rows.reduce((s, r) => s + (r.type === 'DEDUCTION' ? -r.costPaisa : r.costPaisa), 0n),
-    days: rows.reduce((s, r) => s + r.daysImpact, 0),
-  };
+  for (const r of rows) {
+    const a = out.get(r.projectId)!;
+    a.count += 1;
+    a.totalPaisa += r.totalPaisa;
+    a.costPaisa += r.type === 'DEDUCTION' ? -r.costPaisa : r.costPaisa;
+    a.days += r.daysImpact;
+  }
+  return out;
 }
 
 /** Keeps Schedule.changeOrderDays (Step 13 hook) = Σ days of the approved-set change orders. */

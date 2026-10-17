@@ -61,7 +61,7 @@ export function registerFinanceDocs(): void {
     description:
       'THEKEDAR, or a PM with profit.view (assigned projects). Billed = live invoices before sales tax, recoverable invoices left out (they pass the owner’s own purchases through). ' +
       'Cost by bucket from the cost engine (MATERIALS, LABOR_WAGES, SUBCONTRACT, SITE_OVERHEAD, EQUIPMENT, LOSSES — they add up to cost to date). Gross profit = billed − cost; margin = gross profit ÷ billed. ' +
-      '`projectedMarginPercent` is null until the estimate engine (Phase 2). Trend: the 12 months ending with `to`.',
+      'Projected margin at completion (Step 14, as of today) = revised contract − estimate at completion; `projectedMarginBasis` says how it was worked out (null margin when there is no approved estimate and too little progress). Trend: the 12 months ending with `to`.',
     request: { query: pnlQuery },
     responses: {
       ...ok('P&L', {
@@ -80,13 +80,16 @@ export function registerFinanceDocs(): void {
             marginToDatePercent: 85.6,
             percentBilled: 50,
             percentCostOfContract: 7.1,
-            projectedMarginPercent: null,
-            projectedMarginNote: 'Available after the estimate engine (Phase 2)',
+            projectedMarginPercent: 18.4,
+            projectedMarginPaisa: '340400000',
+            estimateAtCompletionPaisa: '1509600000',
+            projectedMarginBasis: 'EARNED_VALUE',
+            projectedMarginNote: 'Cost to date + the rest of the approved estimate (Rev 1) adjusted by performance so far (CPI 0.97).',
           },
         ],
         totals: { billedToDatePaisa: '925000000', costToDatePaisa: '132621576', grossProfitToDatePaisa: '792378424', marginToDatePercent: 85.6 },
         trend: [{ month: '2026-09', billedPaisa: '370000000', costPaisa: '62000000', grossProfitPaisa: '308000000' }],
-        projectedMarginNote: 'Available after the estimate engine (Phase 2)',
+        projectedMarginNote: 'Projected margin at completion = revised contract − estimate at completion (cost to date + the rest of the approved estimate, adjusted by cost performance so far). It is as of today, whatever the period.',
       }),
       ...errors({ 400: ['VALIDATION_ERROR'], ...AUTH, 403: READ_403, 404: ['PROJECT_NOT_FOUND'] }),
     },
