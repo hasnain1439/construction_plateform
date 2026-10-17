@@ -23,6 +23,7 @@ import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { NotFound } from '../../core/errors/AppError.js';
 import type { NotificationSeverity, NotificationType, Prisma, UserRole } from '../../generated/prisma/client.js';
 import { langOf, type Lang } from '../../core/i18n/index.js';
+import { responseLang } from '../../core/i18n/requestLang.js';
 import { smsProvider } from '../auth/sms.provider.js';
 import * as repo from './notifications.repository.js';
 import type { NotificationsQuery } from './notifications.schema.js';
@@ -162,10 +163,12 @@ function me() {
 
 type Row = Awaited<ReturnType<typeof repo.listNotifications>>[number];
 
-/** The reader's language (inbox / dashboard / sync render notifications in it). */
+/**
+ * The reader's language (inbox / dashboard / sync / control alerts render texts in it): the web's
+ * UI language (X-Lang) when the reader is the requesting user, else `User.language` (QA-B-20).
+ */
 export async function readerLang(tx: Tx, userId: string): Promise<Lang> {
-  const u = await tx.user.findUnique({ where: { id: userId }, select: { language: true } });
-  return langOf(u?.language);
+  return responseLang(tx, userId);
 }
 
 /** Title / body in `lang` from the stored key + params; the stored text when there is no key. */

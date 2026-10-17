@@ -248,10 +248,10 @@ export function registerChangeOrderDocs(): void {
   path(T, 'get', '/api/v1/change-orders/{id}/pdf', {
     summary: 'Change order slip PDF (owner) + WhatsApp text',
     description:
-      'changeorder.view + fields.rates or fields.amounts. Letterhead, project, CO code / title / details, items at the owner price (no cost or markup), total (minus for a deduction), days impact, approval and signature lines. `?lang=en|roman|ur` (Urdu right-to-left). Signed link (10 min) + WhatsApp text + the owner’s phone.',
+      'changeorder.view + fields.rates or fields.amounts. Letterhead, project, CO code / title / details, items at the owner price (no cost or markup), total (minus for a deduction), days impact, approval and signature lines. `?lang=en|roman|ur` (Urdu right-to-left). Durable share link (`url`, SHARE_LINK_TTL_DAYS) + short-lived `fileUrl` + WhatsApp text (asks for approval only while DRAFT / SENT, else states the status) + the owner’s phone.',
     request: { params: idParam('Change order'), query: S.pdfQuery },
     responses: {
-      ...ok('Slip', { attachmentId: PROOF, url: 'https://…/file?sig=…', expiresAt: '2026-10-16T10:10:00.000Z', whatsappText: 'Assalam o Alaikum Ahmed Raza sahib, DHA Phase 6 · 10 Marla ka tabdeeli order CO-001: …', clientPhone: '+923001112233' }),
+      ...ok('Slip', { attachmentId: PROOF, url: 'https://…/api/v1/public/files/…?tid=…&exp=…&sig=…', expiresAt: '2026-11-15T10:00:00.000Z', fileUrl: 'https://…/file/CO-001 MSB-2026-012.pdf?sig=…', fileUrlExpiresAt: '2026-10-16T10:10:00.000Z', whatsappText: 'Assalam o Alaikum Ahmed Raza sahib, DHA Phase 6 · 10 Marla ka tabdeeli order CO-001: …', clientPhone: '+923001112233' }),
       ...errors({ ...AUTH, 403: [...READ_403, 'PERMISSION_DENIED'], 404: ['CHANGE_ORDER_NOT_FOUND'], 503: ['PDF_UNAVAILABLE'] }),
     },
   });

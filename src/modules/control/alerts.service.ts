@@ -36,6 +36,8 @@ export function alertDto(a: AlertRow, lang: Lang) {
     actionUrl: a.actionUrl,
     openedAt: a.openedAt.toISOString(),
     lastSeenAt: a.lastSeenAt.toISOString(),
+    /** QA-B-10: "as of" — when the engine last checked this alert (OPEN: last seen; RESOLVED: resolved). */
+    lastEvaluatedAt: (a.status === 'RESOLVED' && a.resolvedAt ? a.resolvedAt : a.lastSeenAt).toISOString(),
     resolvedAt: a.resolvedAt?.toISOString() ?? null,
     notifiedAt: a.notifiedAt?.toISOString() ?? null,
     occurrences: a.occurrences,

@@ -119,7 +119,16 @@ const payment = {
   receivedById: KHALID.id,
   createdAt: '2026-09-20T10:00:00.000Z',
 };
-const share = (text: string) => ({ attachmentId: B.pdf, url: 'https://res.cloudinary.com/demo/raw/upload/s--sig--/INV-2026-0010.pdf', expiresAt: '2026-10-06T10:15:00.000Z', whatsappText: text, clientPhone: AHMED.phone });
+/** QA-B-02: `url` = durable share link (30 days), `fileUrl` = short-lived named file link. */
+const share = (text: string) => ({
+  attachmentId: B.pdf,
+  url: `http://localhost:4000/api/v1/public/files/${B.pdf}?tid=…&exp=1764460800&sig=…`,
+  expiresAt: '2026-11-30T10:05:00.000Z',
+  fileUrl: `http://localhost:4000/api/v1/attachments/${B.pdf}/file/INV-2026-0010.pdf?tid=…&exp=…&sig=…`,
+  fileUrlExpiresAt: '2026-10-06T10:15:00.000Z',
+  whatsappText: text,
+  clientPhone: AHMED.phone,
+});
 
 export function registerBillingDocs(): void {
   // ─── Billing Stages ───────────────────────────────────────────────────────

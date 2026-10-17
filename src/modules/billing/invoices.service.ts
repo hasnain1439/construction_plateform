@@ -8,7 +8,7 @@ import { assertApprovalLimit, assertPerm, can, permissionDenied } from '../../co
 import { logger } from '../../config/logger.js';
 import { nextNumber } from '../../core/db/counters.js';
 import { Prisma } from '../../core/db/prisma.js';
-import { withTenant, type Tx } from '../../core/db/withTenant.js';
+import { withPdfTenant, withTenant, type Tx } from '../../core/db/withTenant.js';
 import { pageMeta } from '../../core/http/pagination.js';
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../core/errors/AppError.js';
 import { invoiceHtml, rs } from '../../core/pdf/templates.js';
@@ -413,7 +413,7 @@ export async function issue(id: string, input: { issueDate?: string | undefined 
   const a = actor();
   await withTenant(a.tenantId, (tx) => issueTx(tx, a, id, input));
   await withinOrBackground(
-    () => withTenant(a.tenantId, async (tx) => makeInvoicePdf(tx, a, id, await documentLang(tx, a.userId))),
+    () => withPdfTenant(a.tenantId, async (tx) => makeInvoicePdf(tx, a, id, await documentLang(tx, a.userId))),
     (err) => logger.warn({ err, invoiceId: id }, 'invoice PDF not made on issue — it is made on first download'),
   );
   const issued = await withTenant(a.tenantId, async (tx) => invoiceDto(await load(tx, id)));
@@ -510,7 +510,7 @@ export const invoiceWhatsapp = (inv: { number: string | null; totalPaisa: bigint
 /** The PDF in `lang` (default: the caller's language); made again when the stored one is in another language. */
 export async function invoicePdf(id: string, langOverride?: Lang) {
   const a = actor();
-  return withTenant(a.tenantId, async (tx) => {
+  return withPdfTenant(a.tenantId, async (tx) => {
     const inv = await find(tx, a, id);
     if (inv.status === 'DRAFT') throw new Conflict('INVOICE_NOT_ISSUED', 'Issue the invoice to get its PDF');
     const lang = await documentLang(tx, a.userId, langOverride);

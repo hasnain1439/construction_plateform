@@ -3,7 +3,7 @@
  * (credit, cleared only — pending and bounced cheques are listed with their status but do
  * not reduce the balance), closing balance due; plus unbilled recoverables and credit.
  */
-import { withTenant, type Tx } from '../../core/db/withTenant.js';
+import { withPdfTenant, withTenant, type Tx } from '../../core/db/withTenant.js';
 import { rs, statementHtml } from '../../core/pdf/templates.js';
 import { dateOnly } from '../../core/utils/dates.js';
 import type { StatementQuery } from './billing.schema.js';
@@ -95,7 +95,7 @@ export async function ownerStatement(projectId: string, query: StatementQuery) {
 
 export async function ownerStatementPdf(projectId: string, query: StatementQuery) {
   const a = actor();
-  return withTenant(a.tenantId, async (tx) => {
+  return withPdfTenant(a.tenantId, async (tx) => {
     const s = await build(tx, a, projectId, query);
     const lang = await documentLang(tx, a.userId, query.lang);
     const html = statementHtml({

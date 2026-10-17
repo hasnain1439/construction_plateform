@@ -7,7 +7,7 @@
 import { assertPerm, permissionDenied } from '../../core/auth/access.js';
 import { logger } from '../../config/logger.js';
 import { nextNumber } from '../../core/db/counters.js';
-import { withTenant, type Tx } from '../../core/db/withTenant.js';
+import { withPdfTenant, withTenant, type Tx } from '../../core/db/withTenant.js';
 import { pageMeta } from '../../core/http/pagination.js';
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../core/errors/AppError.js';
 import { receiptHtml, rs } from '../../core/pdf/templates.js';
@@ -229,7 +229,7 @@ export async function recordPayment(projectId: string, input: PaymentInput) {
   const a = actor();
   const dto = await withTenant(a.tenantId, (tx) => recordPaymentTx(tx, a, projectId, input));
   await withinOrBackground(
-    () => withTenant(a.tenantId, async (tx) => makeReceiptPdf(tx, a, dto.id, await documentLang(tx, a.userId))),
+    () => withPdfTenant(a.tenantId, async (tx) => makeReceiptPdf(tx, a, dto.id, await documentLang(tx, a.userId))),
     (err) => logger.warn({ err, paymentId: dto.id }, 'receipt PDF not made — it is made on first download'),
   );
   return withTenant(a.tenantId, async (tx) => paymentDto(await load(tx, dto.id)));
@@ -337,7 +337,7 @@ const receiptWhatsapp = (p: Row, lang: Lang = 'roman') => (url: string) =>
 
 export async function receiptPdf(id: string, langOverride?: Lang) {
   const a = actor();
-  return withTenant(a.tenantId, async (tx) => {
+  return withPdfTenant(a.tenantId, async (tx) => {
     const p = await find(tx, a, id);
     const lang = await documentLang(tx, a.userId, langOverride);
     let share = p.receiptAttachmentId ? await shareOf(tx, a.tenantId, p.receiptAttachmentId, receiptWhatsapp(p, lang), pdfFileName(p.number, lang)) : null;

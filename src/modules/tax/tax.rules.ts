@@ -12,6 +12,7 @@
  */
 import { Prisma } from '../../core/db/prisma.js';
 import type { Tx } from '../../core/db/withTenant.js';
+import { inSequence } from '../../core/db/inSequence.js';
 import type { InvoiceLineSource, ProjectTaxMode, TaxAuthority } from '../../generated/prisma/client.js';
 import { percentOf } from '../billing/billing.shared.js';
 
@@ -52,7 +53,8 @@ export interface EffectiveTax {
 }
 
 export async function companyTax(tx: Tx, tenantId: string): Promise<CompanyTax> {
-  const [s, t] = await Promise.all([tx.tenantSettings.findUnique({ where: { tenantId } }), tx.tenant.findUnique({ where: { id: tenantId }, select: { ntn: true } })]);
+  // One connection per transaction: one query at a time (SECURITY.md §9, QA-B-23).
+  const [s, t] = await inSequence([() => tx.tenantSettings.findUnique({ where: { tenantId } }), () => tx.tenant.findUnique({ where: { id: tenantId }, select: { ntn: true } })]);
   return {
     enabled: s?.taxEnabled ?? false,
     authority: s?.taxAuthority ?? null,
@@ -81,9 +83,9 @@ export function resolveTax(company: CompanyTax, project: ProjectTaxOverride): Ef
 }
 
 export async function effectiveTax(tx: Tx, tenantId: string, projectId: string): Promise<EffectiveTax & { company: CompanyTax }> {
-  const [company, project] = await Promise.all([
-    companyTax(tx, tenantId),
-    tx.project.findFirstOrThrow({ where: { tenantId, id: projectId }, select: { taxMode: true, taxAuthority: true, taxRatePercent: true } }),
+  const [company, project] = await inSequence([
+    () => companyTax(tx, tenantId),
+    () => tx.project.findFirstOrThrow({ where: { tenantId, id: projectId }, select: { taxMode: true, taxAuthority: true, taxRatePercent: true } }),
   ]);
   return { ...resolveTax(company, project), company };
 }

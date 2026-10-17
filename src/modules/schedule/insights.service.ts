@@ -10,6 +10,8 @@
  *   contractor   = working days projectedEnd is past revisedEnd (contractor stoppages + slow progress)
  */
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
+import { tr, type Lang } from '../../core/i18n/index.js';
+import { responseLang } from '../../core/i18n/requestLang.js';
 import type { Project } from '../../generated/prisma/client.js';
 import { caller } from '../projects/access.js';
 import { addDays, diffDays } from './calendar.js';
@@ -28,11 +30,15 @@ async function scheduleFor(tx: Tx, projectId: string) {
 
 export async function delaysTx(tx: Tx, c: { tenantId: string; userId: string; role: 'THEKEDAR' | 'PM' | 'MUNSHI' }, projectId: string) {
   const project = await projectFor(tx, c as never, projectId, 'schedule.plan.view');
-  return delayBreakdown(tx, c.tenantId, project);
+  return delayBreakdown(tx, c.tenantId, project, await responseLang(tx, c.userId));
 }
 
-/** The delay breakdown of a project the caller may already see (Step 14 delay analysis reuses it). */
-export async function delayBreakdown(tx: Tx, tenantId: string, project: Pick<Project, 'id' | 'endDate'>) {
+/**
+ * The delay breakdown of a project the caller may already see (Step 14 delay analysis reuses it).
+ * `lang`: language of the server-written notes (SLOW_PROGRESS — QA-B-08). Reasons of 0 working days
+ * (e.g. rain on an off day) are left out of the categories (QA-B-22); `pending` still lists them.
+ */
+export async function delayBreakdown(tx: Tx, tenantId: string, project: Pick<Project, 'id' | 'endDate'>, lang: Lang = 'en') {
   const c = { tenantId };
   const s = await scheduleFor(tx, project.id);
   const info = await loadCalendar(tx, c.tenantId, project.id);
@@ -56,7 +62,7 @@ export async function delayBreakdown(tx: Tx, tenantId: string, project: Pick<Pro
       continue;
     }
     days[r.category] += n;
-    reasons[r.category]!.push({ stoppageId: r.id, reason: r.reason, dates, days: n, note: r.note });
+    if (n > 0) reasons[r.category]!.push({ stoppageId: r.id, reason: r.reason, dates, days: n, note: r.note });
   }
   // Step 15: approved change orders are owner-caused time (Schedule.changeOrderDays = Σ their days).
   const changeOrders = s.changeOrderDays;
@@ -70,7 +76,7 @@ export async function delayBreakdown(tx: Tx, tenantId: string, project: Pick<Pro
   const ahead = projectedEnd < revisedEnd ? info.cal.workingDaysBetween(projectedEnd, revisedEnd) : 0;
   const contractor = late;
   const slow = Math.max(0, contractor - days.CONTRACTOR);
-  if (slow > 0) reasons['CONTRACTOR']!.push({ stoppageId: null, reason: 'SLOW_PROGRESS', dates: [], days: slow, note: `Progress ${proj.progressPercent}% at ${Math.round(proj.pace * 100)}% of the planned pace` });
+  if (slow > 0) reasons['CONTRACTOR']!.push({ stoppageId: null, reason: 'SLOW_PROGRESS', dates: [], days: slow, note: tr(lang, 'delay.note.slowProgress', { progress: proj.progressPercent, pace: Math.round(proj.pace * 100) }) });
   return {
     originalEnd,
     baselineEnd,
@@ -127,7 +133,7 @@ export async function quotas(projectId: string) {
     }
     return {
       milestones: ms.map((m) => ({
-        milestone: { id: m.id, key: m.key, name: m.name, stageKey: m.stageKey, status: m.status, progressPercent: m.progressPercent, plannedStart: m.plannedStart, plannedEnd: m.plannedEnd },
+        milestone: { id: m.id, key: m.key, name: m.name, templateKey: m.templateKey, stageKey: m.stageKey, status: m.status, progressPercent: m.progressPercent, plannedStart: m.plannedStart, plannedEnd: m.plannedEnd },
         quotas: m.quotas,
       })),
       materials: [...totals.values()].map((t) => ({

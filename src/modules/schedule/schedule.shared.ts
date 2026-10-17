@@ -13,6 +13,7 @@ import { signedUrlFor } from '../attachments/attachments.service.js';
 import { assertEditable, findProjectFor, type Caller } from '../projects/access.js';
 import { addDays, diffDays, ramadanPeriodsOf, WorkCalendar, type CalendarHoliday } from './calendar.js';
 import { forwardPass, paceOf, type PassOptions, type PlanItem } from './scheduler.js';
+import { templateKeyOf } from './milestoneNames.js';
 
 export const today = () => todayIn('Asia/Karachi');
 export const day = (d: Date | null | undefined) => (d ? formatDateOnly(d) : null);
@@ -165,6 +166,8 @@ export function milestoneDto(m: MilestoneRow, ctx: DtoContext) {
     stageKey: m.stage.stageKey,
     key: m.key,
     name: m.name,
+    /** QA-B-26: generator template key while the name is the generated one (translate by it), else null. */
+    templateKey: templateKeyOf(m),
     sortOrder: m.sortOrder,
     workDays: Number(m.workDays),
     durationDays: m.durationDays,

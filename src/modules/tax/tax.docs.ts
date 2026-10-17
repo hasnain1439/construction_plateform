@@ -91,7 +91,7 @@ export function registerTaxDocs(): void {
         '`format=json` (default) returns the table; `csv` / `xlsx` / `pdf` are stored as a REPORT attachment and answer `{ url, expiresAt }`. Money is paisa in JSON and rupees in files.',
       request: { query: taxReportQuery },
       responses: {
-        ...ok('Report table (json) or a signed link (csv / xlsx / pdf)', { name, title: info.summary, subtitle: 'All projects · Tax year 2026-27 (1 Jul 2026 – 30 Jun 2027)', generatedAt: '2026-10-16T05:00:00.000Z', filters: { projectId: null, from: '2026-07-01', to: '2027-06-30' }, ...info.example, notes: [ADVISER_NOTE] }),
+        ...ok('Report table (json) or a signed link (csv / xlsx / pdf)', { name, title: info.summary, subtitle: 'All projects · Tax year 2026-27 (1 Jul 2026 – 30 Jun 2027)', generatedAt: '2026-10-16T05:00:00.000Z', filters: { projectId: null, from: '2026-07-01', to: '2027-06-30' }, ...info.example, notes: [ADVISER_NOTE], noteCodes: [{ code: 'TAX_ADVISER', params: {} }] }),
         ...errors({ 400: ['VALIDATION_ERROR'], ...AUTH, 403: READ_403, 404: ['PROJECT_NOT_FOUND'], 503: ['PDF_UNAVAILABLE'] }),
       },
     });

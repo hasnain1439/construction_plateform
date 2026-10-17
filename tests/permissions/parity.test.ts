@@ -29,7 +29,7 @@ type Outcome = 'DENIED' | number;
 type Snapshot = Record<string, Record<Persona, Outcome>>;
 
 /** Routes that are not company routes (public auth, platform admin, signed file links). */
-const NOT_COMPANY = [/^\/api\/v1\/auth\//, /^\/api\/v1\/admin\//, /^\/api\/v1\/invitations\/:token\/accept$/, /^\/api\/v1\/attachments\/:id\/file$/];
+const NOT_COMPANY = [/^\/api\/v1\/auth\//, /^\/api\/v1\/admin\//, /^\/api\/v1\/invitations\/:token\/accept$/, /^\/api\/v1\/attachments\/:id\/file(\/:name)?$/, /^\/api\/v1\/public\//];
 export const companyRoutes = (): RouteInfo[] => listRoutes(app).filter((r) => !NOT_COMPANY.some((re) => re.test(r.path)));
 const keyOf = (r: RouteInfo) => `${r.method.toUpperCase()} ${r.path}`;
 const DENIED_CODES = new Set(['FORBIDDEN', 'PERMISSION_DENIED', 'APPROVAL_LIMIT_EXCEEDED']);

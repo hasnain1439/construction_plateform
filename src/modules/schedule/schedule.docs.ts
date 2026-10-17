@@ -51,6 +51,7 @@ const STOPPAGE = {
   from: '2026-10-07',
   to: '2026-10-08',
   days: 2,
+  warning: null,
   reason: 'RAIN',
   category: 'EXCUSABLE',
   status: 'APPROVED',

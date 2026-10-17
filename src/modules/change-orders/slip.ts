@@ -4,11 +4,11 @@
  * deduction), days impact, approval proof and owner / contractor signature lines. Urdu =
  * right-to-left with the embedded Nastaliq font (core/pdf/templates.ts).
  */
-import { withTenant } from '../../core/db/withTenant.js';
+import { withPdfTenant } from '../../core/db/withTenant.js';
 import { Forbidden } from '../../core/errors/AppError.js';
 import type { Lang, MessageKey, Params } from '../../core/i18n/index.js';
-import { tr, unitLabel } from '../../core/i18n/index.js';
-import { date, day, esc, label, ltr, rs, shell, type Letterhead } from '../../core/pdf/templates.js';
+import { tr, trCount, unitLabel } from '../../core/i18n/index.js';
+import { auto, date, day, esc, label, ltr, qtyUnit, rs, shell, type Letterhead } from '../../core/pdf/templates.js';
 import type { ChangeOrderProofType, ChangeOrderStatus, ChangeOrderType } from '../../generated/prisma/client.js';
 import { documentLang, letterhead, pdfFileName, salutation, shareOf, storePdf } from '../billing/documents.js';
 import type { PdfQuery } from './changeOrders.schema.js';
@@ -40,7 +40,7 @@ export function slipHtml(d: SlipData, lang: Lang = 'en'): string {
   const rows = d.lines
     .map(
       (l, i) =>
-        `<tr><td>${i + 1}</td><td>${esc(l.description)}</td><td class="r">${ltr(esc(qty(l.quantity)))} ${esc(unitLabel(lang, l.unit))}</td><td class="r">${money(l.priceRatePaisa)}</td><td class="r">${money(l.priceAmountPaisa)}</td></tr>`,
+        `<tr><td>${i + 1}</td><td>${auto(esc(l.description))}</td><td class="r">${qtyUnit(esc(qty(l.quantity)), unitLabel(lang, l.unit))}</td><td class="r">${money(l.priceRatePaisa)}</td><td class="r">${money(l.priceAmountPaisa)}</td></tr>`,
     )
     .join('');
   const deduction = d.type === 'DEDUCTION';
@@ -50,7 +50,7 @@ export function slipHtml(d: SlipData, lang: Lang = 'en'): string {
     <div><div class="label">${L('pdf.project')}</div><strong>${esc(d.project.name)}</strong><div class="muted">${ltr(esc(d.project.code))}${d.project.address ? `<br>${esc(d.project.address)}` : ''}</div></div>
     <div><div class="label">${L('pdf.changeOrderKind')}</div><strong>${L(`pdf.changeOrderType.${d.type}` as MessageKey)}</strong></div>
   </div>
-  <h3>${ltr(esc(d.code))} · <bdi dir="auto">${esc(d.title)}</bdi></h3>
+  <h3>${ltr(esc(d.code))} · ${auto(esc(d.title))}</h3>
   ${d.description ? `<div class="note" dir="auto">${esc(d.description)}</div>` : ''}
   <div class="note">${L(deduction ? 'pdf.changeOrderIntroDeduction' : 'pdf.changeOrderIntro')}</div>
   ${
@@ -60,7 +60,7 @@ export function slipHtml(d: SlipData, lang: Lang = 'en'): string {
   }
   <table class="totals">
     <tr class="grand"><td>${L(deduction ? 'pdf.changeOrderDeduction' : 'pdf.changeOrderTotal')}</td><td class="r">${money(d.totalPaisa)}</td></tr>
-    <tr><td>${L('pdf.daysImpact')}</td><td class="r">${d.daysImpact > 0 ? L('pdf.daysImpactValue', { days: d.daysImpact }) : L('pdf.noDaysImpact')}</td></tr>
+    <tr><td>${L('pdf.daysImpact')}</td><td class="r">${d.daysImpact > 0 ? L(d.daysImpact === 1 ? 'pdf.daysImpactValue.one' : 'pdf.daysImpactValue.other', { count: d.daysImpact }) : L('pdf.noDaysImpact')}</td></tr>
   </table>
   ${d.approvedOn ? `<div class="note">${L('pdf.changeOrderApproved', {}, { date: date(d.approvedOn) })}${d.proofType ? ` · ${L(`pdf.proofType.${d.proofType}` as MessageKey)}` : ''}</div>` : ''}
   <div class="grid" style="margin-top:36px">
@@ -78,10 +78,33 @@ export function slipHtml(d: SlipData, lang: Lang = 'en'): string {
   return shell(d.company, tr(lang, 'pdf.changeOrder'), `${ltr(esc(d.code))}<br>${date(d.createdOn)}`, body, lang);
 }
 
-/** The slip PDF (DOCUMENT attachment) + signed link + WhatsApp text. Needs the owner price visible. */
+/** Statuses whose WhatsApp text asks the owner to approve (QA-B-16); later ones just inform. */
+export const ASKS_APPROVAL: ReadonlySet<ChangeOrderStatus> = new Set<ChangeOrderStatus>(['DRAFT', 'SENT']);
+
+/**
+ * The WhatsApp text of a change order (QA-B-16): DRAFT / SENT ask "Please reply OK to approve";
+ * APPROVED / IN_PROGRESS / COMPLETED / BILLED / REJECTED state the status instead. Days are plural-aware.
+ * An approved change order also says when it was approved ("approved on …", QA-A-27) when `approvedOn` is given.
+ */
+export function changeOrderWhatsapp(
+  lang: Lang,
+  status: ChangeOrderStatus,
+  p: { salutation: string; project: string; code: string; title: string; amount: string; days: number; url: string; approvedOn?: string | null },
+): string {
+  const params = { salutation: p.salutation, project: p.project, code: p.code, title: p.title, amount: p.amount, url: p.url };
+  if (ASKS_APPROVAL.has(status)) return p.days > 0 ? trCount(lang, 'share.changeOrderDays', p.days, params) : tr(lang, 'share.changeOrder', params);
+  const withStatus = { ...params, status: tr(lang, `report.v.coStatus.${status}` as MessageKey) };
+  if (p.approvedOn && status !== 'REJECTED') {
+    const approved = { ...withStatus, date: day(p.approvedOn) };
+    return p.days > 0 ? trCount(lang, 'share.changeOrderApprovedDays', p.days, approved) : tr(lang, 'share.changeOrderApproved', approved);
+  }
+  return p.days > 0 ? trCount(lang, 'share.changeOrderInfoDays', p.days, withStatus) : tr(lang, 'share.changeOrderInfo', withStatus);
+}
+
+/** The slip PDF (DOCUMENT attachment) + durable share link + WhatsApp text. Needs the owner price visible. */
 export async function slipPdf(id: string, query: PdfQuery) {
   const a = coActor();
-  return withTenant(a.tenantId, async (tx) => {
+  return withPdfTenant(a.tenantId, async (tx) => {
     const { co, project } = await findCo(tx, a, id, 'changeorder.view');
     if (!seesPrice(a)) {
       throw new Forbidden('PERMISSION_DENIED', 'The slip shows prices: it needs the "See rates" or "See amounts" permission', { permission: 'fields.amounts', anyOf: ['fields.rates', 'fields.amounts'] });
@@ -111,15 +134,15 @@ export async function slipPdf(id: string, query: PdfQuery) {
     const attachmentId = await storePdf(tx, a.tenantId, a.userId, 'DOCUMENT', pdfFileName(`${code} ${project.code}`, lang), html, `${tr(lang, 'pdf.changeOrder')} · ${code} · ${project.name}`, lang);
     await audit(tx, a, 'changeorder.pdf', 'ChangeOrder', co.id, { code, attachmentId, lang });
     const share = await shareOf(tx, a.tenantId, attachmentId, (url) =>
-      // An approved change order is not sent for approval again (QA-A-27)
-      tr(lang, co.approvedOn ? 'share.changeOrderApproved' : co.daysImpact > 0 ? 'share.changeOrderDays' : 'share.changeOrder', {
+      // An approved change order is not sent for approval again (QA-A-27 / QA-B-16)
+      changeOrderWhatsapp(lang, co.status, {
         salutation: salutation(client?.name, lang),
         project: project.name,
         code,
         title: co.title,
         amount: rs(co.totalPaisa),
         days: co.daysImpact,
-        date: co.approvedOn ? day(ymd(co.approvedOn)!) : '',
+        approvedOn: ymd(co.approvedOn),
         url,
       }),
     );

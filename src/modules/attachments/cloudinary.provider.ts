@@ -104,10 +104,13 @@ export class CloudinaryStorageProvider implements StorageProvider {
       return { url, expiresAt };
     }
 
+    // QA-B-15: the private download API can force a download (attachment) but cannot rename the
+    // file — it is saved under its public id; the web names exports itself (response fileName).
     const url = this.sdk.utils.private_download_url(publicId, '', {
       resource_type: resourceType,
       type: 'authenticated',
       expires_at: expiresAtSec,
+      ...(options.download ? { attachment: true } : {}),
     });
     return { url, expiresAt };
   }

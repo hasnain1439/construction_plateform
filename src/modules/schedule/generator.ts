@@ -18,6 +18,7 @@
  * Stages without quantities use DEFAULT_EFFORT (flagged in `basis`).
  */
 import { toBaseUnit } from '../estimate/engine.js';
+import { isTemplateKey, MILESTONE_NAMES } from './milestoneNames.js';
 
 export const STAGE_KEYS = ['FOUNDATION_PLINTH', 'GF_STRUCTURE', 'F1_STRUCTURE', 'F2_STRUCTURE', 'F3_STRUCTURE', 'MUMTY_ROOF', 'PLASTER_MEP', 'FINISHING'] as const;
 export type StageKey = (typeof STAGE_KEYS)[number];
@@ -188,7 +189,9 @@ export function generate(input: GenInput): GenResult {
   const milestones: GenMilestone[] = [];
   const add = (stageKey: StageKey, suffix: string, name: string, workDays: number, curingDays: number, basis: string[], deps: GenMilestone['deps']) => {
     if (!stages.some((s) => s.stageKey === stageKey)) stages.push({ stageKey, name: STAGE_NAMES[stageKey], sortOrder: STAGE_KEYS.indexOf(stageKey) + 1 });
-    const m: GenMilestone = { key: `${stageKey}.${suffix}`, stageKey, name, sortOrder: milestones.length + 1, workDays, curingDays, basis, deps, quotas: [] };
+    const key = `${stageKey}.${suffix}`;
+    // QA-B-26: the generated name is the template's English name (milestoneNames.ts), so apps can translate by key.
+    const m: GenMilestone = { key, stageKey, name: isTemplateKey(key) ? MILESTONE_NAMES[key] : name, sortOrder: milestones.length + 1, workDays, curingDays, basis, deps, quotas: [] };
     milestones.push(m);
     return m;
   };

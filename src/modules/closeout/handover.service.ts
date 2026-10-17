@@ -3,7 +3,7 @@
  * final photos), owner sign-off, completion (CLOSEOUT → HANDED_OVER with the handover date,
  * defect period and retention due date) and the handover certificate PDF.
  */
-import { withTenant, type Tx } from '../../core/db/withTenant.js';
+import { withPdfTenant, withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict } from '../../core/errors/AppError.js';
 import { tr } from '../../core/i18n/index.js';
 import { day } from '../../core/pdf/templates.js';
@@ -164,7 +164,7 @@ export async function complete(projectId: string, input: CompleteHandoverInput) 
 /** Handover certificate PDF (stored as a DOCUMENT attachment) + share link and WhatsApp text. */
 export async function certificate(projectId: string, query: CertificateQuery) {
   const a = actor();
-  return withTenant(a.tenantId, async (tx) => {
+  return withPdfTenant(a.tenantId, async (tx) => {
     const project = await assertProjectScope(tx, 'closeout.handover.manage', projectId, a);
     const h = await handoverOf(tx, a.tenantId, projectId);
     if (!h?.ownerName || !h.signedOn) throw new Conflict('SIGN_OFF_MISSING', 'Record the owner sign-off first');

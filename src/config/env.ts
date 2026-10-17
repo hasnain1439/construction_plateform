@@ -81,6 +81,12 @@ export const envSchema = z
   STORAGE_DIR: z.string().default('./storage'),
   /** Lifetime of signed attachment URLs. */
   SIGNED_URL_TTL_SECONDS: z.coerce.number().int().min(30).max(86_400).default(600),
+  /** QA-B-02: lifetime of WhatsApp share links (/public/files/:id) — 1 to 90 days. */
+  SHARE_LINK_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+  /** QA-B-23: PDFs rendered at the same time per API process (the rest queue). */
+  PDF_MAX_CONCURRENT: z.coerce.number().int().min(1).max(16).default(3),
+  /** QA-B-23: how long a PDF may wait in the queue before 503 SERVICE_BUSY. */
+  PDF_QUEUE_WAIT_MS: z.coerce.number().int().min(1_000).max(120_000).default(30_000),
   /** Mobile app: older builds see a "please update" screen. */
   MOBILE_MIN_APP_VERSION: z.string().regex(/^\d+\.\d+\.\d+$/).default('1.0.0'),
   MOBILE_LATEST_APP_VERSION: z.string().regex(/^\d+\.\d+\.\d+$/).default('1.0.0'),

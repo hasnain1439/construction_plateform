@@ -258,7 +258,7 @@ describe('files', () => {
     expect(roman).toContain('Khuli');
 
     const xl = await get(o, `delay-analysis/${dha()}`, { format: 'xlsx', lang: 'en' });
-    expect(xl).toMatchObject({ format: 'xlsx', fileName: expect.stringMatching(/^delay-analysis-project-/) });
+    expect(xl).toMatchObject({ format: 'xlsx', fileName: `delay-analysis-${seeded().projects.dha.code}-${today()}.xlsx` });
     const wb = new ExcelJS.Workbook();
     const file = await download(xl.url);
     await wb.xlsx.load(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer);
