@@ -10,7 +10,7 @@ import type { AttachmentKind } from '../../generated/prisma/enums.js';
 import * as repo from './attachments.repository.js';
 import type { AttachmentDto, FileQuery } from './attachments.schema.js';
 import { contentMatchesMime, EXTENSIONS, KIND_MIME_TYPES, MOBILE_MAX_BYTES, safeFileName } from './fileTypes.js';
-import { storage, storageForKey, verifyFileSignature, type SignedUrlOptions } from './storage.provider.js';
+import { shareUrl, storage, storageForKey, verifyFileSignature, verifyShareSignature, type SignedUrlOptions } from './storage.provider.js';
 
 export interface UploadedFile {
   buffer: Buffer;
@@ -22,6 +22,35 @@ export interface UploadedFile {
 /** Signed URL for any stored attachment (also used for logos and profile photos). */
 export async function signedUrlFor(attachment: { storageKey: string }, options?: SignedUrlOptions) {
   return storageForKey(attachment.storageKey).getSignedUrl(attachment.storageKey, env.SIGNED_URL_TTL_SECONDS, options);
+}
+
+/** QA-B-15: signed URL that names the file (`fileName`) — exports, documents. `download` = save, not preview. */
+export async function namedSignedUrl(attachment: { storageKey: string; fileName: string }, download = false) {
+  return signedUrlFor(attachment, { fileName: attachment.fileName, download });
+}
+
+/**
+ * QA-B-02 · kinds a durable share link may open: the PDFs the server makes and shares on WhatsApp
+ * (invoice, receipt, statement; change-order slip / handover = DOCUMENT; estimate / quote = REPORT).
+ */
+export const SHAREABLE_KINDS: ReadonlySet<AttachmentKind> = new Set<AttachmentKind>(['INVOICE_PDF', 'RECEIPT_PDF', 'STATEMENT_PDF', 'DOCUMENT', 'REPORT']);
+
+/** Durable share link of a server-made PDF ({ url, expiresAt } — SHARE_LINK_TTL_DAYS). */
+export function shareLinkFor(attachment: { id: string; tenantId: string }) {
+  return shareUrl(attachment.id, attachment.tenantId);
+}
+
+/**
+ * GET /public/files/:id — checks the share signature (purpose `share:`), expiry, that the attachment
+ * exists in that company and is a shareable PDF, and returns a fresh short-lived signed storage URL
+ * (any provider) for the 302. Errors: 403 INVALID_SIGNATURE / LINK_EXPIRED, 404 ATTACHMENT_NOT_FOUND.
+ */
+export async function openShareLink(id: string, query: { tid: string; exp: number; sig: string }): Promise<string> {
+  if (!verifyShareSignature(id, query.tid, query.exp, query.sig)) throw new Forbidden('INVALID_SIGNATURE', 'This link is not valid');
+  if (query.exp <= Math.floor(Date.now() / 1000)) throw new Forbidden('LINK_EXPIRED', 'This link has expired. Ask for a new one.');
+  const row = await withTenant(query.tid, (tx) => repo.findAttachment(tx, id));
+  if (!row || row.tenantId !== query.tid || !SHAREABLE_KINDS.has(row.kind) || row.mimeType !== 'application/pdf') throw new NotFound('ATTACHMENT_NOT_FOUND', 'This document is no longer available');
+  return (await signedUrlFor(row, { fileName: row.fileName })).url;
 }
 
 /** Same as signedUrlFor, or null when there is no attachment. */

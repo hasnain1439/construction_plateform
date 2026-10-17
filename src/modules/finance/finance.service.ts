@@ -3,7 +3,7 @@
  * come from billing (`moneyOf`, `companyReceivables`), cost from the cost engine, supplier dues
  * from the FIFO supplier balances, cash from the cash book.
  */
-import { assertPerm } from '../../core/auth/access.js';
+import { assertPerm, fieldAccess } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { dateOnly } from '../../core/utils/dates.js';
 import { addDays, today, ymd } from '../billing/billing.shared.js';
@@ -11,6 +11,7 @@ import { LIVE } from '../billing/ledger.js';
 import { bucketsDto, bucketsOf, costRows, PNL_BUCKETS, projectCosts, type CostRow } from '../billing/projectCost.service.js';
 import { companyReceivables, moneyOfMany } from '../billing/receivables.service.js';
 import { computeProjection, loadCostContexts, type Projection } from '../control/cost.service.js';
+import { moneyView } from '../control/control.shared.js';
 import { listAccounts } from '../cashbook/cashbook.service.js';
 import { pktDayEnd, pktDayStart } from '../inventory/inventory.service.js';
 import { laborSettings, weekOf } from '../labor/labor.shared.js';
@@ -213,6 +214,9 @@ async function buildPnl(tx: Tx, a: ReadActor, query: PnlQuery) {
     contracts.set(id, ctx.contractPaisa + (ctx.changes.inContract ? 0n : ctx.changes.pricePaisa));
     projections.set(id, computeProjection(ctx));
   }
+  // QA-B-17: the projected margin (and the estimate at completion behind it) follows the same rule as
+  // /control/summary — amounts + rates + contract + profit; without it the keys are LEFT OUT.
+  const margin = moneyView(fieldAccess()).margin;
   const rows = projects.map((p) => {
     const contract = contracts.get(p.id)!;
     const c = costs.get(p.id)!;
@@ -230,11 +234,15 @@ async function buildPnl(tx: Tx, a: ReadActor, query: PnlQuery) {
       marginToDatePercent: billed > 0n ? percent(gp, billed) : null,
       percentBilled: percent(billed, contract),
       percentCostOfContract: percent(c.cost.totalPaisa, contract),
-      projectedMarginPercent: projections.get(p.id)!.projectedMarginPercent,
-      projectedMarginPaisa: projections.get(p.id)!.projectedMarginPaisa === null ? null : str(projections.get(p.id)!.projectedMarginPaisa!),
-      estimateAtCompletionPaisa: projections.get(p.id)!.estimateAtCompletionPaisa === null ? null : str(projections.get(p.id)!.estimateAtCompletionPaisa!),
-      projectedMarginBasis: projections.get(p.id)!.basis,
-      projectedMarginNote: projections.get(p.id)!.note,
+      ...(margin
+        ? {
+            projectedMarginPercent: projections.get(p.id)!.projectedMarginPercent,
+            projectedMarginPaisa: projections.get(p.id)!.projectedMarginPaisa === null ? null : str(projections.get(p.id)!.projectedMarginPaisa!),
+            estimateAtCompletionPaisa: projections.get(p.id)!.estimateAtCompletionPaisa === null ? null : str(projections.get(p.id)!.estimateAtCompletionPaisa!),
+            projectedMarginBasis: projections.get(p.id)!.basis,
+            projectedMarginNote: projections.get(p.id)!.note,
+          }
+        : {}),
     };
   });
   const sum = (k: 'revisedContractPaisa' | 'billedToDatePaisa' | 'receivedToDatePaisa' | 'costToDatePaisa' | 'grossProfitToDatePaisa') => rows.reduce((s, r) => s + BigInt(r[k]), 0n);
@@ -247,7 +255,7 @@ async function buildPnl(tx: Tx, a: ReadActor, query: PnlQuery) {
     cost: bucketsDto(bucketsOf(allRows)),
     grossProfitToDatePaisa: str(sum('grossProfitToDatePaisa')),
     marginToDatePercent: sum('billedToDatePaisa') > 0n ? percent(sum('grossProfitToDatePaisa'), sum('billedToDatePaisa')) : null,
-    ...projectedTotals([...projections.values()]),
+    ...(margin ? projectedTotals([...projections.values()]) : {}),
   };
 
   // Trend: the 12 months ending with `to` — billed (by issue month) vs cost (by month).
@@ -267,7 +275,7 @@ async function buildPnl(tx: Tx, a: ReadActor, query: PnlQuery) {
     projects: rows,
     totals,
     trend,
-    projectedMarginNote: PROJECTED_MARGIN_NOTE,
+    ...(margin ? { projectedMarginNote: PROJECTED_MARGIN_NOTE } : {}),
   };
 }
 

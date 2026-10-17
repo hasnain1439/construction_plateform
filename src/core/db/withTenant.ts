@@ -27,3 +27,11 @@ export async function withTenant<T>(
     { maxWait: env.DB_TX_MAX_WAIT_MS, timeout: options?.timeout ?? 10_000 },
   );
 }
+
+/** QA-B-23: transaction budget of requests that render a PDF inside it (queue wait + render). */
+export const PDF_TX_TIMEOUT_MS = 60_000;
+
+/** withTenant for requests that render + store a PDF in the transaction (documents, share links). */
+export function withPdfTenant<T>(tenantId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return withTenant(tenantId, fn, { timeout: PDF_TX_TIMEOUT_MS });
+}

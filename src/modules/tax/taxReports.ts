@@ -11,15 +11,16 @@
 import { assertPerm, fieldAccess } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { Forbidden } from '../../core/errors/AppError.js';
-import { enumLabel, type Lang } from '../../core/i18n/index.js';
-import { day, rs } from '../../core/pdf/templates.js';
+import { enumLabel, tr, trCount, type Lang, type Params } from '../../core/i18n/index.js';
+import { jsonLang } from '../../core/i18n/requestLang.js';
+import { day, rsWhole } from '../../core/pdf/templates.js';
 import { dateOnly } from '../../core/utils/dates.js';
 import { today, ymd } from '../billing/billing.shared.js';
 import { documentLang } from '../billing/documents.js';
 import { readActor, type ReadActor } from '../dashboard/dashboard.shared.js';
 import { findProjectFor } from '../projects/access.js';
 import { letterhead, renderReport, storeReport, type Cell, type Report, type ReportColumn } from '../reports/reports.export.js';
-import { ADVISER_NOTE, taxYearOf, whtRateOf } from './tax.rules.js';
+import { taxYearOf, whtRateOf } from './tax.rules.js';
 import type { TaxReportName, TaxReportQuery } from './tax.schema.js';
 
 const col = (key: string, label: string, type: ReportColumn['type'] = 'text'): ReportColumn => ({ key, label, type });
@@ -36,9 +37,41 @@ interface Ctx {
   periodText: string;
   projectId: string | null;
   projectName: string;
+  /** Language of the free text (subtitle, notes): X-Lang / English for JSON, the file language for files. */
+  lang: Lang;
 }
 
-type Built = Omit<Report, 'generatedAt' | 'filters'>;
+/**
+ * QA-B-05 / QA-B-20 · a note as a stable code + params (`noteCodes`, for the apps) and as text in
+ * the report language (`notes`). Codes: WHT_GROSS, WHT_MISSING_CERTIFICATES {amountPaisa},
+ * TAX_SUBTOTAL {authority, ratePercent, taxablePaisa, taxPaisa, count}, CANCELLED_NOT_COUNTED {count},
+ * TAX_FROZEN, TAX_ADVISER.
+ */
+export interface NoteCode {
+  code: 'WHT_GROSS' | 'WHT_MISSING_CERTIFICATES' | 'TAX_SUBTOTAL' | 'CANCELLED_NOT_COUNTED' | 'TAX_FROZEN' | 'TAX_ADVISER';
+  params: Record<string, string | number>;
+}
+
+function noteText(lang: Lang, n: NoteCode): string {
+  const p = n.params;
+  switch (n.code) {
+    case 'WHT_GROSS':
+      return tr(lang, 'report.note.whtGross');
+    case 'WHT_MISSING_CERTIFICATES':
+      return tr(lang, 'report.note.whtMissing', { amount: rsWhole(String(p['amountPaisa'])) });
+    case 'TAX_SUBTOTAL':
+      return trCount(lang, 'report.note.taxSubtotal', Number(p['count']), { authority: p['authority'], rate: p['ratePercent'], taxable: rsWhole(String(p['taxablePaisa'])), tax: rsWhole(String(p['taxPaisa'])) } as Params);
+    case 'CANCELLED_NOT_COUNTED':
+      return trCount(lang, 'report.note.cancelled', Number(p['count']));
+    case 'TAX_FROZEN':
+      return tr(lang, 'report.note.taxFrozen');
+    case 'TAX_ADVISER':
+      return tr(lang, 'tax.adviserNote');
+  }
+}
+
+type Built = Omit<Report, 'generatedAt' | 'filters'> & { noteCodes: NoteCode[] };
+const withNotes = (lang: Lang, codes: NoteCode[]) => ({ notes: codes.map((n) => noteText(lang, n)), noteCodes: codes });
 
 // ─── WHT summary ────────────────────────────────────────────────────────────
 
@@ -117,11 +150,11 @@ async function whtSummary(c: Ctx): Promise<Built> {
       certificatesMissing: count(rows, 'certificatesMissing'),
       whtWithoutCertificate: missingWht.toString(),
     },
-    notes: [
-      'Gross = cash received + WHT withheld by the client. Bounced cheques are left out; cheques still pending are counted.',
-      ...(missingWht > 0n ? [`Ask clients for the missing certificates: ${rs(missingWht)} of WHT has no certificate yet.`] : []),
-      ADVISER_NOTE,
-    ],
+    ...withNotes(c.lang, [
+      { code: 'WHT_GROSS', params: {} },
+      ...(missingWht > 0n ? [{ code: 'WHT_MISSING_CERTIFICATES' as const, params: { amountPaisa: missingWht.toString() } }] : []),
+      { code: 'TAX_ADVISER', params: {} },
+    ]),
   };
 }
 
@@ -175,10 +208,10 @@ async function taxInvoiceRegister(c: Ctx): Promise<Built> {
   ];
   const counted = rows.filter((r) => r['invoiceStatus'] !== 'CANCELLED');
   // Subtotals per authority + rate (cancelled invoices left out).
-  const byAuthority = new Map<string, { taxable: bigint; tax: bigint; n: number }>();
+  const byAuthority = new Map<string, { authority: string; rate: number; taxable: bigint; tax: bigint; n: number }>();
   for (const r of counted.filter((x) => x['authority'])) {
     const k = `${String(r['authority'])} ${r['taxRate']}%`;
-    const g = byAuthority.get(k) ?? { taxable: 0n, tax: 0n, n: 0 };
+    const g = byAuthority.get(k) ?? { authority: String(r['authority']), rate: Number(r['taxRate']), taxable: 0n, tax: 0n, n: 0 };
     g.taxable += BigInt(r['taxableValue'] as string);
     g.tax += BigInt(r['tax'] as string);
     g.n += 1;
@@ -205,12 +238,12 @@ async function taxInvoiceRegister(c: Ctx): Promise<Built> {
       authority: null,
       invoiceStatus: null,
     },
-    notes: [
-      ...[...byAuthority.entries()].map(([k, g]) => `${k}: taxable ${rs(g.taxable)} · tax ${rs(g.tax)} (${g.n} invoice${g.n === 1 ? '' : 's'})`),
-      ...(cancelled ? [`${cancelled} cancelled invoice${cancelled === 1 ? ' is' : 's are'} listed but not counted in the totals.`] : []),
-      'Tax is frozen on each invoice when it is issued; later changes to the tax settings never change it.',
-      ADVISER_NOTE,
-    ],
+    ...withNotes(c.lang, [
+      ...[...byAuthority.values()].map((g) => ({ code: 'TAX_SUBTOTAL' as const, params: { authority: g.authority, ratePercent: g.rate, taxablePaisa: g.taxable.toString(), taxPaisa: g.tax.toString(), count: g.n } })),
+      ...(cancelled ? [{ code: 'CANCELLED_NOT_COUNTED' as const, params: { count: cancelled } }] : []),
+      { code: 'TAX_FROZEN', params: {} },
+      { code: 'TAX_ADVISER', params: {} },
+    ]),
   };
 }
 
@@ -221,13 +254,14 @@ const BUILDERS: Record<TaxReportName, (c: Ctx) => Promise<Built>> = {
   'tax-invoice-register': taxInvoiceRegister,
 };
 
-export async function buildTaxReport(tx: Tx, a: ReadActor, name: TaxReportName, q: TaxReportQuery): Promise<Report> {
+/** `lang`: language of the subtitle and notes (JSON: X-Lang, else English; files: the file language). */
+export async function buildTaxReport(tx: Tx, a: ReadActor, name: TaxReportName, q: TaxReportQuery, lang: Lang = 'en'): Promise<Report & { noteCodes: NoteCode[] }> {
   const year = taxYearOf(q.to ?? q.from ?? today());
   const from = q.from ?? year.from;
   const to = q.to ?? (q.from ? today() : year.to);
-  const periodText = !q.from && !q.to ? `Tax year ${year.label} (${day(year.from)} – ${day(year.to)})` : `${day(from)} – ${day(to)}`;
+  const periodText = !q.from && !q.to ? tr(lang, 'report.sub.taxYear', { label: year.label, from: day(year.from), to: day(year.to) }) : `${day(from)} – ${day(to)}`;
   const project = q.projectId ? await findProjectFor(tx, a, q.projectId) : null;
-  const built = await BUILDERS[name]({ tx, a, q, from, to, periodText, projectId: project?.id ?? null, projectName: project ? `${project.code} ${project.name}` : 'All projects' });
+  const built = await BUILDERS[name]({ tx, a, q, from, to, periodText, projectId: project?.id ?? null, projectName: project ? `${project.code} ${project.name}` : tr(lang, 'report.sub.allProjects'), lang });
   return { ...built, generatedAt: new Date().toISOString(), filters: { projectId: q.projectId ?? null, from, to } };
 }
 
@@ -240,11 +274,14 @@ export async function runTaxReport(name: TaxReportName, q: TaxReportQuery) {
   const a = readActor();
   assertPerm('tax.view', a, 'Tax reports are for the owner and accounts');
   if (!fieldAccess().amounts) throw new Forbidden('FORBIDDEN', 'You need permission to see money amounts for tax reports');
-  const { report, company, lang } = await withTenant(a.tenantId, async (tx) => ({
-    report: await buildTaxReport(tx, a, name, q),
-    company: q.format === 'pdf' ? await letterhead(tx, a.tenantId, { taxIds: true }) : null,
-    lang: q.format === 'json' ? ('en' as const) : await documentLang(tx, a.userId, q.lang),
-  }));
+  const { report, company, lang } = await withTenant(a.tenantId, async (tx) => {
+    const lang = q.format === 'json' ? jsonLang() : await documentLang(tx, a.userId, q.lang);
+    return {
+      lang,
+      report: await buildTaxReport(tx, a, name, q, lang),
+      company: q.format === 'pdf' ? await letterhead(tx, a.tenantId, { taxIds: true }) : null,
+    };
+  });
   if (q.format === 'json') return report;
   const buffer = await renderReport(localizeCells(report, lang), q.format, company, lang);
   return withTenant(a.tenantId, (tx) => storeReport(tx, a, report, q.format as 'csv' | 'xlsx' | 'pdf', buffer));

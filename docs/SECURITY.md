@@ -119,6 +119,7 @@ proxies in front of the API, or every client shares the proxy's IP.
 | Password (service) | 5 wrong → 15 min lock | account | — |
 | `POST /sync/push` (≤ 100 mutations each) | 60 / min | signed-in user | `SYNC_PUSH_RATE_LIMIT_MAX` |
 | `POST /users/:id/login-code` | owner only + the OTP limits above | phone | — |
+| `GET /public/files/:id` (WhatsApp share links) | 30 / min | IP | — |
 | everything under `/api/v1` | 300 / min | IP | `GENERAL_RATE_LIMIT_MAX` |
 
 Test: `tests/auth/rateLimits.test.ts` (wiring + 429 shape). Many users behind one carrier NAT share
@@ -156,6 +157,19 @@ The API uses helmet defaults; signed file responses allow framing only by the we
   and the API key; the WhatsApp token and S3 / SES keys are never logged.
 - Files in S3 / R2: private bucket, no ACLs, SSE AES256, presigned GET URLs that expire after
   `SIGNED_URL_TTL_SECONDS`; the access key should be limited to that one bucket.
+- **Share links (QA-B-02).** Documents shared with the project owner on WhatsApp (invoice, receipt,
+  statement, change-order slip, handover certificate, estimate, owner shopping list, quotation) carry
+  a durable link `GET /api/v1/public/files/:id?tid&exp&sig` instead of the 10-minute file link:
+  `sig = HMAC-SHA256(JWT_REFRESH_PEPPER, "share:id:tid:exp")` — a different purpose string from file
+  links (`attachment:…`), so neither signature opens the other route — compared in constant time,
+  valid `SHARE_LINK_TTL_DAYS` (default 30, 1–90). A valid hit checks the attachment exists **in that
+  company** (RLS) and is a server-made PDF (kinds INVOICE_PDF, RECEIPT_PDF, STATEMENT_PDF, DOCUMENT,
+  REPORT with `application/pdf`; uploads of other types never open), then answers `302` to a fresh
+  short-lived signed storage URL (local / S3 / Cloudinary), `Cache-Control: no-store`,
+  `Referrer-Policy: no-referrer`. Errors: 403 `INVALID_SIGNATURE` / `LINK_EXPIRED`, 404. The query is
+  redacted from logs (`safeUrl`). Decision: a link the owner can open days later is worth a
+  30-day bearer link to one PDF; it cannot be revoked one by one (rotating `JWT_REFRESH_PEPPER` kills
+  all of them, and deleting the attachment kills that one).
 
 ## 9. Database connections
 
@@ -163,6 +177,11 @@ A transaction holds one pg connection, and one connection runs one query at a ti
 `Promise.all` queries on a `tx` — use `inSequence([...])` (`src/core/db/inSequence.ts`). Prisma's own
 parallel include loading is serialised per connection by `SerialPgClient` (`src/core/db/prisma.ts`).
 `tests/setup/pgConcurrency.ts` fails any test that overlaps queries on one connection.
+QA-B-23: the last `Promise.all` on a `tx` (company tax settings, project tax) now runs in sequence.
+"No connection / transaction in time" errors from the pg driver adapter (not only Prisma P2028) are
+503 `SERVICE_BUSY`, never 500. PDFs render through a queue (`PDF_MAX_CONCURRENT`, default 3; wait
+up to `PDF_QUEUE_WAIT_MS`, default 30 s) and requests that render a PDF inside their transaction get
+a 60 s transaction budget (`withPdfTenant`).
 
 ## 10. Dependencies
 

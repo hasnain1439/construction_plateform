@@ -16,7 +16,7 @@
 import { assertPerm, fieldAccess, scopeAll, type FieldAccess } from '../../core/auth/access.js';
 import type { Tx } from '../../core/db/withTenant.js';
 import { Conflict } from '../../core/errors/AppError.js';
-import { tr, type Lang } from '../../core/i18n/index.js';
+import { tr, trCount, type Lang } from '../../core/i18n/index.js';
 import { day } from '../../core/pdf/templates.js';
 import { dateOnly } from '../../core/utils/dates.js';
 import type { ChangeOrderStatus, EquipmentCategory, Project, ProjectStatus } from '../../generated/prisma/client.js';
@@ -32,6 +32,7 @@ import { pktDayEnd, pktDayStart } from '../inventory/inventory.service.js';
 import { findProjectFor, projectScope } from '../projects/access.js';
 import { delayBreakdown } from '../schedule/insights.service.js';
 import { stoppageDays } from '../schedule/stoppages.service.js';
+import { templateKeyOf } from '../schedule/milestoneNames.js';
 import type { ReadActor } from '../dashboard/dashboard.shared.js';
 import type { ReportBook, ReportSection, SummaryItem } from './reports.book.js';
 import type { Cell, Report, ReportColumn } from './reports.export.js';
@@ -58,10 +59,16 @@ const num = (rows: Row[], key: string) => q3(rows.reduce((t, r) => t + Number(r[
 function totalsOf(columns: ReportColumn[], rows: Row[], skip: string[] = []): Row {
   return Object.fromEntries(columns.map((c) => [c.key, skip.includes(c.key) ? null : c.type === 'money' ? sum(rows, c.key) : c.type === 'qty' || c.type === 'int' ? num(rows, c.key) : null]));
 }
+/** QA-B-26: files print a generated milestone in the file language (`milestone.<templateKey>`); JSON keeps the stored name. */
+const milestoneName = (c: Step18Ctx, m: { key: string; name: string }) => {
+  const k = c.q.format === 'json' ? null : templateKeyOf(m);
+  return k ? tr(c.lang, `milestone.${k}`) : m.name;
+};
 /** Karachi calendar day of an instant (PKT is UTC+5 all year). */
 const pktDay = (at: Date) => new Date(at.getTime() + 5 * 3_600_000).toISOString().slice(0, 10);
 const ymd = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
-const asOfText = () => `as of ${day(today())}`;
+/** "as of 17 Oct 2026" in the report language (QA-B-11). */
+const asOfText = (lang: Lang) => tr(lang, 'report.sub.asOf', { date: day(today()) });
 const fields = (): FieldAccess => fieldAccess();
 
 const NON_DRAFT: ProjectStatus[] = ['ACTIVE', 'CLOSEOUT', 'HANDED_OVER', 'CLOSED', 'READ_ONLY'];
@@ -103,7 +110,7 @@ export async function delayAnalysisReport(c: Step18Ctx): Promise<Built> {
   const rows: Row[] = [];
   const extra: Array<{ projectId: string; code: string; categories: Array<{ category: string; days: number }>; reasons: Array<{ reason: string; category: string; days: number }> }> = [];
   for (const p of projects.filter((x) => scheduled.has(x.id))) {
-    const d = await delayBreakdown(c.tx, c.a.tenantId, p);
+    const d = await delayBreakdown(c.tx, c.a.tenantId, p, c.lang);
     const plan = (await loadPlan(c.tx, c.a.tenantId, p.id))!;
     const b = plan.milestones.map((m) => behindOf(m, date, plan.cal, settings));
     const reasons = reasonsOf(d);
@@ -150,7 +157,7 @@ export async function delayAnalysisReport(c: Step18Ctx): Promise<Built> {
   return {
     name: 'delay-analysis',
     title: 'Delay Analysis',
-    subtitle: `${c.projectName} · ${asOfText()}`,
+    subtitle: `${c.projectName} · ${asOfText(c.lang)}`,
     columns,
     rows,
     totals: totalsOf(columns, rows, ['progressPercent']),
@@ -167,7 +174,7 @@ export async function delayAnalysisBook(c: Step18Ctx, project: Project): Promise
   if (!plan) throw new Conflict('NO_SCHEDULE', 'This project has no schedule yet — generate it from the approved estimate first');
   const settings = await controlSettings(c.tx, c.a.tenantId);
   const date = today();
-  const d = await delayBreakdown(c.tx, c.a.tenantId, project);
+  const d = await delayBreakdown(c.tx, c.a.tenantId, project, c.lang);
   const summary: SummaryItem[] = [
     { key: 'originalEnd', label: 'Original end', type: 'date', value: d.originalEnd },
     { key: 'baselineEnd', label: 'Baseline end', type: 'date', value: d.baselineEnd },
@@ -211,7 +218,7 @@ export async function delayAnalysisBook(c: Step18Ctx, project: Project): Promise
     const b = behindOf(m, date, plan.cal, settings);
     if (!b.late && !b.behind && !(m.baselineEnd && m.plannedEnd > m.baselineEnd)) continue;
     msRows.push({
-      milestone: m.name,
+      milestone: milestoneName(c, m),
       stage: m.stageKey,
       milestoneStatus: m.status,
       baselineEnd: m.baselineEnd,
@@ -240,7 +247,7 @@ export async function delayAnalysisBook(c: Step18Ctx, project: Project): Promise
   return {
     name: 'delay-analysis-project',
     title: 'Delay Analysis',
-    subtitle: `${project.code} ${project.name} · ${asOfText()}`,
+    subtitle: `${project.code} ${project.name} · ${asOfText(c.lang)}`,
     project: { id: project.id, code: project.code, name: project.name, status: project.status },
     summary,
     sections: [
@@ -334,7 +341,7 @@ export async function varianceReport(c: Step18Ctx): Promise<Built> {
   return {
     name: 'variance',
     title: 'Variance',
-    subtitle: `${c.projectName} · ${asOfText()}`,
+    subtitle: `${c.projectName} · ${asOfText(c.lang)}`,
     columns,
     rows,
     totals: totalsOf(columns, rows, ['progressPercent', 'plannedProgressPercent', 'gapPoints']),
@@ -433,7 +440,7 @@ export async function varianceBook(c: Step18Ctx, project: Project): Promise<Buil
   return {
     name: 'variance-project',
     title: 'Variance',
-    subtitle: `${project.code} ${project.name} · ${asOfText()}${v.estimate ? ` · estimate Rev ${v.estimate.revision}` : ' · no approved estimate'}`,
+    subtitle: `${project.code} ${project.name} · ${asOfText(c.lang)} · ${v.estimate ? tr(c.lang, 'report.sub.estimateRev', { revision: v.estimate.revision }) : tr(c.lang, 'report.sub.noEstimate')}`,
     project: { id: project.id, code: project.code, name: project.name, status: project.status },
     summary,
     sections: [
@@ -502,7 +509,7 @@ export async function changeOrderRegister(c: Step18Ctx): Promise<Built> {
   return {
     name: 'change-orders',
     title: 'Change Order Register',
-    subtitle: `${c.projectName} · ${c.q.from || c.q.to ? `${c.q.from ? day(c.q.from) : 'Start'} – ${day(c.q.to ?? today())}` : asOfText()}`,
+    subtitle: `${c.projectName} · ${c.q.from || c.q.to ? `${c.q.from ? day(c.q.from) : tr(c.lang, 'report.sub.start')} – ${day(c.q.to ?? today())}` : asOfText(c.lang)}`,
     columns,
     rows,
     totals: { ...Object.fromEntries(columns.map((x) => [x.key, null])), ...(seesPrice ? { total: sum(approved, 'total') } : {}), days: num(approved, 'days') },
@@ -625,7 +632,7 @@ export async function equipmentUtilisation(c: Step18Ctx): Promise<Built> {
   return {
     name: 'equipment-utilisation',
     title: 'Equipment Utilisation',
-    subtitle: `${c.projectName} · ${day(from)} – ${day(to)} (${days.length} days)`,
+    subtitle: `${c.projectName} · ${day(from)} – ${day(to)} (${trCount(c.lang, 'report.sub.days', days.length)})`,
     columns,
     rows,
     totals: totalsOf(columns, rows, ['owned', 'daysOnSite', 'daysIdle', 'utilisationPercent', 'items', 'lostQty', 'unitDaysOnSite', 'unitDaysIdle', 'rentedUnitDays']),
@@ -706,7 +713,7 @@ export async function snagSummary(c: Step18Ctx): Promise<Built> {
   return {
     name: 'snags',
     title: 'Snag Summary',
-    subtitle: `${c.projectName} · ${c.q.from || c.q.to ? `${c.q.from ? day(c.q.from) : 'Start'} – ${day(c.q.to ?? today())}` : asOfText()}`,
+    subtitle: `${c.projectName} · ${c.q.from || c.q.to ? `${c.q.from ? day(c.q.from) : tr(c.lang, 'report.sub.start')} – ${day(c.q.to ?? today())}` : asOfText(c.lang)}`,
     columns,
     rows,
     totals: totalsOf(columns, rows, ['oldestOpenDays']),
@@ -772,7 +779,7 @@ export async function snagBook(c: Step18Ctx, project: Project, q: BookQuery): Pr
   return {
     name: 'snags-project',
     title: 'Snag Summary',
-    subtitle: `${project.code} ${project.name} · ${q.from || q.to ? `${q.from ? day(q.from) : 'Start'} – ${day(q.to ?? today())}` : asOfText()}`,
+    subtitle: `${project.code} ${project.name} · ${q.from || q.to ? `${q.from ? day(q.from) : tr(c.lang, 'report.sub.start')} – ${day(q.to ?? today())}` : asOfText(c.lang)}`,
     project: { id: project.id, code: project.code, name: project.name, status: project.status },
     summary,
     sections: [

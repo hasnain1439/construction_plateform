@@ -1,7 +1,7 @@
 import type { Readable } from 'node:stream';
 import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import type { StorageProvider } from './storage.provider.js';
+import { contentDisposition, type SignedUrlOptions, type StorageProvider } from './storage.provider.js';
 
 const KEY_PREFIX = 's3:';
 /** Canonical key handed to put(): tenantId/yyyy/mm/<attachmentId>.<ext> */
@@ -87,8 +87,10 @@ export class S3StorageProvider implements StorageProvider {
     }
   }
 
-  async getSignedUrl(key: string, ttlSec: number): Promise<{ url: string; expiresAt: Date }> {
-    const url = await getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.config.bucket, Key: parseS3Key(key) }), { expiresIn: ttlSec });
+  async getSignedUrl(key: string, ttlSec: number, options: SignedUrlOptions = {}): Promise<{ url: string; expiresAt: Date }> {
+    // QA-B-15: the browser saves the file under its attachment name (signed response header override).
+    const disposition = options.fileName ? { ResponseContentDisposition: contentDisposition(options.fileName, options.download) } : {};
+    const url = await getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.config.bucket, Key: parseS3Key(key), ...disposition }), { expiresIn: ttlSec });
     return { url, expiresAt: new Date(Date.now() + ttlSec * 1000) };
   }
 

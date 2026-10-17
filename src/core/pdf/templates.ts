@@ -56,6 +56,30 @@ export function day(date: string | null | undefined): string {
 
 /** Left-to-right island (money, dates, numbers, codes) — keeps its order inside Urdu text. */
 export const ltr = (html: string) => `<bdi dir="ltr">${html}</bdi>`;
+/**
+ * QA-B-11 · free text (names, descriptions, notes) that may be Latin inside an Urdu document: its own
+ * direction from its first letter, so "Owner wants…." keeps the full stop at its end.
+ */
+export const auto = (html: string) => (html ? `<bdi dir="auto">${html}</bdi>` : '');
+/**
+ * QA-B-11 · quantity + unit as one island: a Latin unit reads "1 job" / "-155.687 cft" (LTR), an Urdu
+ * unit keeps the Urdu order (direction from the unit's first letter; the number itself stays LTR).
+ */
+export const qtyUnit = (qtyHtml: string, unit: string) => (unit ? `<bdi dir="auto">${ltr(qtyHtml)} ${esc(unit)}</bdi>` : ltr(qtyHtml));
+
+/**
+ * QA-B-13 · report money in files: whole rupees (half away from zero), one sign style "−Rs 43,250".
+ * Invoices / receipts keep their paisa (rs).
+ */
+export function rsWhole(paisa: bigint | string | number): string {
+  return rs(BigInt(rupeesWhole(paisa)) * 100n);
+}
+/** Paisa → whole rupees as a number (CSV / Excel cells). */
+export const rupeesWhole = (paisa: bigint | string | number): number => {
+  const p = BigInt(paisa);
+  const r = ((p < 0n ? -p : p) + 50n) / 100n;
+  return Number(p < 0n ? -r : r);
+};
 const money = (paisa: bigint | string | number) => ltr(rs(paisa));
 export const date = (d: string | null | undefined) => ltr(day(d));
 
@@ -92,6 +116,7 @@ const CSS = `
   .note { margin-top: 18px; padding: 10px; background: #f8fafc; border-radius: 6px; }
   h3 { font-size: 12px; margin: 16px 0 4px; }
   thead { display: table-header-group; } tr { page-break-inside: avoid; }
+  bdi[dir="auto"] { unicode-bidi: isolate; }
 `;
 
 /** Urdu: Nastaliq (embedded) with room for its tall letters; no letter-spacing / upper-casing. */
@@ -183,7 +208,7 @@ export function invoiceHtml(d: InvoicePdfData, lang: Lang = 'en'): string {
   const L = (key: MessageKey, params?: Params, html?: Record<string, string>) => label(lang, key, params, html);
   const rows = d.lines
     .map(
-      (l, i) => `<tr><td>${i + 1}</td><td>${esc(l.description)}</td><td class="r">${l.quantity ? `${ltr(esc(l.quantity))} ${esc(unitLabel(lang, l.unit))}` : ''}</td>
+      (l, i) => `<tr><td>${i + 1}</td><td>${auto(esc(l.description))}</td><td class="r">${l.quantity ? qtyUnit(esc(l.quantity), unitLabel(lang, l.unit)) : ''}</td>
       <td class="r">${l.ratePaisa !== null ? money(l.ratePaisa) : ''}</td><td class="r">${money(l.amountPaisa)}</td></tr>`,
     )
     .join('');
@@ -202,8 +227,9 @@ export function invoiceHtml(d: InvoicePdfData, lang: Lang = 'en'): string {
     ${d.paidPaisa > 0n ? `<tr><td>${L('pdf.received')}</td><td class="r">${money(d.paidPaisa)}</td></tr><tr><td><strong>${L('pdf.balanceDue')}</strong></td><td class="r"><strong>${money(d.balancePaisa)}</strong></td></tr>` : ''}
   </table>
   ${d.taxPaisa > 0n && (d.taxRegistration?.sellerNtn || d.taxRegistration?.sellerStrn) ? `<p class="muted">${[d.taxRegistration.sellerNtn ? `${L('pdf.ntn')} ${ltr(esc(d.taxRegistration.sellerNtn))}` : null, d.taxRegistration.sellerStrn ? `${L('pdf.strn')} ${ltr(esc(d.taxRegistration.sellerStrn))}` : null].filter(Boolean).join(' · ')}</p>` : ''}
-  ${d.notes ? `<div class="note">${esc(d.notes)}</div>` : ''}`;
-  return shell(d.company, tr(lang, 'pdf.invoice'), `${ltr(esc(d.number))}<br>${L('pdf.issued', {}, { date: date(d.issueDate) })}`, body, lang);
+  ${d.notes ? `<div class="note">${auto(esc(d.notes))}</div>` : ''}`;
+  // QA-B-14: an invoice that carries sales tax is titled "Sales Tax Invoice" (wording to be confirmed by the tax adviser).
+  return shell(d.company, tr(lang, d.taxPaisa > 0n ? 'pdf.salesTaxInvoice' : 'pdf.invoice'), `${ltr(esc(d.number))}<br>${L('pdf.issued', {}, { date: date(d.issueDate) })}`, body, lang);
 }
 
 export interface ReceiptPdfData {
@@ -315,11 +341,12 @@ export interface ReportPdfData {
   totals: Record<string, string | number | null> | null;
 }
 
-function cell(type: ReportColumnType, v: string | number | null | undefined): string {
+/** One report cell (one-table reports and books): money in whole rupees, numbers LTR, text `dir=auto`. */
+export function reportCell(type: ReportColumnType, v: string | number | null | undefined): string {
   if (v === null || v === undefined || v === '') return '';
   switch (type) {
     case 'money':
-      return money(BigInt(v));
+      return ltr(rsWhole(BigInt(v)));
     case 'percent':
       return ltr(`${v}%`);
     case 'date':
@@ -328,20 +355,62 @@ function cell(type: ReportColumnType, v: string | number | null | undefined): st
     case 'int':
       return ltr(Number(v).toLocaleString('en-PK', { maximumFractionDigits: 3 }));
     default:
-      return esc(v);
+      return auto(esc(v));
   }
 }
 
-/** Generic report table (letterhead, filters line, rows, totals). */
-export function reportHtml(d: ReportPdfData, lang: Lang = 'en'): string {
+/**
+ * QA-B-03 / QA-B-12 · wide report tables. More than PORTRAIT_MAX_COLUMNS columns → the PDF is A4
+ * landscape; more than LANDSCAPE_MAX_COLUMNS → the table is split into parts that each repeat the
+ * leading text columns (e.g. Material + Unit), so no column is ever cut at the page edge.
+ */
+export const PORTRAIT_MAX_COLUMNS = 8;
+export const LANDSCAPE_MAX_COLUMNS = 12;
+export const isWideTable = (columns: number) => columns > PORTRAIT_MAX_COLUMNS;
+
+export function splitColumns<C extends { type: ReportColumnType }>(columns: C[], max = LANDSCAPE_MAX_COLUMNS): C[][] {
+  if (columns.length <= max) return [columns];
+  let lead = 0;
+  while (lead < Math.min(2, columns.length - 1) && columns[lead]!.type === 'text') lead++;
+  const head = columns.slice(0, lead);
+  const rest = columns.slice(lead);
+  const per = Math.max(1, max - lead);
+  const parts: C[][] = [];
+  for (let i = 0; i < rest.length; i += per) parts.push([...head, ...rest.slice(i, i + per)]);
+  return parts;
+}
+
+/**
+ * A report table as HTML — split into parts when too wide; the totals row (first cell "Total") only
+ * in a part that has a total to show.
+ */
+export function reportTable(
+  lang: Lang,
+  columns: Array<{ key: string; label: string; type: ReportColumnType }>,
+  rows: Array<Record<string, string | number | null>>,
+  totals: Record<string, string | number | null> | null,
+  totalLabel: string = tr(lang, 'common.total'),
+): string {
   const right = (t: ReportColumnType) => (t === 'text' || t === 'date' ? '' : ' class="r"');
-  const head = d.columns.map((c) => `<th${right(c.type)}>${esc(c.label)}</th>`).join('');
-  const body = d.rows.map((r) => `<tr>${d.columns.map((c) => `<td${right(c.type)}>${cell(c.type, r[c.key])}</td>`).join('')}</tr>`).join('');
-  const totals = d.totals ? `<tr class="total">${d.columns.map((c, i) => `<td${right(c.type)}><strong>${i === 0 ? esc(tr(lang, 'common.total')) : cell(c.type, d.totals![c.key])}</strong></td>`).join('')}</tr>` : '';
+  return splitColumns(columns)
+    .map((cols, part) => {
+      const head = cols.map((c) => `<th${right(c.type)}>${esc(c.label)}</th>`).join('');
+      const body = rows.map((r) => `<tr>${cols.map((c) => `<td${right(c.type)}>${reportCell(c.type, r[c.key])}</td>`).join('')}</tr>`).join('');
+      const filled = totals && cols.slice(1).some((c) => totals[c.key] !== null && totals[c.key] !== undefined && totals[c.key] !== '');
+      const total = filled ? `<tr class="total">${cols.map((c, i) => `<td${right(c.type)}><strong>${i === 0 ? esc(totalLabel) : reportCell(c.type, totals[c.key])}</strong></td>`).join('')}</tr>` : '';
+      return `<table class="report" data-part="${part + 1}"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${cols.length}">${esc(tr(lang, 'common.noRows'))}</td></tr>`}${total}</tbody></table>`;
+    })
+    .join('');
+}
+
+export const REPORT_TABLE_CSS = 'table.report { font-size: 8.5px; } table.report th, table.report td { padding: 5px 5px; } tr.total td { border-top: 2px solid #0f172a; } table.report + table.report { margin-top: 14px; }';
+
+/** Generic report table (letterhead, filters line, rows, totals). Landscape: see `isWideTable`. */
+export function reportHtml(d: ReportPdfData, lang: Lang = 'en'): string {
   const html = `
-  <style>table.report { font-size: 8.5px; } table.report th, table.report td { padding: 5px 5px; } tr.total td { border-top: 2px solid #0f172a; }</style>
-  <div class="muted" style="margin-bottom:8px">${esc(d.subtitle)}</div>
-  <table class="report"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${d.columns.length}">${esc(tr(lang, 'common.noRows'))}</td></tr>`}${totals}</tbody></table>`;
+  <style>${REPORT_TABLE_CSS}</style>
+  <div class="muted" style="margin-bottom:8px">${auto(esc(d.subtitle))}</div>
+  ${reportTable(lang, d.columns, d.rows, d.totals)}`;
   return shell(d.company, lang === 'ur' ? d.title : d.title.toUpperCase(), label(lang, 'pdf.generated', {}, { date: date(d.generatedOn) }), html, lang);
 }
 

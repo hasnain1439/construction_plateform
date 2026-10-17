@@ -84,7 +84,8 @@ const file = (name: string, format: string, mime: string) => ({
   format,
   mimeType: mime,
   sizeBytes: 7393,
-  url: `https://res.cloudinary.com/demo/raw/upload/s--sig--/${name}-2026-10-06.${format}`,
+  url: `http://localhost:4000/api/v1/attachments/0199a8c0-0000-7000-8000-000000000f51/file/${name}-2026-10-06.${format}?tid=…&exp=…&sig=…`,
+  downloadUrl: `http://localhost:4000/api/v1/attachments/0199a8c0-0000-7000-8000-000000000f51/file/${name}-2026-10-06.${format}?tid=…&exp=…&sig=…&dl=1`,
   expiresAt: '2026-10-06T10:15:00.000Z',
 });
 
@@ -95,7 +96,7 @@ export function registerReportsDocs(): void {
       description:
         `${info.access}. ${info.detail} ` +
         '`format=json` (default) returns the table: `columns` (key, label, type text / money / qty / int / percent / date), `rows`, `totals`. ' +
-        '`csv` / `xlsx` / `pdf` (letterhead) are stored as a REPORT attachment and answer `{ url, expiresAt }` — a signed link, never the raw file. Money is paisa in JSON and rupees in files. Files are in `lang` (en / roman / ur; default the signed-in user’s language): title, headers, Total and status / type / unit cells; Urdu PDFs are right-to-left with an embedded Nastaliq font.',
+        '`csv` / `xlsx` / `pdf` (letterhead) are stored as a REPORT attachment and answer `{ attachmentId, fileName, format, mimeType, sizeBytes, url, downloadUrl, expiresAt }` — signed links named after the file (`url` previews, `downloadUrl` saves; QA-B-15: `<report>[-<project code>]-<yyyy-mm-dd>.<ext>`), never the raw file. JSON free text (subtitle, notes, reason cells) follows `X-Lang`, else English. Money is paisa in JSON and rupees in files. Files are in `lang` (en / roman / ur; default the signed-in user’s language): title, headers, Total and status / type / unit cells; Urdu PDFs are right-to-left with an embedded Nastaliq font.',
       request: { query: (STEP18_REPORT_NAMES as readonly string[]).includes(name) ? step18Query : reportQuery },
       responses: {
         ...ok(

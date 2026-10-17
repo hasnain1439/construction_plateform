@@ -17,7 +17,7 @@
  */
 import { writeAudit } from '../../core/audit/audit.js';
 import { assertPerm, fieldAccess, type FieldAccess } from '../../core/auth/access.js';
-import { withTenant, type Tx } from '../../core/db/withTenant.js';
+import { withPdfTenant, withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
 import { tr, type Lang } from '../../core/i18n/index.js';
 import { estimateHtml, shoppingListHtml } from '../../core/pdf/templates.js';
@@ -556,7 +556,7 @@ export async function ownerShoppingList(projectId: string, estimateId?: string) 
 
 export async function ownerShoppingListPdf(projectId: string, q: { estimateId?: string; lang?: Lang }) {
   const c = caller();
-  return withTenant(c.tenantId, async (tx) => {
+  return withPdfTenant(c.tenantId, async (tx) => {
     const list = await shoppingList(tx, c, projectId, q.estimateId);
     const p = await tx.project.findUniqueOrThrow({ where: { id: projectId }, select: { name: true, code: true, client: { select: { name: true, phone: true } } } });
     const lang = await documentLang(tx, c.userId, q.lang);
@@ -573,7 +573,7 @@ export async function ownerShoppingListPdf(projectId: string, q: { estimateId?: 
 
 export async function estimatePdf(id: string, langOverride?: Lang) {
   const c = caller();
-  return withTenant(c.tenantId, async (tx) => {
+  return withPdfTenant(c.tenantId, async (tx) => {
     const e = await findEstimate(tx, c, id, 'projects.estimate.view');
     const p = await projectInfo(tx, e.projectId);
     const lines = await lineRows(tx, id);

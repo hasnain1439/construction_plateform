@@ -5,6 +5,7 @@ const INVITE_TOKEN = /\/invitations\/(?![0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
  * Removes secrets that can appear in URLs before they are logged or echoed:
  *  - invitation tokens:  /invitations/<token>/accept → /invitations/[REDACTED]/accept
  *  - signed file links:  /attachments/<id>/file?tid&exp&sig → query replaced by [REDACTED]
+ *  - share links:        /public/files/<id>?tid&exp&sig → query replaced by [REDACTED]
  */
 export function safeUrl(url: string | undefined): string | undefined {
   if (!url) return url;
@@ -13,5 +14,5 @@ export function safeUrl(url: string | undefined): string | undefined {
   const query = q === -1 ? '' : url.slice(q + 1);
   const cleanPath = path.replace(INVITE_TOKEN, '/invitations/[REDACTED]');
   if (!query) return cleanPath;
-  return `${cleanPath}?${path.includes('/attachments/') ? '[REDACTED]' : query}`;
+  return `${cleanPath}?${path.includes('/attachments/') || path.includes('/public/') ? '[REDACTED]' : query}`;
 }

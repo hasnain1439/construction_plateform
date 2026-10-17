@@ -11,6 +11,7 @@ import { requestContext, requestLogFields, resolveRequestId } from './core/middl
 import { docsRouter } from './core/openapi/docs.js';
 import { jsonReplacer } from './core/utils/json.js';
 import { attachmentsRouter } from './modules/attachments/attachments.routes.js';
+import { publicRouter } from './modules/attachments/public.routes.js';
 import { adminAuthRouter, authRouter, invitationRouter } from './modules/auth/auth.routes.js';
 import {
   cashAccountsRouter,
@@ -141,6 +142,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/invitations', teamInvitationsRouter); // THEKEDAR: list / create / resend / cancel
   mount('/admin/auth', adminAuthRouter);
   mount('/attachments', attachmentsRouter);
+  mount('/public', publicRouter); // QA-B-02: GET /public/files/:id (durable share links, no login)
   mount('/company', companyRouter);
   mount('/users', userPermissionsRouter); // /users/:id/permissions, /permission-overrides, /role (per-route auth)
   mount('/users', usersRouter);

@@ -15,7 +15,7 @@
 import { writeAudit } from '../../core/audit/audit.js';
 import { assertPerm, fieldAccess, type FieldAccess } from '../../core/auth/access.js';
 import { nextNumber } from '../../core/db/counters.js';
-import { withTenant, type Tx } from '../../core/db/withTenant.js';
+import { withPdfTenant, withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
 import { tr, type Lang } from '../../core/i18n/index.js';
 import { day, quoteCustomerHtml, quoteInternalHtml, rs, type QuotePdfData } from '../../core/pdf/templates.js';
@@ -359,7 +359,7 @@ async function customerShare(tx: Tx, c: Caller, q: QuoteRow, lang: Lang) {
 
 export async function quotePdf(id: string, query: PdfQuery) {
   const c = caller();
-  return withTenant(c.tenantId, async (tx) => {
+  return withPdfTenant(c.tenantId, async (tx) => {
     const q = await findQuote(tx, id);
     const fa = fieldsOf(c);
     const lang = await documentLang(tx, c.userId, query.lang);
@@ -401,7 +401,7 @@ export async function quotePdf(id: string, query: PdfQuery) {
 
 export async function sendQuote(id: string, input: SendQuoteInput) {
   const c = caller();
-  return withTenant(c.tenantId, async (tx) => {
+  return withPdfTenant(c.tenantId, async (tx) => {
     const q = await findQuote(tx, id);
     if (q.status === 'WON' || q.status === 'LOST') throw closed(q);
     if (q.status === 'EXPIRED') throw new Conflict('QUOTE_STATUS_INVALID', 'The quote has expired — add a revision with today’s rates first', { status: q.status });

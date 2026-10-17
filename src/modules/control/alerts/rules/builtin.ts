@@ -141,7 +141,7 @@ export const quotaExhausted: AlertRule = {
 export const spendAheadOfProgress: AlertRule = {
   rule: 'SPEND_AHEAD_OF_PROGRESS',
   source: 'CONTROL',
-  trigger: 'DAILY',
+  trigger: 'DAILY_AND_ON_WRITE', // QA-B-10: also on milestone progress
   severity: 'WARNING',
   permission: CONTROL_VIEW,
   moneyPermissions: ['fields.amounts', 'fields.contract'],

@@ -10,6 +10,9 @@ import { delayBreakdown } from '../schedule/insights.service.js';
 import { stoppageDays } from '../schedule/stoppages.service.js';
 import { controlCaller, controlProject, controlSettings, ref, today } from './control.shared.js';
 import { behindOf, isFinished, loadPlan } from './plan.js';
+import { templateKeyOf } from '../schedule/milestoneNames.js';
+import { renderPlanNote } from '../schedule/planNotes.js';
+import { responseLang } from '../../core/i18n/requestLang.js';
 
 const day = (d: Date) => formatDateOnly(d);
 const TIMELINE_MAX = 100;
@@ -24,13 +27,15 @@ export async function delayAnalysis(projectId: string) {
     const base = { project: { ...ref(project), status: project.status }, asOf: date, thresholdPoints: settings.behindPlanAlertPoints, graceDays: settings.lateFinishGraceDays };
     if (!plan) return { ...base, hasSchedule: false, delays: null, milestones: [], timeline: [], summary: { behind: 0, late: 0, finished: 0, total: 0 } };
 
-    const delays = await delayBreakdown(tx, c.tenantId, project);
+    const lang = await responseLang(tx, c.userId); // QA-B-20
+    const delays = await delayBreakdown(tx, c.tenantId, project, lang);
     const milestones = plan.milestones.map((m) => {
       const b = behindOf(m, date, plan.cal, settings);
       return {
         id: m.id,
         key: m.key,
         name: m.name,
+        templateKey: templateKeyOf(m),
         stageKey: m.stageKey,
         status: m.status,
         plannedStart: m.plannedStart,
@@ -59,7 +64,7 @@ export async function delayAnalysis(projectId: string) {
         const dates = s.dates.map(day).sort();
         return { date: dates[0]!, at: s.createdAt.getTime(), kind: 'STOPPAGE' as const, title: s.reason, detail: s.note, category: s.category, status: s.status, days: stoppageDays(dates, plan.cal), refId: s.id, plannedEnd: null, progressPercent: null };
       }),
-      ...versions.map((v) => ({ date: day(v.createdAt), at: v.createdAt.getTime(), kind: 'PLAN_VERSION' as const, title: v.reason, detail: v.note, category: null, status: `v${v.version}`, days: null, refId: v.id, plannedEnd: day(v.plannedEnd), progressPercent: null })),
+      ...versions.map((v) => ({ date: day(v.createdAt), at: v.createdAt.getTime(), kind: 'PLAN_VERSION' as const, title: v.reason, detail: renderPlanNote(lang, v.note), category: null, status: `v${v.version}`, days: null, refId: v.id, plannedEnd: day(v.plannedEnd), progressPercent: null })),
       ...updates.map((u) => ({
         date: day(u.date),
         at: u.createdAt.getTime(),

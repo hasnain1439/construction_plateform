@@ -5,13 +5,16 @@
 import { assertPerm } from '../../core/auth/access.js';
 import { Prisma } from '../../core/db/prisma.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
+import { inSequence } from '../../core/db/inSequence.js';
 import { BadRequest } from '../../core/errors/AppError.js';
 import { actor, audit, billingProject } from '../billing/billing.shared.js';
 import { recalcDrafts } from '../billing/invoices.service.js';
 import type { ProjectTaxInput, TaxSettingsInput } from './tax.schema.js';
-import { ADVISER_NOTE, AUTHORITY_INFO, companyTax, resolveTax, TAX_AUTHORITIES, type CompanyTax } from './tax.rules.js';
+import { tr, type Lang } from '../../core/i18n/index.js';
+import { responseLang } from '../../core/i18n/requestLang.js';
+import { AUTHORITY_INFO, companyTax, resolveTax, TAX_AUTHORITIES, type CompanyTax } from './tax.rules.js';
 
-function settingsDto(c: CompanyTax) {
+function settingsDto(c: CompanyTax, lang: Lang) {
   return {
     enabled: c.enabled,
     authority: c.authority,
@@ -22,14 +25,14 @@ function settingsDto(c: CompanyTax) {
     strn: c.strn,
     whtDefaultRatePercent: Number(c.whtDefaultRatePercent),
     authorities: TAX_AUTHORITIES.map((code) => ({ code, ...AUTHORITY_INFO[code] })),
-    adviserNote: ADVISER_NOTE,
+    adviserNote: tr(lang, 'tax.adviserNote'), // QA-B-20: X-Lang, else the account language
   };
 }
 
 export async function getSettings() {
   const a = actor();
   assertPerm('tax.view', a);
-  return withTenant(a.tenantId, async (tx) => settingsDto(await companyTax(tx, a.tenantId)));
+  return withTenant(a.tenantId, async (tx) => settingsDto(await companyTax(tx, a.tenantId), await responseLang(tx, a.userId)));
 }
 
 const snapshotOf = (c: CompanyTax) => ({
@@ -73,14 +76,14 @@ export async function updateSettings(input: TaxSettingsInput) {
       after: Object.fromEntries(changed.map((k) => [k, n[k]])),
       draftsRecalculated: drafts,
     });
-    return settingsDto(after);
+    return settingsDto(after, await responseLang(tx, a.userId));
   });
 }
 
 async function projectTaxDto(tx: Tx, tenantId: string, projectId: string) {
-  const [company, p] = await Promise.all([
-    companyTax(tx, tenantId),
-    tx.project.findFirstOrThrow({ where: { tenantId, id: projectId }, select: { id: true, taxMode: true, taxAuthority: true, taxRatePercent: true } }),
+  const [company, p] = await inSequence([
+    () => companyTax(tx, tenantId),
+    () => tx.project.findFirstOrThrow({ where: { tenantId, id: projectId }, select: { id: true, taxMode: true, taxAuthority: true, taxRatePercent: true } }),
   ]);
   const eff = resolveTax(company, p);
   return {

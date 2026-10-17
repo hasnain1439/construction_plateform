@@ -13,6 +13,7 @@ import type { DelayCategory, Prisma, StoppageReason } from '../../generated/pris
 import { caller, type Caller } from '../projects/access.js';
 import { addDays, daysOf, type WorkCalendar } from './calendar.js';
 import type { ApproveStoppageInput, StoppageInput } from './schedule.schema.js';
+import { stoppageApprovedNote } from './planNotes.js';
 import { audit, day, loadCalendar, photosOf, projectFor, recomputePlan, SITE_STATUSES, today } from './schedule.shared.js';
 
 type C = Pick<Caller, 'tenantId' | 'userId' | 'role'>;
@@ -39,13 +40,16 @@ export async function stoppageDtos(tx: Tx, tenantId: string, rows: Row[], cal: W
   const out = [];
   for (const r of rows) {
     const dates = r.dates.map((d) => day(d)!).sort();
+    const days = stoppageDays(dates, cal);
     out.push({
       id: r.id,
       projectId: r.projectId,
       dates,
       from: dates[0] ?? null,
       to: dates.at(-1) ?? null,
-      days: stoppageDays(dates, cal),
+      days,
+      /** QA-B-22: NO_WORKING_DAYS = every date is an off day (Sunday / holiday) — accepted, but it delays nothing. */
+      warning: days === 0 ? ('NO_WORKING_DAYS' as const) : null,
       reason: r.reason,
       category: r.category,
       status: r.status,
@@ -160,7 +164,7 @@ export async function approveStoppageTx(tx: Tx, c: C, id: string, input: Approve
   const schedule = await tx.schedule.findFirst({ where: { projectId: r.projectId }, select: { id: true } });
   const dates = r.dates.map((d) => day(d)!);
   const plan = schedule
-    ? await recomputePlan(tx, c, schedule.id, { reason: 'STOPPAGE_APPROVED', note: `${r.reason} · ${dates[0]}${dates.length > 1 ? ` – ${dates.at(-1)}` : ''}` })
+    ? await recomputePlan(tx, c, schedule.id, { reason: 'STOPPAGE_APPROVED', note: stoppageApprovedNote(r.reason, dates) })
     : { shifted: [], plannedEnd: null };
   await audit(tx, c, 'stoppage.approve', 'StoppageDay', r.id, { projectId: r.projectId, dates, reason: r.reason, category, shifted: plan.shifted.length, plannedEnd: plan.plannedEnd } as Prisma.InputJsonValue);
   return { stoppage: await one(tx, c.tenantId, r.id), shifted: plan.shifted, plannedEnd: plan.plannedEnd };

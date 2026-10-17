@@ -24,6 +24,7 @@ const ALERT = {
   actionUrl: `/projects/${IDS.dha}/control/material-variance`,
   openedAt: '2026-10-14T01:30:00.000Z',
   lastSeenAt: '2026-10-16T01:30:00.000Z',
+  lastEvaluatedAt: '2026-10-16T01:30:00.000Z',
   resolvedAt: null,
   notifiedAt: '2026-10-14T01:30:00.000Z',
   occurrences: 1,

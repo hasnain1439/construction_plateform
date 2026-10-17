@@ -6,7 +6,7 @@
  */
 import type ExcelJSModule from 'exceljs';
 import { renderPdf } from '../../core/pdf/renderer.js';
-import { date, esc, label, ltr, rs, shell, type Letterhead, type ReportColumnType } from '../../core/pdf/templates.js';
+import { auto, date, esc, isWideTable, label, REPORT_TABLE_CSS, reportCell, reportTable, rupeesWhole, shell, type Letterhead, type ReportColumnType } from '../../core/pdf/templates.js';
 import { hasKey, tr, type Lang } from '../../core/i18n/index.js';
 import { localizeReport, MIME, toCsv, type Cell, type Report, type ReportColumn } from './reports.export.js';
 import type { ReportFormat } from './reports.schema.js';
@@ -62,7 +62,8 @@ export function localizeBook(b: ReportBook, lang: Lang): ReportBook {
   };
 }
 
-const rupees = (v: Cell) => (v === null || v === '' ? null : Number(BigInt(v)) / 100);
+/** QA-B-13: whole rupees in the files. */
+const rupees = (v: Cell) => (v === null || v === '' ? null : rupeesWhole(v));
 const plain = (type: ReportColumnType, v: Cell): string | number | null => (v === null || v === undefined ? null : type === 'money' ? rupees(v) : type === 'text' || type === 'date' ? String(v) : Number(v));
 const headerOf = (c: { label: string; type: ReportColumnType }) => (c.type === 'money' ? `${c.label} (Rs)` : c.type === 'percent' ? `${c.label} (%)` : c.label);
 
@@ -111,48 +112,30 @@ export async function bookXlsx(b: ReportBook): Promise<Buffer> {
     s.columns.forEach((c, i) => {
       const col = ws.getColumn(i + 1);
       col.width = Math.min(40, Math.max(12, headerOf(c).length + 2, ...s.rows.map((row) => String(row[c.key] ?? '').length + 2)));
-      if (c.type === 'money') col.numFmt = '#,##0.00';
+      if (c.type === 'money') col.numFmt = '#,##0';
       if (c.type === 'qty') col.numFmt = '#,##0.###';
     });
   }
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
-function cellHtml(type: ReportColumnType, v: Cell | undefined): string {
-  if (v === null || v === undefined || v === '') return '';
-  switch (type) {
-    case 'money':
-      return ltr(rs(BigInt(v)));
-    case 'percent':
-      return ltr(`${v}%`);
-    case 'date':
-      return date(String(v));
-    case 'qty':
-    case 'int':
-      return ltr(Number(v).toLocaleString('en-PK', { maximumFractionDigits: 3 }));
-    default:
-      return esc(v);
-  }
-}
+/** QA-B-03: a book prints landscape when any of its tables is wide (more than 8 columns). */
+export const bookIsWide = (b: Pick<ReportBook, 'sections'>) => b.sections.some((s) => isWideTable(s.columns.length));
 
-/** Letterhead + summary block + one table per section (the Phase 1 report look). */
+/**
+ * Letterhead + summary block + one table per section (the Phase 1 report look). Wide sections are
+ * split into parts that repeat the leading text columns (templates.ts reportTable), money is in whole
+ * rupees and the totals row shows only where it has numbers (QA-B-03, QA-B-13).
+ */
 export function bookHtml(company: Letterhead, b: ReportBook, lang: Lang): string {
-  const right = (t: ReportColumnType) => (t === 'text' || t === 'date' ? '' : ' class="r"');
   const summary = b.summary.length
-    ? `<table class="report summary"><tbody>${b.summary.map((s) => `<tr><td>${esc(s.label)}</td><td class="r"><strong>${cellHtml(s.type, s.value)}</strong></td></tr>`).join('')}</tbody></table>`
+    ? `<table class="report summary"><tbody>${b.summary.map((s) => `<tr><td>${esc(s.label)}</td><td class="r"><strong>${reportCell(s.type, s.value)}</strong></td></tr>`).join('')}</tbody></table>`
     : '';
-  const sections = b.sections
-    .map((s) => {
-      const head = s.columns.map((c) => `<th${right(c.type)}>${esc(c.label)}</th>`).join('');
-      const body = s.rows.map((r) => `<tr>${s.columns.map((c) => `<td${right(c.type)}>${cellHtml(c.type, r[c.key])}</td>`).join('')}</tr>`).join('');
-      const totals = s.totals ? `<tr class="total">${s.columns.map((c, i) => `<td${right(c.type)}><strong>${i === 0 ? esc(b.totalLabel ?? tr(lang, 'common.total')) : cellHtml(c.type, s.totals![c.key])}</strong></td>`).join('')}</tr>` : '';
-      return `<h3>${esc(s.title)}</h3><table class="report"><thead><tr>${head}</tr></thead><tbody>${body || `<tr><td colspan="${s.columns.length}">${esc(tr(lang, 'common.noRows'))}</td></tr>`}${totals}</tbody></table>`;
-    })
-    .join('');
+  const sections = b.sections.map((s) => `<h3>${esc(s.title)}</h3>${reportTable(lang, s.columns, s.rows, s.totals, b.totalLabel ?? tr(lang, 'common.total'))}`).join('');
   const html = `
-  <style>table.report { font-size: 8.5px; } table.report th, table.report td { padding: 5px 5px; } tr.total td { border-top: 2px solid #0f172a; }
+  <style>${REPORT_TABLE_CSS}
   table.summary { width: 60%; } h3 { font-size: 12px; margin: 18px 0 2px; color: #1d4ed8; }</style>
-  <div class="muted" style="margin-bottom:8px">${esc(b.subtitle)}</div>${summary}${sections}`;
+  <div class="muted" style="margin-bottom:8px">${auto(esc(b.subtitle))}</div>${summary}${sections}`;
   return shell(company, lang === 'ur' ? b.title : b.title.toUpperCase(), label(lang, 'pdf.generated', {}, { date: date(b.generatedAt.slice(0, 10)) }), html, lang);
 }
 
@@ -161,7 +144,7 @@ export async function renderBook(book: ReportBook, format: Exclude<ReportFormat,
   const b = localizeBook(book, lang);
   if (format === 'csv') return bookCsv(b);
   if (format === 'xlsx') return bookXlsx(b);
-  return renderPdf(bookHtml(company!, b, lang), `${company!.name} · ${b.title}`, lang);
+  return renderPdf(bookHtml(company!, b, lang), `${company!.name} · ${b.title}`, lang, { landscape: bookIsWide(b) });
 }
 
 export { MIME };

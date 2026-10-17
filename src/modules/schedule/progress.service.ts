@@ -151,7 +151,8 @@ export async function updateProgressTx(tx: Tx, c: C, milestoneId: string, input:
     ...(input.clientId ? { clientId: input.clientId } : {}),
     warnings: warnings.map((w) => w.code),
   });
-  await controlTrigger(tx, c.tenantId, m.projectId, ['MILESTONE_BEHIND_PLAN', 'QUOTA_EXHAUSTED'], opts); // Step 14
+  // Step 14 + QA-B-10: progress changes the estimate-to-date, so material overuse and spend-vs-progress are re-checked too.
+  await controlTrigger(tx, c.tenantId, m.projectId, ['MILESTONE_BEHIND_PLAN', 'QUOTA_EXHAUSTED', 'MATERIAL_OVERUSE', 'SPEND_AHEAD_OF_PROGRESS'], opts);
   const { updates: _u, ...milestone } = await milestoneDetail(tx, c, m.id);
   void _u;
   return { id: update.id, milestone, warnings, duplicate: false };

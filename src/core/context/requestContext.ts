@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { UserRole } from '../../generated/prisma/enums.js';
 import type { Access } from '../auth/access.js';
+import type { Lang } from '../i18n/lang.js';
 
 export type ActorType = 'ANONYMOUS' | 'USER' | 'PLATFORM_ADMIN';
 
@@ -24,6 +25,11 @@ export interface RequestContext {
   platformAdminName?: string;
   /** Set by tenantContext when the company is READ_ONLY. */
   readOnly?: boolean;
+  /**
+   * QA-B-20: the UI language the web app sends in `X-Lang: en|roman|ur` (invalid values are
+   * ignored). Server-made texts for the requesting user follow it — core/i18n/requestLang.ts.
+   */
+  uiLang?: Lang;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();

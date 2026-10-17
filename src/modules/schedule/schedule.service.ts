@@ -36,6 +36,8 @@ import {
 } from './schedule.shared.js';
 import { DependencyCycleError, isFinished, topoOrder } from './scheduler.js';
 import { stoppageDtos, stoppageInclude } from './stoppages.service.js';
+import { milestoneEditedNote, renderPlanNote } from './planNotes.js';
+import { responseLang } from '../../core/i18n/requestLang.js';
 
 type C = Pick<Caller, 'tenantId' | 'userId' | 'role'> & Partial<Pick<Caller, 'fields' | 'seesFinancials'>>;
 
@@ -308,7 +310,8 @@ export async function versions(projectId: string) {
     const project = await projectFor(tx, c, projectId, 'schedule.plan.view');
     const s = await scheduleOf(tx, project.id);
     const rows = await tx.schedulePlanVersion.findMany({ where: { scheduleId: s.id }, orderBy: { version: 'desc' }, include: { createdBy: { select: { id: true, name: true } } } });
-    return rows.map((v) => ({ id: v.id, version: v.version, reason: v.reason, note: v.note, plannedEnd: day(v.plannedEnd)!, createdAt: v.createdAt.toISOString(), createdBy: v.createdBy, milestones: v.milestones }));
+    const lang = await responseLang(tx, c.userId);
+    return rows.map((v) => ({ id: v.id, version: v.version, reason: v.reason, note: renderPlanNote(lang, v.note), plannedEnd: day(v.plannedEnd)!, createdAt: v.createdAt.toISOString(), createdBy: v.createdBy, milestones: v.milestones }));
   });
 }
 
@@ -482,7 +485,8 @@ export async function editMilestone(id: string, input: MilestoneEditInput) {
             throw err;
           }
         }
-        const plan = await recomputePlan(tx, c, m.scheduleId, { reason: 'MILESTONE_EDITED', note: input.dryRun ? null : `${m.name}: ${Object.keys(changes).join(', ')}` });
+        // QA-B-09: what changed with its values (rendered per reader: planNotes.ts), not the field names.
+        const plan = await recomputePlan(tx, c, m.scheduleId, { reason: 'MILESTONE_EDITED', note: input.dryRun ? null : milestoneEditedNote(m.name, changes) });
         const after = await milestoneDetail(tx, c, m.id);
         const { updates: _u, ...milestone } = after;
         void _u;
