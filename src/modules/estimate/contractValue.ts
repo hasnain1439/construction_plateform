@@ -5,10 +5,12 @@
  *   GREY_OWNER_FINISHING  value = cost × (1 + margin %)                       → nearest Rs 1,000
  *   LABOR_ONLY            rate  = labour × (1 + margin %) ÷ covered sq ft     → nearest Rs 5
  *
- * `cost` is the contractor's estimated cost (contractor-supplied materials + labour; owner-supplied
- * material is never part of it). The finishing allowance exists because the estimate covers the
- * grey structure only, while a FULL contract also includes finishing. Labour-only: the owner buys
- * the material, so only the labour is priced, per sq ft of covered area.
+ * `cost` is the Step 11 BoQ total for the contractor's scope (direct + site overheads + contingency;
+ * owner-supplied material is never part of it) — the same number the BoQ page shows (QA-A-01/02,
+ * estimate.service.ts `boqBasis`). The BoQ already prices finishing (tiles, paint, finishing
+ * labour), so the FULL finishing allowance applies only when the BoQ prices no finishing at all —
+ * otherwise finishing would be counted twice. Labour-only: the owner buys the material, so the BoQ
+ * total is the contractor's labour scope, spread per sq ft of covered area.
  */
 import { z } from 'zod';
 import { Prisma } from '../../generated/prisma/client.js';
@@ -78,6 +80,11 @@ export const contractFromEstimateBody = z
       .multipleOf(0.01)
       .optional()
       .meta({ description: 'FULL contracts only (ignored otherwise). Omitted = the project override, else the company default', example: 0 }),
+    estimateId: z
+      .uuid()
+      .nullable()
+      .optional()
+      .meta({ description: 'Work from this saved estimate revision (the BoQ page sends the one on screen). null = the live BoQ preview (what Generate would save). Omitted = the draft, else the approved, else the newest revision, else the live BoQ preview' }),
     replace: z.boolean().default(false).meta({ description: 'Overwrite an existing contract value / rate (the user confirmed). Without it → 409 CONTRACT_VALUE_EXISTS' }),
   })
   .meta({ id: 'ContractFromEstimateInput' });

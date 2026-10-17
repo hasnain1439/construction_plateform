@@ -155,7 +155,23 @@ describe('generate → override → approve', () => {
 
     // confirmed approval of an outdated draft works too
     await api().put('/api/v1/price-list').set(auth).send({ categoryId: cat.id, rates: [{ materialId: cement.materialId, ratePaisa: '165000' }] });
-    expect((await api().post(`/api/v1/estimates/${rev2!.id}/approve`).set(auth).send({ confirmOutdatedRates: true })).status).toBe(200);
+    const confirmed = await api().post(`/api/v1/estimates/${rev2!.id}/approve`).set(auth).send({ confirmOutdatedRates: true });
+    expect(confirmed.status).toBe(200);
+    // QA-A-23: an approved revision is never "rates outdated"
+    expect(confirmed.body.data.ratesOutdated).toBe(false);
+  });
+
+  it('QA-A-23: a price change of an owner-supplied material does not mark a draft rates-outdated', async () => {
+    const auth = await owner();
+    const p = seeded().projects.dha.id;
+    const [latest] = await revisions(auth, p);
+    const draft = latest!.status === 'DRAFT' ? latest! : ((await api().post(`/api/v1/projects/${p}/estimates`).set(auth).send({})).body.data as Detail);
+    const all = lines(await get(auth, draft.id));
+    const ownerLine = all.find((l) => l.suppliedBy === 'OWNER' && l.materialId && !all.some((x) => x.materialId === l.materialId && x.suppliedBy === 'CONTRACTOR'));
+    expect(ownerLine, 'an owner-only material on the draft').toBeDefined();
+    const cat = (await api().get('/api/v1/quality-categories').set(auth)).body.data.find((c: { isDefault: boolean }) => c.isDefault);
+    expect((await api().put('/api/v1/price-list').set(auth).send({ categoryId: cat.id, rates: [{ materialId: ownerLine!.materialId, ratePaisa: '17500' }] })).status).toBe(200);
+    expect((await get(auth, draft.id)).ratesOutdated).toBe(false);
   });
 });
 
@@ -220,6 +236,11 @@ describe('compare, shopping list, PDFs', () => {
       const list = await api().get(`/api/v1/projects/${seeded().projects.dha.id}/owner-shopping-list/pdf?lang=roman`).set(auth);
       expect(list.status, JSON.stringify(list.body)).toBe(200);
       expect(list.body.data.whatsappText).toContain('aap ne lena hai');
+      // QA-A-09: every item, with the "To buy" quantity rounded up as on the page
+      const shop = (await api().get(`/api/v1/projects/${seeded().projects.dha.id}/owner-shopping-list`).set(auth)).body.data as { items: Array<{ description: string; quantity: number }> };
+      expect(shop.items.length).toBeGreaterThan(0);
+      for (const i of shop.items) expect(list.body.data.whatsappText).toContain(`• ${i.description} — ${Math.ceil(i.quantity - 1e-9).toLocaleString('en-PK')} `);
+      expect(calls[2]).toContain('Lena hai');
       expect(calls[2]).toContain('MAALIK KI KHAREEDARI LIST');
       expect(calls[2]).not.toContain('Rs ');
     } finally {

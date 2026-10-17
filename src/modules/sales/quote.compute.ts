@@ -80,7 +80,8 @@ export interface QuoteResult {
   };
   sections: Array<{ section: string; amountPaisa: string }>;
   specifications: Specification[];
-  warnings: Array<{ code: string; message: string }>;
+  /** `message` is English; `code` + `params` / `materials` / `items` let the app show it in the user's language (QA-A-10). */
+  warnings: Array<{ code: string; message: string; params?: Record<string, number>; materials?: string[]; items?: string[] }>;
 }
 
 export interface QuoteComputation {
@@ -232,8 +233,16 @@ export async function computeQuote(tx: Tx, tenantId: string, raw: QuoteInputsInp
     },
     sections: BOQ_SECTIONS.filter((s) => lines.some((l) => l.section === s)).map((s) => ({ section: s, amountPaisa: t.sections[s].toString() })),
     specifications,
-    // Engine warnings about missing rooms / foundation don't apply to a quick estimate
-    warnings: [...q.warnings.filter((w) => !['NO_ROOMS', 'FOUNDATION_MISSING', 'STRUCTURE_TYPE_ASSUMED', 'COVERED_AREA_ESTIMATED'].includes(w.code)), ...boq.warnings].map((w) => ({ code: w.code, message: w.message })),
+    // Engine warnings about missing rooms / foundation don't apply to a quick estimate. The steel / RCC
+    // norm checks compare detailed structure inputs with the rulebook; the quick mode has no such
+    // inputs (it uses the rule-of-thumb itself), so it would only flag its own defaults (QA-A-22).
+    warnings: [...q.warnings.filter((w) => !['NO_ROOMS', 'FOUNDATION_MISSING', 'STRUCTURE_TYPE_ASSUMED', 'COVERED_AREA_ESTIMATED'].includes(w.code)), ...boq.warnings.filter((w) => w.code !== 'STEEL_NORM_DEVIATION' && w.code !== 'RCC_NORM_DEVIATION')].map((w) => ({
+      code: w.code,
+      message: w.message,
+      ...('params' in w && w.params ? { params: w.params } : {}),
+      ...('materials' in w && w.materials ? { materials: w.materials as string[] } : {}),
+      ...('items' in w && w.items ? { items: w.items as string[] } : {}),
+    })),
   };
 
   return {

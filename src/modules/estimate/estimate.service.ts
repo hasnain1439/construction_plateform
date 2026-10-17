@@ -12,7 +12,7 @@ import { fieldAccess, type FieldAccess } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { Prisma } from '../../generated/prisma/client.js';
 import { currentRates, defaultCategory } from '../master-data/master-data.repository.js';
-import { BadRequest, Conflict } from '../../core/errors/AppError.js';
+import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
 import { assertEditable, assertProjectScope, caller, findEditableProject, type Caller } from '../projects/access.js';
 import { plotCalc } from '../projects/calc.js';
 import { readFoundation } from '../projects/foundation.js';
@@ -186,7 +186,7 @@ export interface EstimateWarning {
   items?: LabourItem[];
 }
 
-function toDto(ctx: EstimateContext, fa: FieldAccess, generatedAt: Date, margins: MarginDefaults) {
+function toDto(ctx: EstimateContext, fa: FieldAccess, generatedAt: Date, margins: MarginDefaults, basis: BoqBasis) {
   const { p, overrides, settings, q, priced } = ctx;
   const rates = fa.rates;
   const warnings: EstimateWarning[] = [...q.warnings];
@@ -214,8 +214,8 @@ function toDto(ctx: EstimateContext, fa: FieldAccess, generatedAt: Date, margins
   }
   const contract = contractTotalPaisa(p);
   if (fa.contract && contract === null) warnings.push({ code: 'CONTRACT_VALUE_MISSING', tab: 2, message: 'No contract value — the margin cannot be worked out' });
-  if (fa.contract && contract !== null && p.contractType === 'FULL') {
-    warnings.push({ code: 'CONTRACT_INCLUDES_FINISHING', message: 'Full contract: the contract value also covers finishing, which this grey-structure estimate does not' });
+  if (fa.contract && contract !== null && p.contractType === 'FULL' && basis.finishingPaisa === 0n) {
+    warnings.push({ code: 'CONTRACT_INCLUDES_FINISHING', message: 'Full contract: the contract value also covers finishing, which this estimate does not price' });
   }
 
   const money = <T extends object>(values: T) => (rates ? values : {});
@@ -298,8 +298,10 @@ function toDto(ctx: EstimateContext, fa: FieldAccess, generatedAt: Date, margins
         ...(fa.contract && fa.profit ? { marginPaisa: str(c.marginPaisa), marginPercent: c.marginPercent } : {}),
       },
     }),
+    // The BoQ cost (QA-A-01): the one number the wizard, the BoQ page and the contract suggestion all use
+    ...(rates ? { boqCost: boqCostDto(basis, contract, fa) } : {}),
     // Contract value from this estimate: needs the contract value (fields.contract) and the cost (fields.rates)
-    ...(fa.contract && rates ? { contractSuggestion: contractSuggestion(p, q.basis.coveredAreaSqft, c, margins) } : {}),
+    ...(fa.contract && rates ? { contractSuggestion: contractSuggestion(p, basis, margins) } : {}),
     warnings,
   };
 }
@@ -335,29 +337,128 @@ export function effectiveMargins(p: PricingProject, company: MarginDefaults, sen
   };
 }
 
-function contractSuggestion(p: PricingProject, coveredAreaSqft: number, cost: PricedEstimate['cost'], company: MarginDefaults, sent: Partial<MarginDefaults> = {}) {
+/**
+ * The BoQ cost the contract value is worked from (QA-A-01 / 02): the full Step 11 BoQ total for the
+ * contractor's scope (direct + site overheads + contingency; owner-supplied lines are never in it)
+ * — of a saved revision when the project has one (the one the BoQ page opens by default: the draft,
+ * else the approved one, else the newest; or the one asked for), else of the live BoQ preview.
+ */
+export interface BoqBasis {
+  source: 'REVISION' | 'LIVE';
+  estimateId: string | null;
+  revision: number | null;
+  status: 'DRAFT' | 'APPROVED' | 'SUPERSEDED' | null;
+  directCostPaisa: bigint;
+  overheadPaisa: bigint;
+  contingencyPaisa: bigint;
+  totalPaisa: bigint;
+  /** Contractor-priced FINISHING-stage amount (0 = the BoQ prices no finishing). */
+  finishingPaisa: bigint;
+  coveredAreaSqft: number;
+}
+
+export async function boqBasis(tx: Tx, ctx: Pick<EstimateContext, 'p' | 'boq'>, estimateId?: string | null): Promise<BoqBasis> {
+  const list = await tx.estimate.findMany({
+    where: { projectId: ctx.p.id },
+    select: { id: true, revision: true, status: true, directCostPaisa: true, overheadPaisa: true, contingencyPaisa: true, totalPaisa: true, coveredAreaSqft: true },
+    orderBy: { revision: 'desc' },
+  });
+  const e =
+    estimateId === null
+      ? undefined // explicitly the live preview
+      : estimateId
+        ? list.find((x) => x.id === estimateId)
+        : (list.find((x) => x.status === 'DRAFT') ?? list.find((x) => x.status === 'APPROVED') ?? list[0]);
+  if (estimateId && !e) throw new NotFound('ESTIMATE_NOT_FOUND', 'Estimate revision not found for this project');
+  if (e) {
+    const fin = await tx.estimateLine.aggregate({
+      where: { estimateId: e.id, stageKey: 'FINISHING', suppliedBy: 'CONTRACTOR', kind: { not: 'PERCENT' } },
+      _sum: { amountPaisa: true },
+    });
+    return {
+      source: 'REVISION',
+      estimateId: e.id,
+      revision: e.revision,
+      status: e.status,
+      directCostPaisa: e.directCostPaisa,
+      overheadPaisa: e.overheadPaisa,
+      contingencyPaisa: e.contingencyPaisa,
+      totalPaisa: e.totalPaisa,
+      finishingPaisa: fin._sum.amountPaisa ?? 0n,
+      coveredAreaSqft: Number(e.coveredAreaSqft),
+    };
+  }
+  const t = ctx.boq.totals;
+  return {
+    source: 'LIVE',
+    estimateId: null,
+    revision: null,
+    status: null,
+    directCostPaisa: t.directCostPaisa,
+    overheadPaisa: t.overheadPaisa,
+    contingencyPaisa: t.contingencyPaisa,
+    totalPaisa: t.totalPaisa,
+    finishingPaisa: t.stages.FINISHING,
+    coveredAreaSqft: ctx.boq.coveredAreaSqft,
+  };
+}
+
+function boqCostDto(b: BoqBasis, contract: bigint | null, fa: FieldAccess) {
+  const margin = contract === null ? null : contract - b.totalPaisa;
+  return {
+    source: b.source,
+    estimateId: b.estimateId,
+    revision: b.revision,
+    status: b.status,
+    directCostPaisa: b.directCostPaisa.toString(),
+    overheadPaisa: b.overheadPaisa.toString(),
+    contingencyPaisa: b.contingencyPaisa.toString(),
+    totalPaisa: b.totalPaisa.toString(),
+    perSqftPaisa:
+      b.coveredAreaSqft > 0 ? BigInt(new Prisma.Decimal(b.totalPaisa.toString()).div(b.coveredAreaSqft).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP).toFixed(0)).toString() : null,
+    coveredAreaSqft: b.coveredAreaSqft,
+    ...(fa.contract ? { contractTotalPaisa: str(contract) } : {}),
+    ...(fa.contract && fa.profit
+      ? { marginPaisa: str(margin), marginPercent: contract && contract > 0n && margin !== null ? Math.round((Number(margin) / Number(contract)) * 10000) / 100 : null }
+      : {}),
+  };
+}
+
+/**
+ * The suggestion starts from the BoQ total (contractor scope). The BoQ already prices finishing
+ * (tiles, paint, finishing labour), so for a FULL contract the finishing allowance applies only
+ * when the BoQ prices no finishing at all (finishingPaisa = 0) — never on top of priced finishing.
+ * Labour-only: the owner buys the material, so the BoQ total is the contractor's labour scope
+ * (labour + lump sums + overheads + contingency), spread per sq ft.
+ */
+export function contractSuggestion(p: PricingProject, b: BoqBasis, company: MarginDefaults, sent: Partial<MarginDefaults> = {}) {
   if (!p.contractType) return null;
   const m = effectiveMargins(p, company, sent);
+  const finishingApplies = p.contractType === 'FULL' && b.finishingPaisa === 0n;
   const s = suggest({
     contractType: p.contractType,
-    costPaisa: cost.totalPaisa,
-    labourPaisa: cost.labourPaisa,
-    coveredAreaSqft: coveredAreaSqft > 0 ? coveredAreaSqft : null,
+    costPaisa: b.totalPaisa,
+    labourPaisa: b.totalPaisa,
+    coveredAreaSqft: b.coveredAreaSqft > 0 ? b.coveredAreaSqft : null,
     marginPercent: m.margin.value,
-    finishingAllowancePercent: m.finishing.value,
+    finishingAllowancePercent: finishingApplies ? m.finishing.value : 0,
   });
   const current = s.kind === 'RATE_PER_SQFT' ? p.ratePerSqftPaisa : p.contractValuePaisa;
   return {
     kind: s.kind,
     contractType: p.contractType,
-    /** Estimated cost (labour-only: the estimated labour) the suggestion starts from. */
+    /** The BoQ total (contractor scope) the suggestion starts from. */
     basisPaisa: s.basisPaisa.toString(),
-    coveredAreaSqft,
+    basisSource: b.source,
+    estimateId: b.estimateId,
+    estimateRevision: b.revision,
+    estimateStatus: b.status,
+    coveredAreaSqft: b.coveredAreaSqft,
     marginPercent: m.margin.value,
     marginSource: m.margin.source,
-    finishingAllowancePercent: s.finishingApplies ? m.finishing.value : 0,
+    finishingAllowancePercent: finishingApplies ? m.finishing.value : 0,
     finishingSource: m.finishing.source,
-    finishingApplies: s.finishingApplies,
+    finishingApplies,
     companyMarginPercent: company.marginPercent,
     companyFinishingAllowancePercent: company.finishingAllowancePercent,
     suggestedPaisa: str(s.suggestedPaisa),
@@ -371,6 +472,8 @@ export interface FromEstimateInput {
   marginPercent?: number;
   finishingAllowancePercent?: number;
   replace?: boolean;
+  /** The saved revision to work from (the BoQ page sends the one on screen); null = the live BoQ preview; omitted = the default one. */
+  estimateId?: string | null;
 }
 
 /**
@@ -385,13 +488,14 @@ export async function contractFromEstimate(projectId: string, input: FromEstimat
     const project = await findEditableProject(tx, c, projectId);
     if (!project.contractType) throw new BadRequest('CONTRACT_MISSING', 'Choose the contract type (step 2) first');
     const p = await repo.loadFull(tx, projectId);
-    const { q, priced } = await computeEstimate(tx, c.tenantId, p);
+    const ctx = await computeEstimate(tx, c.tenantId, p);
+    const basis = await boqBasis(tx, ctx, input.estimateId);
     const company = await marginDefaults(tx, c.tenantId);
-    const s = contractSuggestion(p, q.basis.coveredAreaSqft, priced.cost, company, input)!;
+    const s = contractSuggestion(p, basis, company, input)!;
     if (s.suggestedPaisa === null) {
       throw new BadRequest(
         'ESTIMATE_COST_MISSING',
-        s.kind === 'RATE_PER_SQFT' ? 'The estimate has no labour cost (or no covered area) to work a rate from' : 'The estimate has no cost yet — add rooms and material rates first',
+        s.kind === 'RATE_PER_SQFT' ? 'The BoQ has no cost (or no covered area) to work a rate from' : 'The BoQ has no cost yet — add rooms and material rates first',
       );
     }
     if (s.currentPaisa !== null && !input.replace) {
@@ -417,6 +521,9 @@ export async function contractFromEstimate(projectId: string, input: FromEstimat
       contractType: project.contractType,
       kind: s.kind,
       costPaisa: s.basisPaisa,
+      basisSource: s.basisSource,
+      estimateId: s.estimateId,
+      estimateRevision: s.estimateRevision,
       coveredAreaSqft: s.coveredAreaSqft,
       marginPercent: s.marginPercent,
       marginSource: s.marginSource,
@@ -537,7 +644,7 @@ export async function buildEstimate(tx: Tx, c: Caller, projectId: string) {
   const p = await repo.loadFull(tx, projectId);
   const ctx = await computeEstimate(tx, c.tenantId, p);
   const fa = c.fields ?? fieldAccess(c);
-  const dto = toDto(ctx, fa, new Date(), await marginDefaults(tx, c.tenantId));
+  const dto = toDto(ctx, fa, new Date(), await marginDefaults(tx, c.tenantId), await boqBasis(tx, ctx));
   return { ...dto, boq: boqDto(ctx, fa) };
 }
 

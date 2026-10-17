@@ -114,6 +114,15 @@ describe('PDFs', () => {
       const text = html.replace(/<style[\s\S]*?<\/style>/g, ''); // CSS has margin-*
       for (const word of ['Margin', 'margin', 'Estimated cost', 'Direct cost', 'Contingency', 'Site overheads', 'Internal', 'Paisa']) expect(text).not.toContain(word);
       for (const s of r.sections) expect(html).not.toContain(rs(s.amountPaisa!));
+      // QA-A-05: grey + owner finishing — paint / tiles are the owner's, not "Work included"
+      expect(r.sections.find((s) => s.section === 'PAINT')?.amountPaisa).toBe('0');
+      const included = /Work included<\/td><td>([^<]*)</.exec(html)![1]!;
+      const byOwner = /By the owner \/ not included<\/td><td>([^<]*)</.exec(html)![1]!;
+      expect(included).not.toContain('Paint');
+      expect(byOwner).toContain('Paint');
+      expect(included.length).toBeGreaterThan(0);
+      // phones are formatted (QA-A-33)
+      expect(html).not.toMatch(/\+92\d{10}/);
 
       const internal = await api().get(`/api/v1/quotes/${q.id}/pdf?variant=internal&lang=en`).set(auth);
       expect(internal.status).toBe(200);
@@ -121,6 +130,9 @@ describe('PDFs', () => {
       expect(ih).toContain(rs(r.costPaisa!));
       expect(ih).toContain(rs(r.marginPaisa!));
       expect(ih).toContain('Margin');
+      // overheads / contingency once (in the totals), not again in the section list (QA-A-33)
+      expect(ih.split('Site overheads').length - 1).toBe(1);
+      expect(ih.split('Contingency').length - 1).toBe(1);
 
       // Urdu customer PDF renders right-to-left
       expect((await api().get(`/api/v1/quotes/${q.id}/pdf?lang=ur`).set(auth)).status).toBe(200);

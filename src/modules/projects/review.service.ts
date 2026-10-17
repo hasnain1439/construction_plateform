@@ -72,7 +72,7 @@ export function reviewProject(p: repo.ProjectFull, c: Caller) {
     warn(
       5,
       'ROOM_AREA_VS_COVERED',
-      `Rooms add up to ${calc.totalFloorAreaSqft} sq ft vs ${covered} sq ft covered — more than 15% apart (walls and passages?)`,
+      `Rooms add up to ${calc.totalFloorAreaSqft.toLocaleString('en-PK')} sq ft vs ${covered.toLocaleString('en-PK')} sq ft covered — more than 15% apart (walls and passages?)`,
     );
   }
 

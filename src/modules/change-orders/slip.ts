@@ -8,7 +8,7 @@ import { withTenant } from '../../core/db/withTenant.js';
 import { Forbidden } from '../../core/errors/AppError.js';
 import type { Lang, MessageKey, Params } from '../../core/i18n/index.js';
 import { tr, unitLabel } from '../../core/i18n/index.js';
-import { date, esc, label, ltr, rs, shell, type Letterhead } from '../../core/pdf/templates.js';
+import { date, day, esc, label, ltr, rs, shell, type Letterhead } from '../../core/pdf/templates.js';
 import type { ChangeOrderProofType, ChangeOrderStatus, ChangeOrderType } from '../../generated/prisma/client.js';
 import { documentLang, letterhead, pdfFileName, salutation, shareOf, storePdf } from '../billing/documents.js';
 import type { PdfQuery } from './changeOrders.schema.js';
@@ -50,8 +50,8 @@ export function slipHtml(d: SlipData, lang: Lang = 'en'): string {
     <div><div class="label">${L('pdf.project')}</div><strong>${esc(d.project.name)}</strong><div class="muted">${ltr(esc(d.project.code))}${d.project.address ? `<br>${esc(d.project.address)}` : ''}</div></div>
     <div><div class="label">${L('pdf.changeOrderKind')}</div><strong>${L(`pdf.changeOrderType.${d.type}` as MessageKey)}</strong></div>
   </div>
-  <h3>${ltr(esc(d.code))} · ${esc(d.title)}</h3>
-  ${d.description ? `<div class="note">${esc(d.description)}</div>` : ''}
+  <h3>${ltr(esc(d.code))} · <bdi dir="auto">${esc(d.title)}</bdi></h3>
+  ${d.description ? `<div class="note" dir="auto">${esc(d.description)}</div>` : ''}
   <div class="note">${L(deduction ? 'pdf.changeOrderIntroDeduction' : 'pdf.changeOrderIntro')}</div>
   ${
     d.lines.length
@@ -111,13 +111,15 @@ export async function slipPdf(id: string, query: PdfQuery) {
     const attachmentId = await storePdf(tx, a.tenantId, a.userId, 'DOCUMENT', pdfFileName(`${code} ${project.code}`, lang), html, `${tr(lang, 'pdf.changeOrder')} · ${code} · ${project.name}`, lang);
     await audit(tx, a, 'changeorder.pdf', 'ChangeOrder', co.id, { code, attachmentId, lang });
     const share = await shareOf(tx, a.tenantId, attachmentId, (url) =>
-      tr(lang, co.daysImpact > 0 ? 'share.changeOrderDays' : 'share.changeOrder', {
+      // An approved change order is not sent for approval again (QA-A-27)
+      tr(lang, co.approvedOn ? 'share.changeOrderApproved' : co.daysImpact > 0 ? 'share.changeOrderDays' : 'share.changeOrder', {
         salutation: salutation(client?.name, lang),
         project: project.name,
         code,
         title: co.title,
         amount: rs(co.totalPaisa),
         days: co.daysImpact,
+        date: co.approvedOn ? day(ymd(co.approvedOn)!) : '',
         url,
       }),
     );

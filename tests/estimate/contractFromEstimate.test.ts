@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { prismaAdmin } from '../../src/core/db/prisma.js';
 import { suggestContractValue, suggestLabourRate } from '../../src/modules/estimate/contractValue.js';
+import { contractSuggestion, type BoqBasis } from '../../src/modules/estimate/estimate.service.js';
 import { api, bearer, loginMobile, SEED, useFreshDatabase } from '../helpers.js';
 import { createDraft } from '../projects/fixtures.js';
 
@@ -152,12 +153,12 @@ describe('contract value from the estimate', () => {
     const auth = await owner();
     const p = await draftWithoutValue(auth);
     const e = await estimateOf(auth, p.id);
-    const cost = BigInt(e.cost.totalPaisa);
+    const cost = BigInt(e.boqCost.totalPaisa);
     expect(cost).toBeGreaterThan(0n);
     expect(e.contractSuggestion).toMatchObject({
       kind: 'CONTRACT_VALUE',
       contractType: 'GREY_OWNER_FINISHING',
-      basisPaisa: e.cost.totalPaisa,
+      basisPaisa: e.boqCost.totalPaisa,
       marginPercent: 20,
       marginSource: 'COMPANY',
       finishingApplies: false,
@@ -190,7 +191,7 @@ describe('contract value from the estimate', () => {
     const audit = await prismaAdmin.auditLog.findFirstOrThrow({ where: { action: 'project.contract_from_estimate', entityId: p.id } });
     expect(audit.details).toMatchObject({
       kind: 'CONTRACT_VALUE',
-      costPaisa: e.cost.totalPaisa,
+      costPaisa: e.boqCost.totalPaisa,
       marginPercent: 20,
       marginSource: 'COMPANY',
       finishingAllowancePercent: 0,
@@ -205,30 +206,32 @@ describe('contract value from the estimate', () => {
     const auth = await owner();
     const p = await draftWithoutValue(auth, { contractType: 'FULL', billingModel: 'STAGE_SCHEDULE', contractValuePaisa: '500000000' });
     const e = await estimateOf(auth, p.id);
-    const cost = BigInt(e.cost.totalPaisa);
-    expect(e.contractSuggestion).toMatchObject({ finishingApplies: true, currentPaisa: '500000000' });
+    const cost = BigInt(e.boqCost.totalPaisa);
+    // The BoQ prices finishing (tiles, paint, finishing labour) → no finishing allowance on top (never counted twice)
+    expect(e.contractSuggestion).toMatchObject({ finishingApplies: false, finishingAllowancePercent: 0, currentPaisa: '500000000' });
 
     const exists = await fromEstimate(auth, p.id, { marginPercent: 25, finishingAllowancePercent: 40 });
     expect(exists.status).toBe(409);
-    expect(exists.body.error).toMatchObject({ code: 'CONTRACT_VALUE_EXISTS', details: { currentPaisa: '500000000', suggestedPaisa: String(suggestContractValue(cost, 25, 40)) } });
+    expect(exists.body.error).toMatchObject({ code: 'CONTRACT_VALUE_EXISTS', details: { currentPaisa: '500000000', suggestedPaisa: String(suggestContractValue(cost, 25, 0)) } });
 
     const replaced = await fromEstimate(auth, p.id, { marginPercent: 25, finishingAllowancePercent: 40, replace: true });
     expect(replaced.status).toBe(200);
-    expect(replaced.body.data.contract.contractValuePaisa).toBe(String(suggestContractValue(cost, 25, 40)));
-    // the custom percentages are stored and shown as PROJECT
+    expect(replaced.body.data.contract.contractValuePaisa).toBe(String(suggestContractValue(cost, 25, 0)));
+    // the custom percentages are stored and shown as PROJECT (the stored allowance is kept for a BoQ without finishing)
     const after = await estimateOf(auth, p.id);
-    expect(after.contractSuggestion).toMatchObject({ marginPercent: 25, marginSource: 'PROJECT', finishingAllowancePercent: 40, finishingSource: 'PROJECT' });
+    expect(after.contractSuggestion).toMatchObject({ marginPercent: 25, marginSource: 'PROJECT', finishingAllowancePercent: 0, finishingSource: 'PROJECT' });
+    expect(Number((await prismaAdmin.project.findUniqueOrThrow({ where: { id: p.id } })).finishingAllowancePercent)).toBe(40);
     const audit = await prismaAdmin.auditLog.findFirstOrThrow({ where: { action: 'project.contract_from_estimate', entityId: p.id } });
-    expect(audit.details).toMatchObject({ marginPercent: 25, marginSource: 'PROJECT', finishingAllowancePercent: 40, previousPaisa: '500000000' });
+    expect(audit.details).toMatchObject({ marginPercent: 25, marginSource: 'PROJECT', finishingAllowancePercent: 0, previousPaisa: '500000000' });
   });
 
   it('labour-only: sets the rate = labour × (1 + margin) ÷ covered sq ft, nearest Rs 5', async () => {
     const auth = await owner();
     const p = await draftWithoutValue(auth, { contractType: 'LABOR_ONLY', billingModel: 'RUNNING_BILLS' });
     const e = await estimateOf(auth, p.id);
-    const labour = BigInt(e.cost.labourPaisa);
+    const labour = BigInt(e.boqCost.totalPaisa);
     expect(labour).toBeGreaterThan(0n);
-    expect(e.contractSuggestion).toMatchObject({ kind: 'RATE_PER_SQFT', basisPaisa: e.cost.labourPaisa, coveredAreaSqft: 1000, suggestedPaisa: String(suggestLabourRate(labour, 20, 1000)) });
+    expect(e.contractSuggestion).toMatchObject({ kind: 'RATE_PER_SQFT', basisPaisa: e.boqCost.totalPaisa, coveredAreaSqft: 1000, suggestedPaisa: String(suggestLabourRate(labour, 20, 1000)) });
     const res = await fromEstimate(auth, p.id);
     expect(res.status).toBe(200);
     expect(res.body.data.contract.ratePerSqftPaisa).toBe(e.contractSuggestion.suggestedPaisa);
@@ -243,9 +246,74 @@ describe('contract value from the estimate', () => {
     expect(e.contractSuggestion).toMatchObject({
       marginPercent: 15,
       marginSource: 'COMPANY',
-      finishingAllowancePercent: 60,
-      suggestedPaisa: String(suggestContractValue(BigInt(e.cost.totalPaisa), 15, 60)),
+      companyFinishingAllowancePercent: 60,
+      // the BoQ prices finishing → the allowance does not apply
+      finishingApplies: false,
+      finishingAllowancePercent: 0,
+      suggestedPaisa: String(suggestContractValue(BigInt(e.boqCost.totalPaisa), 15, 0)),
     });
+  });
+
+  it('the finishing allowance applies to a FULL contract only when the BoQ prices no finishing', () => {
+    const company = { marginPercent: 20, finishingAllowancePercent: 30 };
+    const project = { contractType: 'FULL' as const, contractValuePaisa: null, ratePerSqftPaisa: null, marginPercent: null, finishingAllowancePercent: null };
+    const basis: BoqBasis = {
+      source: 'LIVE',
+      estimateId: null,
+      revision: null,
+      status: null,
+      directCostPaisa: 900_000_00n,
+      overheadPaisa: 50_000_00n,
+      contingencyPaisa: 50_000_00n,
+      totalPaisa: 1_000_000_00n,
+      finishingPaisa: 0n,
+      coveredAreaSqft: 1000,
+    };
+    expect(contractSuggestion(project, basis, company)).toMatchObject({ finishingApplies: true, finishingAllowancePercent: 30, suggestedPaisa: String(suggestContractValue(1_000_000_00n, 20, 30)) });
+    expect(contractSuggestion(project, { ...basis, finishingPaisa: 1n }, company)).toMatchObject({ finishingApplies: false, finishingAllowancePercent: 0, suggestedPaisa: String(suggestContractValue(1_000_000_00n, 20, 0)) });
+    expect(contractSuggestion({ ...project, contractType: 'GREY_OWNER_FINISHING' }, basis, company)).toMatchObject({ finishingApplies: false, basisPaisa: '100000000' });
+    // labour-only: the BoQ total (the contractor's labour scope) per sq ft
+    expect(contractSuggestion({ ...project, contractType: 'LABOR_ONLY' }, basis, company)).toMatchObject({ kind: 'RATE_PER_SQFT', suggestedPaisa: String(suggestLabourRate(1_000_000_00n, 20, 1000)) });
+  });
+
+  it('QA-A-01/02: the suggestion, boqCost and the saved BoQ revision use the same total (live → draft → approved; estimateId picks one)', async () => {
+    const auth = await owner();
+    const p = await draftWithoutValue(auth);
+    // Before any revision: the live BoQ preview
+    const live = await estimateOf(auth, p.id);
+    expect(live.boqCost).toMatchObject({ source: 'LIVE', estimateId: null, totalPaisa: live.boq.totalPaisa, directCostPaisa: live.boq.directCostPaisa });
+    expect(live.contractSuggestion).toMatchObject({ basisSource: 'LIVE', basisPaisa: live.boq.totalPaisa });
+    // the BoQ total is more than the old grey-structure cost (overheads, contingency, earthwork …)
+    expect(BigInt(live.boq.totalPaisa)).toBeGreaterThan(BigInt(live.cost.totalPaisa));
+
+    // Generate Rev 1 and adjust a line → the revision total differs from the live preview
+    const gen = await api().post(`/api/v1/projects/${p.id}/estimates`).set(auth).send({});
+    expect(gen.status, JSON.stringify(gen.body)).toBe(201);
+    const rev = gen.body.data;
+    const line = rev.sections.flatMap((s: { lines: Array<{ id: string; kind: string; suppliedBy: string; amountPaisa: string | null }> }) => s.lines).find((l: { kind: string; suppliedBy: string; amountPaisa: string | null }) => l.kind === 'MATERIAL' && l.suppliedBy === 'CONTRACTOR' && l.amountPaisa);
+    const adj = await api().patch(`/api/v1/estimates/${rev.id}/lines/${line.id}`).set(auth).send({ quantity: 1, note: 'QA' });
+    expect(adj.status, JSON.stringify(adj.body)).toBe(200);
+    const draft = (await api().get(`/api/v1/estimates/${rev.id}`).set(auth)).body.data;
+    expect(draft.totalPaisa).not.toBe(live.boq.totalPaisa);
+
+    const withDraft = await estimateOf(auth, p.id);
+    expect(withDraft.boqCost).toMatchObject({ source: 'REVISION', estimateId: rev.id, revision: 1, status: 'DRAFT', totalPaisa: draft.totalPaisa, perSqftPaisa: draft.perSqftPaisa });
+    expect(withDraft.contractSuggestion).toMatchObject({ basisSource: 'REVISION', estimateId: rev.id, basisPaisa: draft.totalPaisa, suggestedPaisa: String(suggestContractValue(BigInt(draft.totalPaisa), 20)) });
+
+    // estimateId: null = the live preview; an unknown id → 404
+    expect((await fromEstimate(auth, p.id, { estimateId: '01900000-0000-7000-8000-000000000000' })).body.error.code).toBe('ESTIMATE_NOT_FOUND');
+    const fromLive = await fromEstimate(auth, p.id, { estimateId: null });
+    expect(fromLive.status, JSON.stringify(fromLive.body)).toBe(200);
+    expect(fromLive.body.data.contract.contractValuePaisa).toBe(String(suggestContractValue(BigInt(live.boq.totalPaisa), 20)));
+    // the revision on screen
+    const fromRev = await fromEstimate(auth, p.id, { estimateId: rev.id, replace: true });
+    expect(fromRev.status).toBe(200);
+    expect(fromRev.body.data.contract.contractValuePaisa).toBe(withDraft.contractSuggestion.suggestedPaisa);
+
+    // the margin shown with the BoQ cost is the BoQ margin (same as the revision's)
+    const after = await estimateOf(auth, p.id);
+    const revAfter = (await api().get(`/api/v1/estimates/${rev.id}`).set(auth)).body.data;
+    expect(after.boqCost).toMatchObject({ contractTotalPaisa: revAfter.contractTotalPaisa, marginPaisa: revAfter.marginPaisa, marginPercent: revAfter.marginPercent });
   });
 
   it('errors: no contract type → CONTRACT_MISSING; no cost → ESTIMATE_COST_MISSING; validation; locked', async () => {
