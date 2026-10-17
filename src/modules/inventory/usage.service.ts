@@ -1,6 +1,8 @@
 /** Material used on a site (USAGE_OUT at average cost; owner-supplied at 0). */
+import { controlTrigger } from '../control/trigger.js';
 import { fieldsOf, visible } from '../../core/auth/fieldStrip.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
+import { BadRequest } from '../../core/errors/AppError.js';
 import { pageMeta, skipTake } from '../../core/http/pagination.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
 import type { Prisma } from '../../generated/prisma/client.js';
@@ -57,6 +59,11 @@ const usageInclude = {
 export async function recordUsageTx(tx: Tx, a: Actor, projectId: string, input: UsageInput, opts: { at?: Date } = {}) {
   const project = await findProjectFor(tx, a, projectId);
   assertEditable(project, [...STOCK_OPEN_STATUSES]);
+  if (input.milestoneId) {
+    // Step 13: usage linked to a schedule milestone counts against its material quota.
+    const milestone = await tx.milestone.findFirst({ where: { tenantId: a.tenantId, id: input.milestoneId, projectId: project.id }, select: { id: true } });
+    if (!milestone) throw new BadRequest('INVALID_MILESTONE', 'Choose a milestone of this project');
+  }
   const location = await siteLocation(tx, a.tenantId, project);
   const at = opts.at ?? occurredAtFor(input.usageDate);
   const materials = await loadMaterials(tx, a.tenantId, input.items.map((i) => i.materialId));
@@ -94,6 +101,7 @@ export async function recordUsageTx(tx: Tx, a: Actor, projectId: string, input: 
     usageDate: input.usageDate,
     items: lines.map((l) => ({ materialId: l.materialId, qty: qn(l.qty), ownerSupplied: l.ownerSupplied })),
   });
+  await controlTrigger(tx, a.tenantId, project.id, ['MATERIAL_OVERUSE', 'QUOTA_EXHAUSTED'], opts); // Step 14
   return toUsageDto(await tx.materialUsage.findUniqueOrThrow({ where: { id: usage.id }, include: usageInclude }), a);
 }
 

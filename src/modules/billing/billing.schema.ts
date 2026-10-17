@@ -78,12 +78,27 @@ export const issueBody = z.object({ issueDate: isoDateSchema.optional().meta({ d
 export const cancelBody = z.object({ reason: requiredNote });
 export const invoicesQuery = paginationQuery.extend({
   status: invoiceStatusSchema.optional(),
-  type: invoiceTypeSchema.optional(),
+  type: z.enum(['STAGE', 'RUNNING_BILL', 'RECOVERABLE', 'RETENTION', 'OTHER', 'VARIATION']).optional(), // Step 15: VARIATION = change order invoices
   from: isoDateSchema.optional(),
   to: isoDateSchema.optional(),
 });
 
 // ─── B3: payments ───────────────────────────────────────────────────────────
+
+const whtRateSchema = z.number().gt(0, 'Must be more than 0 and at most 30').max(30, 'Must be more than 0 and at most 30').multipleOf(0.01);
+const whtCertificateNo = z.string().trim().min(1, 'Enter the certificate number').max(40);
+
+/** Step 18: the WHT certificate usually arrives weeks after the payment. */
+export const whtCertificateBody = z
+  .object({
+    certificateNo: whtCertificateNo.nullable().meta({ description: 'null removes the certificate', example: 'WHT-2026-00412' }),
+    certificateDate: isoDateSchema.nullable().optional(),
+    attachmentId: uuid('attachmentId').nullable().optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.certificateNo === null && (v.certificateDate || v.attachmentId)) ctx.addIssue({ code: 'custom', path: ['certificateNo'], message: 'Enter the certificate number' });
+  });
+export type WhtCertificateInput = z.infer<typeof whtCertificateBody>;
 
 export const paymentBody = z
   .object({
@@ -95,6 +110,11 @@ export const paymentBody = z
     chequeNo: z.string().trim().max(30).optional(),
     chequeDate: isoDateSchema.optional(),
     whtDeductedPaisa: paisaSchema.optional().meta({ description: 'Tax withheld by the owner (only when tax is on)' }),
+    // Step 18 · client WHT details
+    whtRatePercent: whtRateSchema.optional().meta({ description: 'WHT % of the gross (cash + WHT). Alone → the WHT amount is worked out; with whtDeductedPaisa → must match within Rs 1', example: 8 }),
+    whtCertificateNo: whtCertificateNo.optional(),
+    whtCertificateDate: isoDateSchema.optional(),
+    whtCertificateAttachmentId: uuid('whtCertificateAttachmentId').optional().meta({ description: "Photo / PDF of the client's withholding certificate" }),
     attachmentId: uuid('attachmentId').optional(),
     note: note.optional(),
     allocations: z

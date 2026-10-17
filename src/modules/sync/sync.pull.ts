@@ -78,7 +78,7 @@ async function incremental(tx: Tx, sc: SyncScope, batch: SyncChange[]): Promise<
     }
     const ids = [...new Set(mine.map((c) => c.rowId))];
     const upserts = await t.load(tx, sc, ids);
-    const found = new Set(upserts.map((r) => (t.name === 'site_stock' ? String(r['locationId']) : r.id)));
+    const found = new Set(upserts.map((r) => (t.keyOf ? t.keyOf(r) : t.name === 'site_stock' ? String(r['locationId']) : r.id)));
     const deletes = [...new Set(mine.filter((c) => c.op === 'DELETE' && !found.has(c.rowId) && mayTombstone(c, sc)).map((c) => c.rowId))];
     // A project leaving the caller's scope (handed over, closed) is removed from the phone.
     if (t.name === 'projects') {

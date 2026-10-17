@@ -24,6 +24,8 @@ function uniqueFields(err: Prisma.PrismaClientKnownRequestError): string[] {
   return cause?.constraint?.fields?.map((f) => f.replace(/"/g, '')) ?? [];
 }
 
+const BUSY_MESSAGE = /timeout exceeded when trying to connect|Unable to start a transaction in the given time|Transaction already closed|expired transaction|Connection terminated due to connection timeout|too many clients already/i;
+
 function toAppError(err: unknown): AppError | null {
   if (err instanceof AppError) return err;
 
@@ -44,6 +46,12 @@ function toAppError(err: unknown): AppError | null {
     if (err.code === 'P2028' || err.code === 'P1001' || err.code === 'P1002' || err.code === 'P1017') {
       return new AppError(503, 'SERVICE_BUSY', 'The server is busy. Please try again in a moment.');
     }
+  }
+
+  // QA-B-23: the pg pool / driver adapter reports "no connection in time" and "transaction expired"
+  // as plain errors (not P2028) — the same temporary load, so 503 SERVICE_BUSY instead of a 500.
+  if (err instanceof Error && BUSY_MESSAGE.test(err.message)) {
+    return new AppError(503, 'SERVICE_BUSY', 'The server is busy. Please try again in a moment.');
   }
 
   if (err instanceof multer.MulterError) {

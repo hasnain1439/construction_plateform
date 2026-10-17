@@ -28,6 +28,7 @@ export const NOTIFICATION_TEXT_KEYS = [
   'chequeBounced',
   'stageReadyUnbilled',
   'previousStageUnpaid',
+  'milestoneStageLock',
   'subscriptionRenewal',
   'subscriptionPaymentApproved',
   'subscriptionPaymentRejected',
@@ -35,6 +36,18 @@ export const NOTIFICATION_TEXT_KEYS = [
   'platformSupportAccess',
   'missingLog',
   'missingLogWaiting',
+  'retentionReminder',
+  'retentionDue',
+  'siteInstructionCreated', // Step 15
+  'equipmentIdle',
+  'equipmentIdleNoCost',
+  // Step 14 · control alerts
+  'controlMaterialOveruse',
+  'controlMilestoneBehind',
+  'controlMilestoneLate',
+  'controlQuotaExhausted',
+  'controlSpendAhead',
+  'controlEquipmentIdle',
 ] as const;
 export type NotificationTextKey = (typeof NOTIFICATION_TEXT_KEYS)[number];
 

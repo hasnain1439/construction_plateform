@@ -34,9 +34,75 @@ import * as ob from '../src/modules/onboarding/onboarding.schema.js';
 import { estimateSettingsBody } from '../src/modules/estimate/settings.js';
 import { contractFromEstimateBody } from '../src/modules/estimate/contractValue.js';
 import { autoWallsBody, setWallsBody } from '../src/modules/projects/walls.js';
+import * as eqp from '../src/modules/equipment/equipment.schema.js';
+import * as co from '../src/modules/closeout/closeout.schema.js';
+import { approveEstimateBody, generateEstimateBody, lineOverrideBody } from '../src/modules/estimate/estimate.schema.js';
+import { setOverridesBody } from '../src/modules/rulebook/rulebook.schema.js';
+import * as sales from '../src/modules/sales/sales.schema.js';
+import { createRulebookBody, updateParameterBody, updateRulebookBody } from '../src/modules/platform-admin/rulebook.schema.js';
+import * as sch from '../src/modules/schedule/schedule.schema.js';
+import * as cho from '../src/modules/change-orders/changeOrders.schema.js';
+import * as ctl from '../src/modules/control/control.schema.js';
+import * as tax from '../src/modules/tax/tax.schema.js';
 import { api } from './helpers.js';
 
 const BODY_SCHEMAS: Record<string, z.ZodType> = {
+  // Step 18 · Tax
+  'patch /api/v1/tax/settings': tax.taxSettingsBody,
+  'patch /api/v1/projects/{id}/tax': tax.projectTaxBody,
+  'patch /api/v1/payments/{id}/wht-certificate': bl.whtCertificateBody,
+  // Step 15 · Change orders
+  'post /api/v1/projects/{id}/change-orders': cho.createChangeOrderBody,
+  'patch /api/v1/change-orders/{id}': cho.updateChangeOrderBody,
+  'post /api/v1/change-orders/{id}/approve': cho.approveBody,
+  'post /api/v1/change-orders/{id}/reject': cho.rejectBody,
+  'post /api/v1/change-orders/{id}/bill': cho.billBody,
+  'post /api/v1/projects/{id}/site-instructions': cho.createSiteInstructionBody,
+  'post /api/v1/site-instructions/{id}/convert': cho.convertBody,
+  'post /api/v1/site-instructions/{id}/dismiss': cho.dismissBody,
+  'post /api/v1/snags/{id}/change-order': cho.convertBody,
+  // Step 17 · Closeout
+  'post /api/v1/projects/{id}/drawings': co.createDrawingBody,
+  'patch /api/v1/drawings/{id}': co.updateDrawingBody,
+  'post /api/v1/drawings/{id}/revisions': co.addRevisionBody,
+  'patch /api/v1/drawing-revisions/{id}': co.updateRevisionBody,
+  'post /api/v1/projects/{id}/snags': co.createSnagBody,
+  'patch /api/v1/snags/{id}': co.updateSnagBody,
+  'post /api/v1/snags/{id}/fix': co.fixSnagBody,
+  'post /api/v1/snags/{id}/verify': co.verifySnagBody,
+  'post /api/v1/snags/{id}/reopen': co.reopenSnagBody,
+  'put /api/v1/snags/{id}/cost': co.snagCostBody,
+  'put /api/v1/projects/{id}/handover/items/{key}': co.handoverItemBody,
+  'post /api/v1/projects/{id}/handover/sign-off': co.signOffBody,
+  'post /api/v1/projects/{id}/handover/complete': co.completeHandoverBody,
+  'patch /api/v1/projects/{id}/retention': co.retentionSettingsBody,
+  // Step 13
+  'post /api/v1/projects/{id}/schedule/generate': sch.generateScheduleBody,
+  'post /api/v1/control/alerts/run': ctl.runAlertsBody, // Step 14
+  'put /api/v1/control/settings': ctl.controlSettingsBody,
+  'post /api/v1/projects/{id}/schedule/replan': sch.replanBody,
+  'patch /api/v1/milestones/{id}': sch.milestoneEditBody,
+  'post /api/v1/milestones/{id}/progress': sch.progressBody,
+  'post /api/v1/projects/{id}/stoppages': sch.stoppageBody,
+  'post /api/v1/stoppages/{id}/approve': sch.approveStoppageBody,
+  'post /api/v1/stoppages/{id}/reject': sch.rejectStoppageBody,
+  // Step 11
+  'post /api/v1/projects/{id}/estimates': generateEstimateBody,
+  'patch /api/v1/estimates/{id}/lines/{lineId}': lineOverrideBody,
+  'post /api/v1/estimates/{id}/approve': approveEstimateBody,
+  'put /api/v1/rulebook/overrides': setOverridesBody,
+  'post /api/v1/admin/rulebooks': createRulebookBody,
+  'patch /api/v1/admin/rulebooks/{id}': updateRulebookBody,
+  'patch /api/v1/admin/rulebooks/{id}/parameters/{key}': updateParameterBody,
+  // Step 12
+  'post /api/v1/quotes/preview': sales.previewBody,
+  'post /api/v1/quotes': sales.createQuoteBody,
+  'patch /api/v1/quotes/{id}': sales.updateQuoteBody,
+  'post /api/v1/quotes/{id}/revisions': sales.addRevisionBody,
+  'post /api/v1/quotes/{id}/send': sales.sendQuoteBody,
+  'post /api/v1/quotes/{id}/negotiation': sales.negotiationBody,
+  'post /api/v1/quotes/{id}/lost': sales.lostBody,
+  'post /api/v1/quotes/{id}/won': sales.wonBody,
   'post /api/v1/onboarding/checklist/dismiss': ob.dismissBody,
   'post /api/v1/opening-balances': ob.openingBody,
   'put /api/v1/projects/{id}/estimate/settings': estimateSettingsBody,
@@ -169,6 +235,20 @@ const BODY_SCHEMAS: Record<string, z.ZodType> = {
   'put /api/v1/users/{id}/permission-overrides': pe.setOverridesBody,
   'patch /api/v1/users/{id}/role': pe.setUserRoleBody,
   'put /api/v1/users/{id}/roles': pe.setUserRolesBody,
+  // Step 16 — equipment
+  'post /api/v1/equipment': eqp.createEquipmentBody,
+  'patch /api/v1/equipment/{id}': eqp.updateEquipmentBody,
+  'post /api/v1/equipment/{id}/stock-in': eqp.stockInBody,
+  'post /api/v1/equipment/{id}/adjust': eqp.adjustBody,
+  'post /api/v1/equipment/transfers': eqp.createTransferBody,
+  'post /api/v1/equipment/transfers/{id}/receive': eqp.receiveTransferBody,
+  'post /api/v1/equipment/rentals': eqp.createRentalBody,
+  'post /api/v1/equipment/rentals/{id}/extend': eqp.extendRentalBody,
+  'post /api/v1/equipment/rentals/{id}/return': eqp.returnRentalBody,
+  'post /api/v1/equipment/rentals/{id}/close': eqp.closeRentalBody,
+  'post /api/v1/equipment/losses': eqp.reportLossBody,
+  'post /api/v1/equipment/losses/{id}/charge': eqp.chargeLossBody,
+  'post /api/v1/equipment/accruals/run': eqp.accrualBody,
 };
 
 type Spec = {
@@ -206,6 +286,9 @@ describe('API docs', () => {
       'Project Wizard',
       'Floors & Rooms',
       'Estimate',
+      'Sales',
+      'Rulebook',
+      'Schedule',
       'Stock',
       'Purchases',
       'Purchase Orders',
@@ -216,6 +299,7 @@ describe('API docs', () => {
       'Owner Deliveries',
       'Material Usage',
       'Stock Counts',
+      'Equipment',
       'Labor Assignments',
       'Attendance',
       'Work Measurements',
@@ -233,13 +317,16 @@ describe('API docs', () => {
       'Notifications',
       'Dashboard',
       'Finance',
+      'Control',
       'Daily Logs',
+      'Closeout',
+      'Change Orders',
       'Sync',
       'Reports',
       'Platform admin auth',
       'Platform admin',
     ]);
-    expect(Object.keys(res.body.paths)).toHaveLength(259); // +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
+    expect(Object.keys(res.body.paths)).toHaveLength(381); // +1: QA-B-02 GET /public/files/{id}, +8: Step 18 reports (5 /reports/… + 3 /reports/…/{projectId} books), +5: Step 18 tax (/tax/settings, /projects/{id}/tax, /payments/{id}/wht-certificate, /reports/wht-summary, /reports/tax-invoice-register), +10: Step 14 control (4 /projects/{id}/control/…, /projects/{id}/control/alerts, /control/summary, /control/alerts, /control/alerts/rules, /control/alerts/run, /control/settings), +4: Step 16 part 2 (shuttering demand, project shuttering demand, idle list, idle check), +16: Step 15 change orders (2 /projects/{id}/change-orders…, 9 /change-orders/{id}…, /projects/{id}/site-instructions, 3 /site-instructions/{id}…, /snags/{id}/change-order), +11: Step 12 quotes (assumptions, preview, insights, list/create, detail, revisions, send, negotiation, lost, won, pdf), +14: Step 13 schedule (8 /projects/{id}/schedule…, /projects/{id}/stoppages, 3 /milestones, 3 /stoppages), +16: Step 11 (9 estimate revision / shopping list paths, 3 company rulebook, 4 admin rulebook), +21: Step 16 equipment, +16: Step 17 closeout (drawings, snags, handover, retention), +1: POST /projects/{id}/contract/from-estimate, +2: PUT /rooms/{id}/walls + POST /floors/{id}/walls/auto, +2: project estimate (GET /estimate, PUT /estimate/settings), +1: PUT /users/{id}/roles (several roles), +1: /health/ready, +20: onboarding / imports / opening balances / demo, +1: /auth/me/preferences, -4: admin/act-as-sessions removed (direct access)
     expect(Object.keys(res.body.components.securitySchemes)).toEqual(['cookieAuth', 'bearerAuth']);
   });
 

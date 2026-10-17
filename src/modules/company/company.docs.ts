@@ -58,6 +58,9 @@ const settingsExample = {
     defaultMarginPercent: 20,
     defaultFinishingAllowancePercent: 0,
     defaultLanguage: 'ROMAN_URDU',
+    equipmentIdleDays: 5,
+    shutteringPropsPerPlate: 0.75,
+    shutteringSparePercent: 5,
   },
 };
 
@@ -120,13 +123,15 @@ export function registerCompanyDocs(): void {
       '`pmCanSeeFinancials` is the default for new PM invitations. `blindCountEnabled` hides sent / challan quantities while a site counts a delivery.\n\n' +
       'Labour: `settlementWeekStart`, `workingDays`, `hoursPerDay` (1–16), `overtimeMultiplier` (1–3, null = the DAILY labour rate multiplier) and `subcontractPaymentsByPm`.\n\n' +
       'Billing: `paymentTermsDays` (0–90), `taxRatePercent` (0–30) and `taxLabel` (used only when `taxEnabled`), `pmCanRecordPayments`.\n\n' +
-      'Estimate → contract value: `defaultMarginPercent` (0–100, default 20) and `defaultFinishingAllowancePercent` (0–200, default 0, FULL contracts only) pre-fill the “contract value from this estimate” card and POST /projects/{id}/contract/from-estimate; a project may override both.',
+      'Estimate → contract value: `defaultMarginPercent` (0–100, default 20) and `defaultFinishingAllowancePercent` (0–200, default 0, FULL contracts only) pre-fill the “contract value from this estimate” card and POST /projects/{id}/contract/from-estimate; a project may override both.\n\n' +
+      'Equipment (Step 16): `equipmentIdleDays` (1–60, default 5) — rented units with no milestone activity at their site for this many days raise EQUIPMENT_IDLE; shuttering planner `shutteringPropsPerPlate` (0–5, default 0.75) and `shutteringSparePercent` (0–30, default 5).',
     security: companySecurity,
     request: {
       body: jsonBody(updateSettingsBody, {
         limits: ex('Kharcha limit Rs 50,000 and 15% overuse alert', { kharchaApprovalLimitPaisa: '5000000', overuseAlertPercent: 15 }),
         alerts: ex('Site log alert at 7 pm, quotes valid 30 days', { missingLogAlertTime: '19:00', quoteValidityDays: 30 }),
         flags: ex('Enable tax, Urdu by default', { taxEnabled: true, defaultLanguage: 'URDU' }),
+        equipment: ex('Idle-rent alert after 7 days, 1 prop per plate', { equipmentIdleDays: 7, shutteringPropsPerPlate: 1 }),
         bad: ex('❌ overuseAlertPercent 50 → 400', { overuseAlertPercent: 50 }),
       }),
     },

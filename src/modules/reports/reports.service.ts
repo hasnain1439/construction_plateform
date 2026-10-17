@@ -18,7 +18,7 @@ import { dateOnly } from '../../core/utils/dates.js';
 import type { ExpenseCategory, StockMovementType } from '../../generated/prisma/client.js';
 import { daysBetween, today, ymd } from '../billing/billing.shared.js';
 import { bucketsOf, PNL_BUCKETS, projectCosts } from '../billing/projectCost.service.js';
-import { moneyOf } from '../billing/receivables.service.js';
+import { moneyOfMany } from '../billing/receivables.service.js';
 import { totalsOf } from '../cashbook/cash.js';
 import { periodOf, readActor, scopedProjects, str, type ReadActor } from '../dashboard/dashboard.shared.js';
 import { ageing, AGEING_BUCKETS } from '../finance/ageing.js';
@@ -30,7 +30,11 @@ import { supplierBalances } from '../procurement/supplierLedger.service.js';
 import { findProjectFor } from '../projects/access.js';
 import { letterhead, renderReport, storeReport, type Cell, type Report, type ReportColumn } from './reports.export.js';
 import { documentLang } from '../billing/documents.js';
-import type { ReportName, ReportQuery } from './reports.schema.js';
+import { STEP18_REPORT_NAMES, STEP18_REPORT_PERM, type BookName, type BookQuery, type ReportName, type ReportQuery, type Step18ReportName } from './reports.schema.js';
+import { renderBook, type ReportBook } from './reports.book.js';
+import { buildBookFor, changeOrderRegister, delayAnalysisReport, equipmentUtilisation, snagSummary, varianceReport } from './step18.service.js';
+import { tr, type Lang } from '../../core/i18n/index.js';
+import { jsonLang } from '../../core/i18n/requestLang.js';
 
 const NON_DRAFT = ['ACTIVE', 'CLOSEOUT', 'HANDED_OVER', 'CLOSED'] as const;
 const BUCKET_LABEL: Record<(typeof PNL_BUCKETS)[number], string> = {
@@ -55,11 +59,14 @@ interface Ctx {
   a: ReadActor;
   q: ReportQuery;
   projectName: string;
+  /** Language of text the builders write into cells (Step 18). */
+  lang: Lang;
 }
 
 /** Company-wide money reports (supplier ageing, receivables ageing, stock valuation). */
 const ownerOnly = (a: ReadActor) => assertPerm('finance.companyreports.view', a, 'Only the owner can run this report');
-const periodText = (q: ReportQuery) => (q.from || q.to ? `${q.from ? day(q.from) : 'Start'} – ${day(q.to ?? today())}` : `Up to ${day(today())}`);
+/** "1 Sep – 6 Oct 2026" / "Up to 6 Oct 2026" in the report language (QA-B-11). */
+const periodText = (lang: Lang, q: Pick<ReportQuery, 'from' | 'to'>) => (q.from || q.to ? `${q.from ? day(q.from) : tr(lang, 'report.sub.start')} – ${day(q.to ?? today())}` : tr(lang, 'report.sub.upTo', { date: day(today()) }));
 
 async function projectsFor(c: Ctx) {
   return scopedProjects(c.tx, c.a, [...NON_DRAFT], c.q.projectId);
@@ -75,9 +82,10 @@ async function projectSummary(c: Ctx): Promise<Omit<Report, 'generatedAt' | 'fil
     c.a.tenantId,
     projects.map((p) => p.id),
   );
+  const money = await moneyOfMany(c.tx, c.a.tenantId, projects);
   const rows: Array<Record<string, Cell>> = [];
   for (const p of projects) {
-    const m = await moneyOf(c.tx, c.a.tenantId, p);
+    const m = money.get(p.id)!;
     const cost = costs.get(p.id)!;
     const b = bucketsOf(cost.rows);
     rows.push({
@@ -107,7 +115,7 @@ async function projectSummary(c: Ctx): Promise<Omit<Report, 'generatedAt' | 'fil
     col('costTotal', 'Cost to date', 'money'),
     col('ownMoney', 'Own money in', 'money'),
   ];
-  return { name: 'project-summary', title: 'Project Summary', subtitle: `${c.projectName} · ${periodText({ format: 'json' })}`, columns, rows, totals: totalsOfColumns(columns, rows) };
+  return { name: 'project-summary', title: 'Project Summary', subtitle: `${c.projectName} · ${periodText(c.lang, {})}`, columns, rows, totals: totalsOfColumns(columns, rows) };
 }
 
 // ─── 2. Material audit ──────────────────────────────────────────────────────
@@ -208,7 +216,7 @@ async function materialAudit(c: Ctx): Promise<Omit<Report, 'generatedAt' | 'filt
   return {
     name: 'material-audit',
     title: 'Material Audit',
-    subtitle: `${c.projectName} · ${periodText(c.q)}`,
+    subtitle: `${c.projectName} · ${periodText(c.lang, c.q)}`,
     columns,
     rows,
     totals: c.a.seesRates ? { ...Object.fromEntries(columns.map((x) => [x.key, null])), value: sumCol(rows, 'value') } : null,
@@ -301,7 +309,7 @@ async function laborPeshgi(c: Ctx): Promise<Omit<Report, 'generatedAt' | 'filter
   return {
     name: 'labor-peshgi',
     title: 'Labour & Peshgi',
-    subtitle: `${c.projectName} · ${periodText(c.q)}`,
+    subtitle: `${c.projectName} · ${periodText(c.lang, c.q)}`,
     columns,
     rows,
     totals: totalsOfColumns(columns, rows),
@@ -368,7 +376,7 @@ async function cashBook(c: Ctx): Promise<Omit<Report, 'generatedAt' | 'filters'>
   return {
     name: 'cash-book',
     title: 'Cash Book',
-    subtitle: `${c.projectName} · ${periodText(c.q)} · Cash in hand now ${Number(balance / 100n).toLocaleString('en-PK')}`,
+    subtitle: `${c.projectName} · ${periodText(c.lang, c.q)} · ${tr(c.lang, 'report.sub.cashInHand', { amount: Number(balance / 100n).toLocaleString('en-PK') })}`,
     columns,
     rows,
     totals: totalsOfColumns(columns, rows),
@@ -413,7 +421,7 @@ async function supplierAgeing(c: Ctx): Promise<Omit<Report, 'generatedAt' | 'fil
   return {
     name: 'supplier-ageing',
     title: 'Supplier Ageing',
-    subtitle: `All suppliers · as of ${day(day0)}`,
+    subtitle: `${tr(c.lang, 'report.sub.allSuppliers')} · ${tr(c.lang, 'report.sub.asOf', { date: day(day0) })}`,
     columns,
     rows,
     totals: totalsOfColumns(columns, rows, ['oldestDays', 'lastPayment']),
@@ -426,9 +434,10 @@ async function supplierAgeing(c: Ctx): Promise<Omit<Report, 'generatedAt' | 'fil
 async function receivablesAgeing(c: Ctx): Promise<Omit<Report, 'generatedAt' | 'filters'>> {
   ownerOnly(c.a);
   const projects = await projectsFor(c);
+  const money = await moneyOfMany(c.tx, c.a.tenantId, projects);
   const rows: Array<Record<string, Cell>> = [];
   for (const p of projects) {
-    const m = await moneyOf(c.tx, c.a.tenantId, p);
+    const m = money.get(p.id)!;
     if (m.invoiced === 0n) continue;
     rows.push({
       project: p.code,
@@ -458,7 +467,7 @@ async function receivablesAgeing(c: Ctx): Promise<Omit<Report, 'generatedAt' | '
   return {
     name: 'receivables-ageing',
     title: 'Receivables Ageing',
-    subtitle: `${c.projectName} · as of ${day(today())}`,
+    subtitle: `${c.projectName} · ${tr(c.lang, 'report.sub.asOf', { date: day(today()) })}`,
     columns,
     rows,
     totals: totalsOfColumns(columns, rows, ['oldestOverdueDays']),
@@ -514,7 +523,7 @@ async function stockValuation(c: Ctx): Promise<Omit<Report, 'generatedAt' | 'fil
   return {
     name: 'stock-valuation',
     title: 'Stock Valuation',
-    subtitle: `${c.projectName === 'All projects' ? 'Store + sites + transit' : c.projectName} · as of ${day(c.q.to ?? today())}`,
+    subtitle: `${c.q.projectId ? c.projectName : tr(c.lang, 'report.sub.storeSitesTransit')} · ${tr(c.lang, 'report.sub.asOf', { date: day(c.q.to ?? today()) })}`,
     columns,
     rows,
     totals: { ...Object.fromEntries(columns.map((x) => [x.key, null])), value: sumCol(rows, 'value') },
@@ -532,23 +541,58 @@ const BUILDERS: Record<ReportName, (c: Ctx) => Promise<Omit<Report, 'generatedAt
   'supplier-ageing': supplierAgeing,
   'receivables-ageing': receivablesAgeing,
   'stock-valuation': stockValuation,
+  // Step 18
+  'delay-analysis': delayAnalysisReport,
+  variance: varianceReport,
+  'change-orders': changeOrderRegister,
+  'equipment-utilisation': equipmentUtilisation,
+  snags: snagSummary,
 };
 
-export async function buildReport(tx: Tx, a: ReadActor, name: ReportName, q: ReportQuery): Promise<Report> {
-  const project = q.projectId ? await findProjectFor(tx, a, q.projectId) : null;
-  const built = await BUILDERS[name]({ tx, a, q, projectName: project ? `${project.code} ${project.name}` : 'All projects' });
-  return { ...built, generatedAt: new Date().toISOString(), filters: { projectId: q.projectId ?? null, from: q.from ?? null, to: q.to ?? null } };
+const isStep18 = (name: ReportName): name is Step18ReportName => (STEP18_REPORT_NAMES as readonly string[]).includes(name);
+
+export async function buildReport(tx: Tx, a: ReadActor, name: ReportName, q: ReportQuery, lang: Lang = 'en'): Promise<Report> {
+  // Step 18 reports: the module key (403) and its scope for the project filter (404).
+  const perm = isStep18(name) ? STEP18_REPORT_PERM[name] : undefined;
+  if (perm) assertPerm(perm, a);
+  const project = q.projectId ? await findProjectFor(tx, a, q.projectId, perm) : null;
+  const built = await BUILDERS[name]({ tx, a, q, lang, projectName: project ? `${project.code} ${project.name}` : tr(lang, 'report.sub.allProjects') });
+  const extra = { ...(q.status ? { status: q.status } : {}), ...(q.type ? { type: q.type } : {}), ...(q.category ? { category: q.category } : {}), ...(q.group ? { group: q.group } : {}) };
+  return { ...built, generatedAt: new Date().toISOString(), filters: { projectId: q.projectId ?? null, from: q.from ?? null, to: q.to ?? null, ...extra } };
 }
 
 export async function runReport(name: ReportName, q: ReportQuery) {
   const a = readActor();
   assertPerm('finance.reports.view', a, 'Reports are for the office');
-  const { report, company, lang } = await withTenant(a.tenantId, async (tx) => ({
-    report: await buildReport(tx, a, name, q),
-    company: q.format === 'pdf' ? await letterhead(tx, a.tenantId) : null,
-    lang: q.format === 'json' ? ('en' as const) : await documentLang(tx, a.userId, q.lang),
-  }));
+  const { report, company, lang } = await withTenant(
+    a.tenantId,
+    async (tx) => {
+      // QA-B-20: JSON free text (subtitle, notes, reason cells) in X-Lang, else English; files in ?lang / X-Lang / account language.
+      const lang = q.format === 'json' ? jsonLang() : await documentLang(tx, a.userId, q.lang);
+      return { lang, report: await buildReport(tx, a, name, q, lang), company: q.format === 'pdf' ? await letterhead(tx, a.tenantId) : null };
+    },
+    { timeout: 60_000 },
+  );
   if (q.format === 'json') return report;
   const buffer = await renderReport(report, q.format, company, lang);
   return withTenant(a.tenantId, (tx) => storeReport(tx, a, report, q.format as Exclude<ReportQuery['format'], 'json'>, buffer));
+}
+
+/** Step 18 · one project's report book (delay analysis, variance, snags) as JSON or a file. */
+export async function runBook(name: BookName, projectId: string, q: BookQuery) {
+  const a = readActor();
+  assertPerm('finance.reports.view', a, 'Reports are for the office');
+  const { book, company, lang } = await withTenant(
+    a.tenantId,
+    async (tx) => {
+      const lang = q.format === 'json' ? jsonLang() : await documentLang(tx, a.userId, q.lang);
+      const built = await buildBookFor({ tx, a, q: { format: q.format, from: q.from, to: q.to }, lang }, name, projectId, q);
+      const book: ReportBook = { ...built, generatedAt: new Date().toISOString(), filters: { projectId, from: q.from ?? null, to: q.to ?? null } };
+      return { lang, book, company: q.format === 'pdf' ? await letterhead(tx, a.tenantId) : null };
+    },
+    { timeout: 60_000 },
+  );
+  if (q.format === 'json') return book;
+  const buffer = await renderBook(book, q.format, company, lang);
+  return withTenant(a.tenantId, (tx) => storeReport(tx, a, book, q.format as Exclude<BookQuery['format'], 'json'>, buffer));
 }

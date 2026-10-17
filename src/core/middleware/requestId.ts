@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { RequestHandler } from 'express';
 import { runWithCtx, type RequestContext } from '../context/requestContext.js';
+import { isLang } from '../i18n/lang.js';
 import { tagSentryScope } from '../observability/sentryScope.js';
 
 const VALID_ID = /^[A-Za-z0-9._-]{1,64}$/;
@@ -30,6 +31,9 @@ export const requestContext: RequestHandler = (req, res, next) => {
     actorType: 'ANONYMOUS',
     permissions: [],
   };
+  // QA-B-20: UI language of the web app (X-Lang); anything else is ignored.
+  const uiLang = req.get('x-lang')?.trim().toLowerCase();
+  if (isLang(uiLang)) ctx.uiLang = uiLang;
   // Kept on res.locals too: the request log line is written after the context has ended.
   res.locals['ctx'] = ctx;
   tagSentryScope(ctx);

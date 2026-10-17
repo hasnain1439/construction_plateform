@@ -21,7 +21,17 @@ export const fileQuery = z.object({
   tid: z.uuid(),
   exp: z.coerce.number().int().positive(),
   sig: z.string().min(20).max(100),
+  /** QA-B-15: 1 = Content-Disposition attachment (save instead of preview). */
+  dl: z.enum(['1']).optional(),
 });
+
+/** QA-B-02 · durable share link (GET /public/files/:id). */
+export const shareQuery = z.object({
+  tid: z.uuid(),
+  exp: z.coerce.number().int().positive(),
+  sig: z.string().min(20).max(100),
+});
+export type ShareQuery = z.infer<typeof shareQuery>;
 
 export const attachmentDto = z
   .object({

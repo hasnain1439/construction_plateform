@@ -16,6 +16,9 @@ import { totalsOf } from '../cashbook/cash.js';
 import { addDays, today } from '../labor/labor.shared.js';
 import * as S from './sync.serializers.js';
 import { readerLang } from '../notifications/notifications.service.js';
+import { EQUIPMENT_TABLE_PERMISSIONS, EQUIPMENT_TABLES } from '../equipment/equipment.sync.js'; // Step 16
+import { usedQuantities } from '../schedule/schedule.shared.js';
+import { CHANGE_ORDER_TABLE_PERMISSIONS, CHANGE_ORDER_TABLES } from '../change-orders/changeOrders.sync.js'; // Step 15
 
 export interface SyncActor {
   tenantId: string;
@@ -42,6 +45,8 @@ export interface TableDef {
   refresh?: boolean;
   /** Sent with full snapshots only (platform data without change tracking). */
   snapshotOnly?: boolean;
+  /** The SyncChange row id a loaded row belongs to (default: its id) — e.g. the location of a per-location table. */
+  keyOf?: (row: SyncRow) => string;
   load: (tx: Tx, sc: SyncScope, ids?: string[]) => Promise<SyncRow[]>;
 }
 
@@ -97,6 +102,13 @@ export const TABLE_PERMISSIONS: Record<string, string[]> = {
   daily_logs: ['dailylog.log.view'],
   cash_entries: ['cashbook.account.view', 'cashbook.expense.view'],
   topup_requests: ['cashbook.topup.view'],
+  ...EQUIPMENT_TABLE_PERMISSIONS, // Step 16
+  snags: ['closeout.snag.view'],
+  drawings: ['closeout.drawing.view'],
+  // Step 13
+  milestones: ['schedule.plan.view'],
+  stoppages: ['schedule.plan.view', 'schedule.stoppage.create'],
+  ...CHANGE_ORDER_TABLE_PERMISSIONS, // Step 15
 };
 
 /** May the caller pull this table? */
@@ -276,6 +288,30 @@ export const TABLES: TableDef[] = [
       ).map(S.serializeDailyLog),
   },
   {
+    // Step 17: open / fixed snags + anything changed in the last 60 days
+    name: 'snags',
+    sources: ['Snag'],
+    load: async (tx, sc, ids) =>
+      (
+        await tx.snag.findMany({
+          where: { tenantId: sc.a.tenantId, ...byIds(ids), projectId: { in: sc.projectIds }, OR: [{ status: { in: ['OPEN', 'FIXED'] } }, { updatedAt: { gte: since(sc, 60) } }] },
+          orderBy: { number: 'asc' },
+        })
+      ).map(S.serializeSnag),
+  },
+  {
+    // Step 17: drawings with the latest revision (revisions are recorded as a change of their drawing)
+    name: 'drawings',
+    sources: ['Drawing'],
+    load: async (tx, sc, ids) =>
+      (
+        await tx.drawing.findMany({
+          where: { tenantId: sc.a.tenantId, ...byIds(ids), projectId: { in: sc.projectIds } },
+          include: { revisions: { where: { isLatest: true } }, _count: { select: { revisions: true } } },
+        })
+      ).map(S.serializeDrawing),
+  },
+  {
     name: 'cash_accounts',
     sources: ['CashAccount', 'CashEntry', 'TopupRequest'],
     refresh: true,
@@ -313,6 +349,28 @@ export const TABLES: TableDef[] = [
       ).map(S.serializeTopup),
   },
   {
+    // Step 13 · every not-DONE milestone of the caller's projects + DONE in the last 14 days, with quota planned / used (no money)
+    name: 'milestones',
+    sources: ['Milestone'],
+    load: async (tx, sc, ids) => {
+      const rows = await tx.milestone.findMany({
+        where: { tenantId: sc.a.tenantId, ...byIds(ids), projectId: { in: sc.projectIds }, OR: [{ status: { not: 'DONE' } }, { actualEnd: { gte: since(sc, 14) } }, { plannedEnd: { gte: since(sc, 14) } }] },
+        include: { stage: { select: { stageKey: true, name: true } }, dependsOn: true, quotas: { orderBy: { sortOrder: 'asc' } } },
+        orderBy: [{ projectId: 'asc' }, { sortOrder: 'asc' }],
+      });
+      const used = await usedQuantities(tx, sc.a.tenantId, rows.map((r) => r.id));
+      return rows.map((m) => S.serializeMilestone(m, used.get(m.id)));
+    },
+  },
+  {
+    name: 'stoppages',
+    sources: ['StoppageDay'],
+    load: async (tx, sc, ids) =>
+      (
+        await tx.stoppageDay.findMany({ where: { tenantId: sc.a.tenantId, ...byIds(ids), projectId: { in: sc.projectIds }, OR: [{ status: 'PENDING' }, { createdAt: { gte: since(sc, 60) } }] }, orderBy: { createdAt: 'desc' } })
+      ).map(S.serializeStoppage),
+  },
+  {
     name: 'settings',
     sources: ['TenantSettings'],
     refresh: true,
@@ -338,4 +396,6 @@ export const TABLES: TableDef[] = [
       return rows.map((n) => S.serializeNotification(n, lang));
     },
   },
+  ...EQUIPMENT_TABLES, // Step 16
+  ...CHANGE_ORDER_TABLES, // Step 15
 ];

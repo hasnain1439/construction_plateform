@@ -6,6 +6,7 @@ import { registerAuthDocs } from '../../modules/auth/auth.docs.js';
 import { registerBillingDocs } from '../../modules/billing/billing.docs.js';
 import { registerSyncDocs } from '../../modules/sync/sync.docs.js';
 import { registerDailyLogsDocs } from '../../modules/dailylogs/dailylogs.docs.js';
+import { registerCloseoutDocs } from '../../modules/closeout/closeout.docs.js';
 import { registerDashboardDocs } from '../../modules/dashboard/dashboard.docs.js';
 import { registerFinanceDocs } from '../../modules/finance/finance.docs.js';
 import { registerReportsDocs } from '../../modules/reports/reports.docs.js';
@@ -22,10 +23,17 @@ import { registerPlatformAdminDocs } from '../../modules/platform-admin/platform
 import { registerProcurementDocs } from '../../modules/procurement/procurement.docs.js';
 import { registerProjectsDocs } from '../../modules/projects/projects.docs.js';
 import { registerEstimateDocs } from '../../modules/estimate/estimate.docs.js';
+import { registerRevisionDocs } from '../../modules/estimate/revisions.docs.js';
+import { registerScheduleDocs } from '../../modules/schedule/schedule.docs.js';
+import { registerControlDocs } from '../../modules/control/control.docs.js';
+import { registerSalesDocs } from '../../modules/sales/sales.docs.js';
+import { registerChangeOrderDocs } from '../../modules/change-orders/changeOrders.docs.js';
 import { registerSubscriptionDocs } from '../../modules/subscription/subscription.docs.js';
 import { registerTeamDocs } from '../../modules/team/team.docs.js';
 import { registerOnboardingDocs } from '../../modules/onboarding/onboarding.docs.js';
 import { registerPermissionsDocs } from '../../modules/permissions/permissions.docs.js';
+import { registerEquipmentDocs } from '../../modules/equipment/equipment.docs.js'; // Step 16
+import { registerTaxDocs } from '../../modules/tax/tax.docs.js'; // Step 18
 import { buildOpenApiDocument } from './registry.js';
 import { swaggerCss, swaggerFavicon } from './theme.js';
 
@@ -46,9 +54,13 @@ export function openApiDocument() {
     registerOnboardingDocs();
     registerProjectsDocs();
     registerEstimateDocs();
+    registerRevisionDocs(); // Step 11
+    registerScheduleDocs(); // Step 13
+    registerSalesDocs(); // Step 12
     registerInventoryDocs();
     registerProcurementDocs();
     registerDispatchDocs();
+    registerEquipmentDocs(); // Step 16
     registerLaborDocs();
     registerCashbookDocs();
     registerBillingDocs();
@@ -56,8 +68,12 @@ export function openApiDocument() {
     registerApprovalsDocs();
     registerDashboardDocs();
     registerFinanceDocs();
+    registerControlDocs(); // Step 14
     registerReportsDocs();
+    registerTaxDocs(); // Step 18
     registerDailyLogsDocs();
+    registerCloseoutDocs();
+    registerChangeOrderDocs(); // Step 15
     registerSyncDocs();
     registerPlatformAdminDocs();
     document = buildOpenApiDocument();

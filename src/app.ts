@@ -11,6 +11,7 @@ import { requestContext, requestLogFields, resolveRequestId } from './core/middl
 import { docsRouter } from './core/openapi/docs.js';
 import { jsonReplacer } from './core/utils/json.js';
 import { attachmentsRouter } from './modules/attachments/attachments.routes.js';
+import { publicRouter } from './modules/attachments/public.routes.js';
 import { adminAuthRouter, authRouter, invitationRouter } from './modules/auth/auth.routes.js';
 import {
   cashAccountsRouter,
@@ -38,10 +39,18 @@ import { invalidateOnWrite } from './modules/dashboard/dashboard.cache.js';
 import { financeRouter } from './modules/finance/finance.routes.js';
 import { reportsRouter } from './modules/reports/reports.routes.js';
 import { dailyLogsRouter, projectDailyLogsRouter } from './modules/dailylogs/dailylogs.routes.js';
+import { drawingRevisionsRouter, drawingsRouter, projectCloseoutRouter, snagsRouter } from './modules/closeout/closeout.routes.js';
 import { syncRouter } from './modules/sync/sync.routes.js';
 import { companyRouter } from './modules/company/company.routes.js';
 import { floorsRouter, openingsRouter, projectsRouter, roomsRouter, supplyPresetsRouter } from './modules/projects/projects.routes.js';
-import { projectEstimateRouter } from './modules/estimate/estimate.routes.js';
+import { estimatesRouter, projectEstimateRouter } from './modules/estimate/estimate.routes.js';
+import { rulebookRouter } from './modules/rulebook/rulebook.routes.js';
+import { equipmentRouter, projectEquipmentRouter } from './modules/equipment/equipment.routes.js'; // Step 16
+import { milestonesRouter, projectScheduleRouter, stoppagesRouter } from './modules/schedule/schedule.routes.js';
+import { controlRouter, projectControlRouter } from './modules/control/control.routes.js';
+import { projectTaxRouter, taxReportsRouter, taxRouter } from './modules/tax/tax.routes.js'; // Step 18
+import { quotesRouter } from './modules/sales/sales.routes.js';
+import { changeOrdersRouter, projectChangeOrdersRouter, siteInstructionsRouter, snagChangeOrderRouter } from './modules/change-orders/changeOrders.routes.js'; // Step 15
 import { dispatchesRouter, projectDispatchRouter, shortagesRouter } from './modules/dispatch/dispatch.routes.js';
 import { healthRouter } from './modules/health/health.routes.js';
 import {
@@ -133,6 +142,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/invitations', teamInvitationsRouter); // THEKEDAR: list / create / resend / cancel
   mount('/admin/auth', adminAuthRouter);
   mount('/attachments', attachmentsRouter);
+  mount('/public', publicRouter); // QA-B-02: GET /public/files/:id (durable share links, no login)
   mount('/company', companyRouter);
   mount('/users', userPermissionsRouter); // /users/:id/permissions, /permission-overrides, /role (per-route auth)
   mount('/users', usersRouter);
@@ -161,6 +171,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/stores', storesRouter);
   mount('/stock', stockRouter);
   mount('/stock-counts', stockCountsRouter);
+  mount('/equipment', equipmentRouter); // Step 16
   mount('/dispatches', dispatchesRouter);
   mount('/shortages', shortagesRouter);
   mount('/projects', projectStockRouter); // /projects/:id/stock, /material-usage (per-route auth)
@@ -170,6 +181,12 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/projects', projectBillingRouter);
   mount('/projects', projectDailyLogsRouter); // /projects/:id/daily-logs (per-route auth) // /projects/:id/billing-stages, /invoices, /payments, /receivables, ... (per-route auth)
   mount('/projects', projectEstimateRouter); // /projects/:id/estimate, /estimate/settings (per-route auth)
+  mount('/projects', projectEquipmentRouter); // Step 16: /projects/:id/equipment (per-route auth)
+  mount('/projects', projectCloseoutRouter); // Step 17: /projects/:id/drawings, /snags, /handover, /retention (per-route auth)
+  mount('/projects', projectChangeOrdersRouter); // Step 15: /projects/:id/change-orders, /projects/:id/site-instructions (per-route auth)
+  mount('/projects', projectScheduleRouter); // Step 13: /projects/:id/schedule/*, /projects/:id/stoppages (per-route auth)
+  mount('/projects', projectControlRouter); // Step 14: /projects/:id/control/* (per-route auth)
+  mount('/projects', projectTaxRouter); // Step 18: /projects/:id/tax (per-route auth)
   mount('/projects', projectsRouter);
   mount('/billing-stages', billingStagesRouter);
   mount('/billing-progress', billingProgressRouter);
@@ -181,8 +198,15 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/approvals', approvalsRouter);
   mount('/dashboard', dashboardRouter);
   mount('/finance', financeRouter);
+  mount('/control', controlRouter); // Step 14: /control/summary, /alerts, /settings (per-route auth)
   mount('/reports', reportsRouter);
+  mount('/reports', taxReportsRouter); // Step 18: /reports/wht-summary, /reports/tax-invoice-register
+  mount('/tax', taxRouter); // Step 18: /tax/settings
   mount('/daily-logs', dailyLogsRouter);
+  mount('/drawings', drawingsRouter);
+  mount('/drawing-revisions', drawingRevisionsRouter);
+  mount('/snags', snagsRouter);
+  mount('/snags', snagChangeOrderRouter); // Step 15: POST /snags/:id/change-order
   mount('/sync', syncRouter);
   mount('/project-workers', projectWorkersRouter);
   mount('/subcontract-assignments', subcontractAssignmentsRouter);
@@ -198,6 +222,13 @@ export function createApp(options: CreateAppOptions = {}): Express {
   mount('/supply-presets', supplyPresetsRouter);
   mount('/floors', floorsRouter);
   mount('/rooms', roomsRouter);
+  mount('/estimates', estimatesRouter); // Step 11: saved estimate revisions (per-route auth)
+  mount('/rulebook', rulebookRouter); // Step 11: company estimation rulebook (per-route auth)
+  mount('/milestones', milestonesRouter); // Step 13: milestone detail / edit / progress (per-route auth)
+  mount('/stoppages', stoppagesRouter); // Step 13: stoppage days (per-route auth)
+  mount('/quotes', quotesRouter); // Step 12: quotes / sales pipeline (per-route auth)
+  mount('/change-orders', changeOrdersRouter); // Step 15 (per-route auth)
+  mount('/site-instructions', siteInstructionsRouter); // Step 15 (per-route auth)
   mount('/openings', openingsRouter);
   mount('/onboarding', onboardingRouter);
   mount('/imports', importsRouter);

@@ -6,7 +6,7 @@
  */
 import type { Tx } from '../../core/db/withTenant.js';
 import type { MaterialLine } from '../../core/i18n/index.js';
-import { rs } from '../../core/pdf/templates.js';
+import { day, rs } from '../../core/pdf/templates.js';
 import { notify, type Recipient } from './notifications.service.js';
 
 const team = (projectId: string, ...roles: Array<'PM' | 'MUNSHI'>): Recipient => ({ projectRoles: roles, projectId });
@@ -218,6 +218,20 @@ export const previousStageUnpaid = (tx: Tx, e: Base & { projectId: string; proje
     ...(e.at ? { at: e.at } : {}),
   });
 
+/** Step 13 · stage-lock warning: a milestone that starts a payment stage while an earlier stage is unpaid. */
+export const milestoneStageLock = (tx: Tx, e: Base & { projectId: string; projectName: string; milestoneId: string; milestone: string; label: string; unpaid: number }) =>
+  notify(tx, {
+    tenantId: e.tenantId,
+    recipients: billingTeam(e.projectId),
+    type: 'PREVIOUS_STAGE_UNPAID',
+    severity: 'WARNING',
+    text: { key: 'milestoneStageLock', params: { project: e.projectName, milestone: e.milestone, label: e.label, count: e.unpaid } },
+    projectId: e.projectId,
+    ref: { type: 'MILESTONE', id: e.milestoneId },
+    actionUrl: `/projects/${e.projectId}/billing/schedule`,
+    ...(e.at ? { at: e.at } : {}),
+  });
+
 // ─── Subscription / team ────────────────────────────────────────────────────
 
 export const subscriptionRenewal = (tx: Tx, e: Base & { subscriptionId: string; plan: string; endsOn: string; days: number }) =>
@@ -264,3 +278,50 @@ export const inviteAccepted = (tx: Tx, e: Base & { userId: string; name: string;
     ...(e.at ? { at: e.at } : {}),
   });
 
+
+// ─── Closeout (Step 17) ─────────────────────────────────────────────────────
+
+/** Retention release coming up (`stage` REMINDER, N days before) or due (DUE, on / after the date). */
+export const retentionReleaseDue = (tx: Tx, e: Base & { projectId: string; projectName: string; handoverId: string; stage: 'REMINDER' | 'DUE'; dueDate: string; amountPaisa: bigint; openSnags: number }) =>
+  notify(tx, {
+    tenantId: e.tenantId,
+    recipients: billingTeam(e.projectId),
+    type: 'RETENTION_RELEASE_DUE',
+    severity: e.stage === 'DUE' ? 'WARNING' : 'INFO',
+    text: { key: e.stage === 'DUE' ? 'retentionDue' : 'retentionReminder', params: { project: e.projectName, date: day(e.dueDate), amount: rs(e.amountPaisa), snags: e.openSnags } },
+    projectId: e.projectId,
+    ref: { type: 'PROJECT_HANDOVER', id: e.handoverId },
+    actionUrl: `/projects/${e.projectId}/documents/retention`,
+    actorId: null,
+    dedupeMs: 12 * 3_600_000,
+    ...(e.at ? { at: e.at } : {}),
+  });
+
+// ─── Equipment (Step 16) ────────────────────────────────────────────────────
+
+/** Once a week per rental: the holders of equipment.rental.manage for the project + its PMs (resolved by the caller). */
+export const EQUIPMENT_IDLE_DEDUPE_MS = 7 * 24 * 3_600_000;
+
+/**
+ * Rented units idle at a site (no milestone activity for `days` days). `withCost` users (fields.rates)
+ * get the daily rent being wasted; the others the same text without it.
+ */
+export const equipmentIdle = (
+  tx: Tx,
+  e: Base & { userIds: string[]; withCost: boolean; projectId: string; projectName: string; rentalId: string; number: string; items: string; days: number; dailyCostPaisa: bigint },
+) =>
+  notify(tx, {
+    tenantId: e.tenantId,
+    recipients: [{ userIds: e.userIds }],
+    type: 'EQUIPMENT_IDLE',
+    severity: 'WARNING',
+    text: e.withCost
+      ? { key: 'equipmentIdle', params: { number: e.number, project: e.projectName, items: e.items, days: e.days, amount: rs(e.dailyCostPaisa) } }
+      : { key: 'equipmentIdleNoCost', params: { number: e.number, project: e.projectName, items: e.items, days: e.days } },
+    projectId: e.projectId,
+    ref: { type: 'EQUIPMENT_RENTAL', id: e.rentalId },
+    actionUrl: `/equipment/rentals/${e.rentalId}`,
+    actorId: null,
+    dedupeMs: EQUIPMENT_IDLE_DEDUPE_MS,
+    ...(e.at ? { at: e.at } : {}),
+  });

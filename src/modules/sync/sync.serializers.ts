@@ -463,3 +463,155 @@ export const serializeNotification = (
   read: n.readAt !== null,
   createdAt: iso(n.createdAt),
 });
+
+// ─── Step 17 · Closeout ─────────────────────────────────────────────────────
+
+/** Snag for the phone: never money (no cost amount / attribution). */
+export const serializeSnag = (s: {
+  id: string;
+  projectId: string;
+  number: number;
+  roomId: string | null;
+  location: string | null;
+  description: string;
+  status: string;
+  targetDate: Date | null;
+  inDefectPeriod: boolean;
+  workerId: string | null;
+  subcontractorId: string | null;
+  beforePhotoIds: string[];
+  afterPhotoIds: string[];
+  fixNote: string | null;
+  fixedAt: Date | null;
+  verifiedAt: Date | null;
+  clientId: string | null;
+  createdById: string | null;
+  updatedAt: Date;
+}) => ({
+  id: s.id,
+  projectId: s.projectId,
+  number: s.number,
+  code: `SN-${String(s.number).padStart(3, '0')}`,
+  roomId: s.roomId,
+  location: s.location,
+  description: s.description,
+  status: s.status,
+  targetDate: day(s.targetDate),
+  inDefectPeriod: s.inDefectPeriod,
+  assigneeType: s.workerId ? 'WORKER' : s.subcontractorId ? 'SUBCONTRACTOR' : null,
+  workerId: s.workerId,
+  subcontractorId: s.subcontractorId,
+  beforePhotoIds: s.beforePhotoIds,
+  afterPhotoIds: s.afterPhotoIds,
+  fixNote: s.fixNote,
+  fixedAt: iso(s.fixedAt),
+  verifiedAt: iso(s.verifiedAt),
+  clientId: s.clientId,
+  createdById: s.createdById,
+  updatedAt: iso(s.updatedAt),
+});
+
+/** Drawing with its latest revision (the file is fetched with GET /attachments/:id, cached by attachment id). */
+export const serializeDrawing = (d: {
+  id: string;
+  projectId: string;
+  folder: string;
+  title: string;
+  number: string | null;
+  updatedAt: Date;
+  revisions: Array<{ id: string; revisionNo: number; attachmentId: string; approvedAt: Date | null; isLatest: boolean }>;
+  _count: { revisions: number };
+}) => {
+  const latest = d.revisions.find((r) => r.isLatest) ?? d.revisions[0] ?? null;
+  return {
+    id: d.id,
+    projectId: d.projectId,
+    folder: d.folder,
+    title: d.title,
+    number: d.number,
+    latestRevisionId: latest?.id ?? null,
+    latestRevisionNo: latest?.revisionNo ?? null,
+    latestAttachmentId: latest?.attachmentId ?? null,
+    latestApprovedAt: day(latest?.approvedAt),
+    revisionCount: d._count.revisions,
+    updatedAt: iso(d.updatedAt),
+  };
+};
+// ─── Step 13 · schedule (quantities only, never money) ─────────────────────
+
+export const serializeMilestone = (
+  m: {
+    id: string;
+    projectId: string;
+    key: string;
+    name: string;
+    sortOrder: number;
+    durationDays: number;
+    plannedStart: Date;
+    plannedEnd: Date;
+    curingDays: number;
+    status: string;
+    progressPercent: number;
+    actualStart: Date | null;
+    actualEnd: Date | null;
+    updatedAt: Date;
+    stage: { stageKey: string; name: string };
+    dependsOn: Array<{ dependsOnId: string; type: string; lagDays: number }>;
+    quotas: Array<{ materialId: string | null; material: string; description: string; unit: string; ownerSupplied: boolean; plannedQty: Dec }>;
+  },
+  used: Map<string, number> | undefined,
+) => ({
+  id: m.id,
+  projectId: m.projectId,
+  stageKey: m.stage.stageKey,
+  stageName: m.stage.name,
+  key: m.key,
+  name: m.name,
+  sortOrder: m.sortOrder,
+  plannedStart: day(m.plannedStart),
+  plannedEnd: day(m.plannedEnd),
+  durationDays: m.durationDays,
+  curingDays: m.curingDays,
+  curingUntil: m.curingDays > 0 ? day(new Date((m.actualEnd ?? m.plannedEnd).getTime() + m.curingDays * 86_400_000)) : null,
+  status: m.status,
+  progressPercent: m.progressPercent,
+  actualStart: day(m.actualStart),
+  actualEnd: day(m.actualEnd),
+  dependsOn: m.dependsOn.map((d) => ({ milestoneId: d.dependsOnId, type: d.type, lagDays: d.lagDays })),
+  quotas: m.quotas.map((q) => {
+    const plannedQty = num(q.plannedQty) ?? 0;
+    const usedQty = q.materialId ? (used?.get(q.materialId) ?? 0) : 0;
+    return { materialId: q.materialId, material: q.material, description: q.description, unit: q.unit, ownerSupplied: q.ownerSupplied, plannedQty, usedQty, remainingQty: Math.max(0, Math.round((plannedQty - usedQty) * 1000) / 1000) };
+  }),
+  updatedAt: iso(m.updatedAt),
+});
+
+export const serializeStoppage = (s: {
+  id: string;
+  projectId: string;
+  dates: Date[];
+  reason: string;
+  category: string;
+  status: string;
+  note: string | null;
+  photoAttachmentIds: string[];
+  clientId: string | null;
+  reportedById: string | null;
+  createdAt: Date;
+  decidedAt: Date | null;
+  decisionNote: string | null;
+}) => ({
+  id: s.id,
+  projectId: s.projectId,
+  dates: s.dates.map((d) => day(d)!).sort(),
+  reason: s.reason,
+  category: s.category,
+  status: s.status,
+  note: s.note,
+  photoAttachmentIds: s.photoAttachmentIds,
+  clientId: s.clientId,
+  reportedById: s.reportedById,
+  reportedAt: iso(s.createdAt),
+  decidedAt: iso(s.decidedAt),
+  decisionNote: s.decisionNote,
+});

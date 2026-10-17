@@ -6,10 +6,10 @@
 import type ExcelJSModule from 'exceljs';
 import type { Tx } from '../../core/db/withTenant.js';
 import { renderPdf } from '../../core/pdf/renderer.js';
-import { reportHtml, type Letterhead, type ReportColumnType } from '../../core/pdf/templates.js';
+import { isWideTable, reportHtml, rupeesWhole, type Letterhead, type ReportColumnType } from '../../core/pdf/templates.js';
 import { enumLabel, hasKey, tr, unitLabel, type Lang } from '../../core/i18n/index.js';
 import { uuidv7 } from '../../core/utils/uuid.js';
-import { signedUrlFor } from '../attachments/attachments.service.js';
+import { namedSignedUrl } from '../attachments/attachments.service.js';
 import { storage } from '../attachments/storage.provider.js';
 import { letterhead } from '../billing/documents.js';
 import type { ReportFormat } from './reports.schema.js';
@@ -33,9 +33,33 @@ export interface Report {
   notes?: string[];
   /** "Total" in the file language (set by localizeReport). */
   totalLabel?: string;
+  /** Step 18: extra JSON for the screens (charts); never in the files. */
+  extra?: Record<string, unknown>;
 }
 
 // ─── Language of the files ──────────────────────────────────────────────────
+
+/**
+ * Step 18: enum cells by column key → `<prefix>.<VALUE>` in the catalogue (statuses, types,
+ * categories, reasons, buckets, stages).
+ */
+const CELL_ENUM: Record<string, string> = {
+  coStatus: 'report.v.coStatus',
+  coType: 'pdf.changeOrderType',
+  proofType: 'pdf.proofType',
+  snagStatus: 'report.v.snagStatus',
+  milestoneStatus: 'report.v.milestoneStatus',
+  stoppageStatus: 'report.v.stoppageStatus',
+  delayCategory: 'report.v.delayCategory',
+  reason: 'report.v.reason',
+  bucket: 'report.v.bucket',
+  varianceStatus: 'report.v.varianceStatus',
+  category: 'report.v.category',
+  assigneeKind: 'report.v.assigneeKind',
+  stage: 'estimate.stage',
+  progressBasis: 'report.v.progressBasis',
+  projectionBasis: 'report.v.projectionBasis',
+};
 
 /** Columns whose label differs from the shared `report.col.<key>` one. */
 const COLUMN_KEY: Record<string, string> = { 'receivables-ageing:project': 'report.col.code', 'material-audit:value': 'report.col.stockValue' };
@@ -66,6 +90,11 @@ function localCell(lang: Lang, key: string, v: Cell): Cell {
   if (typeof v !== 'string') return v;
   if (key === 'status') return enumLabel(lang, 'ProjectStatus', v);
   if (key === 'unit') return unitLabel(lang, v);
+  const prefix = CELL_ENUM[key];
+  if (prefix) {
+    const k = `${prefix}.${v}`;
+    return hasKey(k) ? tr(lang, k) : v;
+  }
   const k = CELL_KEY[v];
   return (key === 'kind' || key === 'location') && k && hasKey(k) ? tr(lang, k) : v;
 }
@@ -92,8 +121,8 @@ export const MIME: Record<Exclude<ReportFormat, 'json'>, string> = {
   pdf: 'application/pdf',
 };
 
-/** Paisa → rupees as a plain number (files). */
-const rupees = (v: Cell) => (v === null || v === '' ? null : Number(BigInt(v)) / 100);
+/** Paisa → whole rupees as a plain number (files, QA-B-13). */
+const rupees = (v: Cell) => (v === null || v === '' ? null : rupeesWhole(v));
 const plain = (c: ReportColumn, v: Cell): string | number | null => (v === null || v === undefined ? null : c.type === 'money' ? rupees(v) : c.type === 'text' || c.type === 'date' ? String(v) : Number(v));
 const label = (c: ReportColumn) => (c.type === 'money' ? `${c.label} (Rs)` : c.type === 'percent' ? `${c.label} (%)` : c.label);
 
@@ -128,14 +157,17 @@ export async function toXlsx(r: Report): Promise<Buffer> {
   r.columns.forEach((c, i) => {
     const col = ws.getColumn(i + 1);
     col.width = Math.min(40, Math.max(12, label(c).length + 2, ...r.rows.map((row) => String(row[c.key] ?? '').length + 2)));
-    if (c.type === 'money') col.numFmt = '#,##0.00';
+    if (c.type === 'money') col.numFmt = '#,##0';
     if (c.type === 'qty') col.numFmt = '#,##0.###';
   });
   return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
 export async function toPdf(company: Letterhead, r: Report, lang: Lang = 'en'): Promise<Buffer> {
-  return renderPdf(reportHtml({ company, title: r.title, subtitle: r.subtitle, generatedOn: r.generatedAt.slice(0, 10), columns: r.columns, rows: r.rows, totals: r.totals }, lang), `${company.name} · ${r.title}`, lang);
+  // QA-B-03 / QA-B-12: wide tables print A4 landscape (and split beyond 12 columns).
+  return renderPdf(reportHtml({ company, title: r.title, subtitle: r.subtitle, generatedOn: r.generatedAt.slice(0, 10), columns: r.columns, rows: r.rows, totals: r.totals }, lang), `${company.name} · ${r.title}`, lang, {
+    landscape: isWideTable(r.columns.length),
+  });
 }
 
 /** Renders the file — outside any transaction (a PDF can take seconds). */
@@ -148,13 +180,36 @@ export async function renderReport(report: Report, format: Exclude<ReportFormat,
 
 export { letterhead };
 
-/** Stores the file (attachment kind REPORT) and returns a signed link. */
-export async function storeReport(tx: Tx, a: { tenantId: string; userId: string }, r: Report, format: Exclude<ReportFormat, 'json'>, buffer: Buffer) {
+/**
+ * QA-B-15 · download name of an export: `<report>[-<project code>]-<yyyy-mm-dd>.<ext>` (Pakistan date
+ * of generation), e.g. `tax-invoice-register-2026-10-17.xlsx`, `variance-MSB-2026-012-2026-10-17.pdf`.
+ * Per-project books drop their "-project" suffix and always carry the code.
+ */
+export function exportFileName(name: string, generatedAt: string, format: string, projectCode?: string | null): string {
+  const pkDay = new Date(Date.parse(generatedAt) + 5 * 3_600_000).toISOString().slice(0, 10);
+  const code = projectCode ? `-${projectCode.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '')}` : '';
+  return `${name.replace(/-project$/, '')}${code}-${pkDay}.${format}`;
+}
+
+/**
+ * Stores the file (attachment kind REPORT) and returns a signed link named after the file:
+ * `url` previews (inline), `downloadUrl` saves (attachment) — both under `fileName` (QA-B-15).
+ */
+export async function storeReport(
+  tx: Tx,
+  a: { tenantId: string; userId: string },
+  r: Pick<Report, 'name' | 'generatedAt'> & { filters?: Record<string, string | null>; project?: { code: string } },
+  format: Exclude<ReportFormat, 'json'>,
+  buffer: Buffer,
+) {
   const id = uuidv7();
   const now = new Date();
-  const fileName = `${r.name}-${r.generatedAt.slice(0, 10)}.${format}`;
+  const projectId = r.filters?.['projectId'];
+  const code = r.project?.code ?? (projectId ? (await tx.project.findFirst({ where: { tenantId: a.tenantId, id: projectId }, select: { code: true } }))?.code : null);
+  const fileName = exportFileName(r.name, r.generatedAt, format, code);
   const key = await storage().put(`${a.tenantId}/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${id}.${format}`, buffer, MIME[format]);
   const att = await tx.attachment.create({ data: { id, tenantId: a.tenantId, kind: 'REPORT', storageKey: key, fileName, mimeType: MIME[format], sizeBytes: buffer.length, uploadedById: a.userId } });
-  const signed = await signedUrlFor(att);
-  return { attachmentId: id, fileName, format, mimeType: MIME[format], sizeBytes: buffer.length, url: signed.url, expiresAt: signed.expiresAt.toISOString() };
+  const signed = await namedSignedUrl(att);
+  const download = await namedSignedUrl(att, true);
+  return { attachmentId: id, fileName, format, mimeType: MIME[format], sizeBytes: buffer.length, url: signed.url, downloadUrl: download.url, expiresAt: signed.expiresAt.toISOString() };
 }

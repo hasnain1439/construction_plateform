@@ -51,7 +51,22 @@ export const PERMISSION_MODULES = {
   team: { en: 'Team', roman: 'Team', urdu: 'ٹیم' },
   company: { en: 'Company', roman: 'Company', urdu: 'کمپنی' },
   subscription: { en: 'Subscription', roman: 'Subscription', urdu: 'سبسکرپشن' },
+  equipment: { en: 'Equipment & shuttering', roman: 'Machinery aur shuttering', urdu: 'مشینری اور شٹرنگ' },
+  closeout: { en: 'Closeout & handover', roman: 'Ikhtitaam aur hawalgi', urdu: 'اختتام اور حوالگی' },
   fields: { en: 'Data visibility', roman: 'Kya nazar aaye', urdu: 'کیا نظر آئے' },
+  // Step 11
+  estimate: { en: 'Estimates', roman: 'Estimate (takhmeena)', urdu: 'تخمینہ' },
+  rulebook: { en: 'Estimation rulebook', roman: 'Estimate ke qawaid', urdu: 'تخمینے کے قواعد' },
+  // Step 13
+  schedule: { en: 'Schedule', roman: 'Schedule (kaam ka nizam)', urdu: 'شیڈول' },
+  // Step 12
+  sales: { en: 'Sales & quotes', roman: 'Sales aur quotes', urdu: 'سیلز اور کوٹیشن' },
+  // Step 15
+  changeorder: { en: 'Change orders', roman: 'Tabdeeli orders', urdu: 'تبدیلی آرڈرز' },
+  // Step 14
+  control: { en: 'Control & alerts', roman: 'Control aur alerts', urdu: 'کنٹرول اور الرٹس' },
+  // Step 18
+  tax: { en: 'Tax', roman: 'Tax', urdu: 'ٹیکس' },
 } as const satisfies Record<string, PermissionLabel>;
 
 export type PermissionModule = keyof typeof PERMISSION_MODULES;
@@ -77,7 +92,25 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   def('projects.project.manage', L('Change project status / delete drafts', 'Project ka status / draft delete', 'پراجیکٹ کا اسٹیٹس / ڈرافٹ ڈیلیٹ'), 'Close-out, hand over, close, reopen; delete a draft.', S),
   def('projects.team.manage', L('Assign project team', 'Project team muqarrar karna', 'پراجیکٹ ٹیم مقرر کرنا'), 'Choose the PM and munshis of a project.', S),
   def('projects.estimate.view', L('View estimate (BoQ)', 'Estimate (BoQ) dekhna', 'تخمینہ (BoQ) دیکھنا'), 'Grey-structure material estimate of a project (rates and amounts follow the data-visibility permissions).', S),
-  def('projects.estimate.manage', L('Change estimate settings', 'Estimate ki settings badalna', 'تخمینے کی سیٹنگز بدلنا'), 'Change the assumptions of a project estimate (wall / slab thickness, mixes, steel, wastage, labour rate).', S),
+  def('projects.estimate.manage', L('Change estimate settings', 'Estimate ki settings badalna', 'تخمینے کی سیٹنگز بدلنا'), 'Change the assumptions of a project estimate (wall / slab thickness, mixes, steel, wastage, labour rate); generate / regenerate draft estimate revisions and change their lines.', S),
+
+  // ─── Step 11 · Estimates + rulebook ────────────────────────────────────────
+  def('estimate.revision.approve', L('Approve estimates', 'Estimate manzoor karna', 'تخمینہ منظور کرنا'), 'Approve a draft estimate revision: its rates and rulebook are frozen and the previous approved revision is superseded.', S),
+  def('rulebook.override.view', L('View estimation rulebook', 'Estimate ke qawaid dekhna', 'تخمینے کے قواعد دیکھنا'), 'The rule-of-thumb values the estimates use (platform rulebook + company values).'),
+  // ─── Step 13 · Schedule ────────────────────────────────────────────────────
+  def('schedule.plan.view', L('View schedule', 'Schedule dekhna', 'شیڈول دیکھنا'), 'Gantt, milestones, curing, baseline, delays, material quotas (quantities only) and stoppage days.', S),
+  def('schedule.plan.manage', L('Plan the schedule', 'Schedule banana / badalna', 'شیڈول بنانا / بدلنا'), 'Generate the schedule from the approved estimate, re-plan, change milestone dates, effort, dependencies and payment-stage links.', S),
+  def('schedule.progress.edit', L('Update site progress', 'Kaam ki progress likhna', 'کام کی پیش رفت لکھنا'), 'Update milestone progress and status from site (start, curing, done, blocked).', S),
+  def('schedule.stoppage.create', L('Log stoppage days', 'Kaam band ke din likhna', 'کام بند کے دن لکھنا'), 'Log days the site could not work (rain, smog ban, holiday, owner hold, shortages) with a photo.', S),
+  def('schedule.stoppage.approve', L('Approve stoppage days', 'Kaam band ke din manzoor karna', 'کام بند کے دن منظور کرنا'), 'Approve or reject stoppage days and decide who they are charged to (owner / excusable / contractor); approved days push the schedule.', S),
+  def('rulebook.override.manage', L('Change company rulebook values', 'Company ke qawaid badalna', 'کمپنی کے قواعد بدلنا'), 'Set the company own values for rulebook parameters (within the safe range).'),
+
+  // ─── Step 12 · Sales / quotes ──────────────────────────────────────────────
+  def('sales.quote.view', L('View quotes', 'Quotes dekhna', 'کوٹیشن دیکھنا'), 'Quote pipeline, quote detail and revisions, quote PDFs, win / loss insights (price, cost and margin follow the data-visibility permissions).'),
+  def('sales.quote.create', L('Create quotes', 'Naya quote banana', 'نیا کوٹیشن بنانا'), 'Start a quote for a client (quick estimate from plot, covered area and floors).'),
+  def('sales.quote.edit', L('Work on quotes', 'Quote par kaam', 'کوٹیشن پر کام'), 'Change a quote, add a revision, send it to the client, record negotiation, mark it lost.'),
+  def('sales.quote.approve', L('Mark quotes won', 'Quote jeeta hua karna', 'کوٹیشن جیتا ہوا کرنا'), 'Mark a quote won: a draft project is made from it (also needs Create projects).'),
+  def('sales.quote.manage', L('Delete quotes', 'Quote delete karna', 'کوٹیشن ڈیلیٹ کرنا'), 'Delete a quote that was not won.'),
 
   // ─── Clients ───────────────────────────────────────────────────────────────
   def('clients.client.view', L('View clients', 'Clients dekhna', 'کلائنٹس دیکھنا'), 'Project owners (clients) list and detail.'),
@@ -203,6 +236,40 @@ export const PERMISSION_CATALOG: readonly PermissionDef[] = [
   def('company.holiday.manage', L('Manage holidays', 'Chhuttiyon ka intezam', 'چھٹیوں کا انتظام'), 'Add or delete company holidays.'),
   def('subscription.manage', L('Subscription & payments', 'Subscription aur adayegi', 'سبسکرپشن اور ادائیگی'), 'Plan, subscription payments, plan changes.', { ownerOnly: true }),
 
+  // ─── Step 16 · Equipment & shuttering ──────────────────────────────────────
+  def('equipment.view', L('View equipment', 'Machinery / shuttering dekhna', 'مشینری / شٹرنگ دیکھنا'), 'Equipment register, where everything is (allocation map), movements, transfers, rentals, losses, hire charges (rates and amounts need fields.rates).', S),
+  def('equipment.manage', L('Manage equipment', 'Machinery ka intezam', 'مشینری کا انتظام'), 'Add / edit equipment and hire rates, stock in (opening / purchase), adjustments, send from the yard, run the hire accrual.'),
+  def('equipment.transfer.create', L('Send equipment', 'Machinery / shuttering bhejna', 'مشینری / شٹرنگ بھیجنا'), 'Dispatch, transfer between sites and return equipment to the yard; cancel a transfer on the way.', S),
+  def('equipment.receiving.create', L('Receive equipment', 'Machinery / shuttering wasool karna', 'مشینری / شٹرنگ وصول کرنا'), 'Count equipment arriving at a site or the yard (a gap becomes a loss).', S),
+  def('equipment.rental.manage', L('Manage equipment rentals', 'Kiraye ki shuttering ka intezam', 'کرائے کی شٹرنگ کا انتظام'), 'Hire from yards: create, extend, return with damage charges, close (supplier ledger).', S),
+  def('equipment.loss.create', L('Report equipment loss', 'Gum / toota saman report karna', 'گم / ٹوٹا سامان رپورٹ کرنا'), 'Report missing or damaged equipment with a photo.', S),
+  def('equipment.loss.approve', L('Charge equipment loss', 'Nuqsan ka faisla', 'نقصان کا فیصلہ'), 'Charge a loss to the project, a sub-contractor or write it off.', S),
+  // ─── Step 15 · Change orders + site instructions ──────────────────────────
+  def('changeorder.view', L('View change orders', 'Tabdeeli orders dekhna', 'تبدیلی آرڈرز دیکھنا'), 'Change orders of a project, their slip PDF and WhatsApp text (amounts also need fields.rates or fields.amounts).', S),
+  def('changeorder.create', L('Create change orders', 'Tabdeeli order banana', 'تبدیلی آرڈر بنانا'), 'New change order (mini BoQ: material / labour lines, markup, days), turn a site instruction or a snag into a change order draft, dismiss a site instruction.', S),
+  def('changeorder.edit', L('Edit change orders', 'Tabdeeli order badalna', 'تبدیلی آرڈر بدلنا'), 'Edit or delete a draft, send it to the owner, reopen it, mark the work started / completed.', S),
+  def('changeorder.approve', L('Record owner approval', 'Maalik ki manzoori darj karna', 'مالک کی منظوری درج کرنا'), 'Record that the owner approved (with proof: WhatsApp screenshot, signed slip or verbal note) or rejected a change order.', S),
+  def('changeorder.manage', L('Bill change orders', 'Tabdeeli orders ka bill', 'تبدیلی آرڈرز کا بل'), 'Put an approved change order on the next stage invoice or make a separate variation invoice (also needs billing.invoice.create).', S),
+  def('changeorder.instruction.create', L('Record site instructions', 'Site hidayat darj karna', 'سائٹ ہدایت درج کرنا'), 'Record what the owner asked for on site (photo + note) so the office can turn it into a change order; see own instructions.', S),
+  def('changeorder.instruction.view', L('View site instructions', 'Site hidayat dekhna', 'سائٹ ہدایات دیکھنا'), 'Every site instruction of a project (not only own).', S),
+
+  // ─── Step 17 · Closeout (drawings, snags, handover, retention) ─────────────
+  def('closeout.drawing.view', L('View drawings', 'Naqshe dekhna', 'نقشے دیکھنا'), 'Project drawings by folder and every revision (superseded ones too).', S),
+  def('closeout.drawing.manage', L('Manage drawings', 'Naqshon ka intezam', 'نقشوں کا انتظام'), 'Add drawings, upload new revisions, set approval dates, delete drawings.', S),
+  def('closeout.snag.view', L('View snag list', 'Kamiyon ki list dekhna', 'خامیوں کی فہرست دیکھنا'), 'Snags of a project with before / after photos (cost amounts also need fields.amounts).', S),
+  def('closeout.snag.create', L('Report snags', 'Kami darj karna', 'خامی درج کرنا'), 'Log a snag with photos and mark it fixed with after photos (site).', S),
+  def('closeout.snag.manage', L('Manage snags', 'Kamiyon ka intezam', 'خامیوں کا انتظام'), 'Edit / assign snags, verify or reopen them, delete, and set who pays (rework, sub-contractor deduction, change order — with fields.amounts).', S),
+  def('closeout.handover.manage', L('Handover to owner', 'Maalik ko hawalgi', 'مالک کو حوالگی'), 'Handover checklist, owner sign-off, handover certificate, retention reminders (completing the handover also needs projects.project.manage).', S),
+  def('closeout.retention.view', L('View retention', 'Retention dekhna', 'روکی گئی رقم دیکھنا'), 'Retention due dates of the owner and sub-contractors after handover (amounts also need fields.amounts).', S),
+
+  // ─── Step 14 · Control & alerts ────────────────────────────────────────────
+  def('control.view', L('View control (variance & alerts)', 'Control dekhna (farq aur alerts)', 'کنٹرول دیکھنا (فرق اور الرٹس)'), 'Material and cost variance, burn rate vs progress, delay analysis, projected margin and control alerts of a project (rupee values follow the data-visibility permissions).', S),
+  def('control.manage', L('Manage alert thresholds', 'Alert ki hadein badalna', 'الرٹ کی حدیں بدلنا'), 'Change the control alert thresholds (overuse %, behind-plan points, quota %, spend-ahead points) and run the alert check now.'),
+
+  // ─── Step 18 · Tax ─────────────────────────────────────────────────────────
+  def('tax.view', L('View tax & tax reports', 'Tax aur tax reports dekhna', 'ٹیکس اور ٹیکس رپورٹس دیکھنا'), 'Tax settings (read), the yearly WHT summary and the tax-wise invoice register (amounts also need fields.amounts).'),
+  def('tax.settings.manage', L('Manage tax settings', 'Tax settings badalna', 'ٹیکس سیٹنگز بدلنا'), 'Switch sales tax on / off, authority (PRA / SRB / KPRA / ICT), rate, NTN / STRN, default WHT %, and the tax override of a project.'),
+
   // ─── Field permissions (data visibility) ───────────────────────────────────
   def('fields.rates', L('See rates & stock values', 'Rates aur stock ki qeemat dekhna', 'ریٹس اور اسٹاک کی قیمت دیکھنا'), 'Material / supplier / sub-contract rates, purchase amounts, stock values, supplier balances.', { field: true }),
   def('fields.amounts', L('See billing & money amounts', 'Billing aur raqam dekhna', 'بلنگ اور رقم دیکھنا'), 'Billing amounts, invoices, receivables, money KPIs.', { field: true }),
@@ -277,6 +344,16 @@ const MUNSHI_KEYS = [
   'masterdata.worker.view',
   'masterdata.worker.create',
   'masterdata.subcontractor.view',
+  'equipment.view', // Step 16
+  'equipment.receiving.create', // Step 16
+  'equipment.loss.create', // Step 16
+  'closeout.drawing.view',
+  'closeout.snag.view',
+  'closeout.snag.create',
+  'schedule.plan.view',
+  'schedule.progress.edit',
+  'schedule.stoppage.create',
+  'changeorder.instruction.create', // Step 15
 ];
 
 /** What a PM could do before permissions existed, WITHOUT canSeeFinancials. */
@@ -287,6 +364,12 @@ const PM_KEYS = [
   'projects.project.approve',
   'projects.estimate.view',
   'projects.estimate.manage',
+  'rulebook.override.view',
+  'schedule.plan.manage',
+  'schedule.stoppage.approve',
+  'sales.quote.view',
+  'sales.quote.create',
+  'sales.quote.edit',
   'clients.client.view',
   'clients.client.create',
   'clients.client.edit',
@@ -326,6 +409,18 @@ const PM_KEYS = [
   'team.member.view',
   'company.profile.view',
   'fields.rates',
+  'equipment.transfer.create', // Step 16
+  'equipment.rental.manage', // Step 16
+  'closeout.drawing.manage',
+  'closeout.snag.manage',
+  'closeout.handover.manage',
+  'closeout.retention.view',
+  'changeorder.view', // Step 15
+  'changeorder.create', // Step 15
+  'changeorder.edit', // Step 15
+  'changeorder.approve', // Step 15
+  'changeorder.instruction.view', // Step 15
+  'control.view', // Step 14
 ];
 
 /**
@@ -375,6 +470,8 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
     grants: [
       'projects.project.view',
       'projects.estimate.view',
+      'schedule.plan.view',
+      'sales.quote.view',
       'clients.client.view',
       'labor.settlement.view',
       'labor.advance.view',
@@ -400,6 +497,12 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'fields.rates',
       'fields.amounts',
       'fields.contract',
+      'closeout.snag.view',
+      'closeout.retention.view',
+      'changeorder.view', // Step 15
+      'changeorder.manage', // Step 15
+      'control.view', // Step 14
+      'tax.view', // Step 18
     ].map((key) => ({ key, ...(CATALOG_BY_KEY.get(key)?.scoped ? { scope: 'ALL_PROJECTS' as const } : {}) })),
   },
   {
@@ -427,6 +530,10 @@ export const ROLE_TEMPLATES: readonly RoleTemplate[] = [
       'dailylog.log.view',
       'dailylog.log.create',
       'masterdata.material.view',
+      'equipment.view', // Step 16
+      'equipment.manage', // Step 16
+      'equipment.transfer.create', // Step 16
+      'equipment.receiving.create', // Step 16
     ].map((key) => ({ key })),
   },
 ];

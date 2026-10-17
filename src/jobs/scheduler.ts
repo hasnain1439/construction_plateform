@@ -3,9 +3,14 @@ import { env, isTest } from '../config/env.js';
 import { logger } from '../config/logger.js';
 import { trackJobRun } from './jobRuns.js';
 import { runBillingOverdueCheck } from './billingOverdue.js';
+import { runEquipmentAccrual } from './equipmentAccrual.js';
+import { runEquipmentIdleCheck } from './equipmentIdle.js';
 import { runMissingLogCheck } from './missingLogs.js';
 import { runSyncRetention } from './syncRetention.js';
 import { runSubscriptionLifecycle } from './subscriptionLifecycle.js';
+import { runRetentionReminders } from './retentionReminders.js';
+import { runQuoteExpiry } from './quoteExpiry.js';
+import { runControlAlerts } from './controlAlerts.js';
 
 /** Karachi is UTC+5 all year (no DST). */
 const PKT_OFFSET_MS = 5 * 3_600_000;
@@ -94,6 +99,56 @@ export async function runSyncRetentionJob(): Promise<void> {
   }
 }
 
+/** Daily 01:30 PKT: yesterday's equipment hire and rent (Step 16). */
+export async function runEquipmentAccrualJob(): Promise<void> {
+  try {
+    const result = await runExclusive('equipment-accrual', () => trackJobRun('equipment-accrual', () => runEquipmentAccrual()));
+    if (result) logger.info({ job: 'equipment-accrual', companies: result.companies, rows: result.rows }, 'equipment accrual finished');
+  } catch (err) {
+    logger.error({ err, job: 'equipment-accrual' }, 'equipment accrual failed');
+  }
+}
+
+/** Daily 09:00 PKT: idle rented equipment (no milestone activity at the site for N days) → EQUIPMENT_IDLE (Step 16). */
+export async function runEquipmentIdleJob(): Promise<void> {
+  try {
+    const result = await runExclusive('equipment-idle', () => trackJobRun('equipment-idle', () => runEquipmentIdleCheck()));
+    if (result) logger.info({ job: 'equipment-idle', companies: result.companies, idle: result.idle, notified: result.notified }, 'equipment idle check finished');
+  } catch (err) {
+    logger.error({ err, job: 'equipment-idle' }, 'equipment idle check failed');
+  }
+}
+
+/** Daily 02:45 PKT: retention release reminders (Step 17 closeout). */
+export async function runRetentionJob(): Promise<void> {
+  try {
+    const result = await runExclusive('retention-reminders', () => trackJobRun('retention-reminders', () => runRetentionReminders()));
+    if (result) logger.info({ job: 'retention-reminders', checked: result.checked, reminders: result.reminders.length, due: result.due.length }, 'retention reminders finished');
+  } catch (err) {
+    logger.error({ err, job: 'retention-reminders' }, 'retention reminders failed');
+  }
+}
+
+/** Daily 01:00 PKT: SENT / NEGOTIATION quotes past their validity → EXPIRED (Step 12). */
+export async function runQuoteExpiryJob(): Promise<void> {
+  try {
+    const result = await runExclusive('quote-expiry', () => trackJobRun('quote-expiry', () => runQuoteExpiry()));
+    if (result) logger.info({ job: 'quote-expiry', checked: result.checked, expired: result.expired.length }, 'quote expiry finished');
+  } catch (err) {
+    logger.error({ err, job: 'quote-expiry' }, 'quote expiry failed');
+  }
+}
+
+/** Daily 06:30 PKT: control alerts — variance, behind plan, quotas, spend ahead (Step 14). */
+export async function runControlAlertsJob(): Promise<void> {
+  try {
+    const result = await runExclusive('control-alerts', () => trackJobRun('control-alerts', () => runControlAlerts()));
+    if (result) logger.info({ job: 'control-alerts', companies: result.companies.length, projects: result.projects, opened: result.opened, resolved: result.resolved, notified: result.notified, failed: result.failed }, 'control alerts finished');
+  } catch (err) {
+    logger.error({ err, job: 'control-alerts' }, 'control alerts failed');
+  }
+}
+
 const timers: NodeJS.Timeout[] = [];
 
 /** On startup + daily at 02:00 Asia/Karachi. Disabled in tests. */
@@ -111,6 +166,26 @@ export function startScheduledJobs(): void {
     timers.push(setTimeout(() => void runSyncRetentionJob().finally(scheduleRetention), msUntilNextPkt(3)).unref());
   };
   scheduleRetention();
+  const scheduleEquipment = () => {
+    timers.push(setTimeout(() => void runEquipmentAccrualJob().finally(scheduleEquipment), msUntilNextPkt(1) + 30 * 60_000).unref());
+  };
+  scheduleEquipment();
+  const scheduleEquipmentIdle = () => {
+    timers.push(setTimeout(() => void runEquipmentIdleJob().finally(scheduleEquipmentIdle), msUntilNextPkt(9)).unref());
+  };
+  scheduleEquipmentIdle();
+  const scheduleRetentionReminders = () => {
+    timers.push(setTimeout(() => void runRetentionJob().finally(scheduleRetentionReminders), msUntilNextPkt(2) + 45 * 60_000).unref());
+  };
+  scheduleRetentionReminders();
+  const scheduleQuoteExpiry = () => {
+    timers.push(setTimeout(() => void runQuoteExpiryJob().finally(scheduleQuoteExpiry), msUntilNextPkt(1)).unref());
+  };
+  scheduleQuoteExpiry();
+  const scheduleControlAlerts = () => {
+    timers.push(setTimeout(() => void runControlAlertsJob().finally(scheduleControlAlerts), msUntilNextPkt(6) + 30 * 60_000).unref());
+  };
+  scheduleControlAlerts();
   const scheduleNext = () => {
     const wait = msUntilNextPkt(2);
     timers.push(

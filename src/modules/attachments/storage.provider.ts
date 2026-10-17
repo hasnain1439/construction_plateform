@@ -10,6 +10,20 @@ import { isS3Key, S3StorageProvider, type S3Config } from './s3.provider.js';
 export interface SignedUrlOptions {
   /** Images only: resized preview of this width (providers that can't, return the original). */
   thumbnailWidth?: number;
+  /**
+   * QA-B-15: the name the browser saves the file under (attachment `fileName`). Local: last path
+   * segment of the URL + Content-Disposition; S3: ResponseContentDisposition; Cloudinary: not
+   * supported by its private download API (the file is named after its public id).
+   */
+  fileName?: string;
+  /** QA-B-15: `Content-Disposition: attachment` (save, don't preview). Cloudinary: `attachment=true`. */
+  download?: boolean;
+}
+
+/** `inline|attachment; filename="ascii"; filename*=UTF-8''utf8` — every browser picks the name up. */
+export function contentDisposition(fileName: string, download = false): string {
+  const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  return `${download ? 'attachment' : 'inline'}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }
 
 /**
@@ -45,9 +59,32 @@ export function fileSignature(attachmentId: string, tenantId: string, exp: numbe
 }
 
 export function verifyFileSignature(attachmentId: string, tenantId: string, exp: number, sig: string): boolean {
-  const expected = Buffer.from(fileSignature(attachmentId, tenantId, exp));
+  return sameSignature(fileSignature(attachmentId, tenantId, exp), sig);
+}
+
+const sameSignature = (expectedSig: string, sig: string) => {
+  const expected = Buffer.from(expectedSig);
   const given = Buffer.from(sig);
   return expected.length === given.length && timingSafeEqual(expected, given);
+};
+
+/**
+ * QA-B-02 · durable share link (WhatsApp): its own HMAC purpose (`share:`), so a share signature
+ * never opens /attachments/:id/file and a file signature never opens /public/files/:id.
+ */
+export function shareSignature(attachmentId: string, tenantId: string, exp: number): string {
+  return createHmac('sha256', env.JWT_REFRESH_PEPPER).update(`share:${attachmentId}:${tenantId}:${exp}`).digest('base64url');
+}
+
+export function verifyShareSignature(attachmentId: string, tenantId: string, exp: number, sig: string): boolean {
+  return sameSignature(shareSignature(attachmentId, tenantId, exp), sig);
+}
+
+/** `<API>/api/v1/public/files/:id?tid&exp&sig`, valid SHARE_LINK_TTL_DAYS (default 30). */
+export function shareUrl(attachmentId: string, tenantId: string, now = Date.now()): { url: string; expiresAt: Date } {
+  const exp = Math.floor(now / 1000) + env.SHARE_LINK_TTL_DAYS * 86_400;
+  const query = new URLSearchParams({ tid: tenantId, exp: String(exp), sig: shareSignature(attachmentId, tenantId, exp) });
+  return { url: `${apiPublicUrl}/api/v1/public/files/${attachmentId}?${query}`, expiresAt: new Date(exp * 1000) };
 }
 
 /**
@@ -76,11 +113,13 @@ export class LocalStorageProvider implements StorageProvider {
     return key;
   }
 
-  async getSignedUrl(key: string, ttlSec: number): Promise<{ url: string; expiresAt: Date }> {
+  async getSignedUrl(key: string, ttlSec: number, options: SignedUrlOptions = {}): Promise<{ url: string; expiresAt: Date }> {
     const { tenantId, attachmentId } = parseStorageKey(key);
     const exp = Math.floor(Date.now() / 1000) + ttlSec;
-    const query = new URLSearchParams({ tid: tenantId, exp: String(exp), sig: fileSignature(attachmentId, tenantId, exp) });
-    return { url: `${apiPublicUrl}/api/v1/attachments/${attachmentId}/file?${query}`, expiresAt: new Date(exp * 1000) };
+    const query = new URLSearchParams({ tid: tenantId, exp: String(exp), sig: fileSignature(attachmentId, tenantId, exp), ...(options.download ? { dl: '1' } : {}) });
+    // QA-B-15: the file name as the last path segment, so "Save as" / the PDF viewer use it.
+    const name = options.fileName ? `/${encodeURIComponent(options.fileName)}` : '';
+    return { url: `${apiPublicUrl}/api/v1/attachments/${attachmentId}/file${name}?${query}`, expiresAt: new Date(exp * 1000) };
   }
 
   async delete(key: string): Promise<void> {

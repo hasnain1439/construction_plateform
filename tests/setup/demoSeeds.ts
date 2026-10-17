@@ -5,8 +5,13 @@
  * `extends` starts from another demo snapshot instead of the base seed.
  */
 import { seedMalikBilling } from '../../prisma/seedBilling.js';
+import { seedMalikChangeOrders } from '../../prisma/seedChangeOrders.js';
+import { seedMalikCloseout } from '../../prisma/seedCloseout.js';
+import { seedMalikControl } from '../../prisma/seedControl.js';
+import { seedMalikEquipment } from '../../prisma/seedEquipment.js';
 import { seedMalikInventory } from '../../prisma/seedInventory.js';
 import { seedMalikLabor } from '../../prisma/seedLabor.js';
+import { seedMalikShuttering } from '../../prisma/seedShuttering.js';
 import type { seed } from '../../prisma/seed.js';
 import { prismaAdmin } from '../../src/core/db/prisma.js';
 
@@ -31,6 +36,37 @@ export const DEMO_SEEDS = {
     extends: 'malik_stock_labor',
     build: async (s: Seeded) => {
       await seedMalikBilling(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, projects: s.projects });
+    },
+  },
+  /** Step 14: the whole demo + DHA's material history (cement overuse) and the first-floor slab behind plan. */
+  malik_control: {
+    extends: 'malik_demo',
+    build: async (s: Seeded) => {
+      await seedMalikControl(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, rafaqatId: s.users.rafaqatMalik.id, dhaProjectId: s.projects.dha.id });
+    },
+  },
+  /** Step 18 reports: the control demo + equipment & shuttering, closeout (snags) and change orders — every Phase 2 / 3 module has data. */
+  malik_reports: {
+    extends: 'malik_control',
+    build: async (s: Seeded) => {
+      const base = { tenantId: s.malik.id, ownerId: s.users.khalid.id, bilalId: s.users.bilal.id, rafaqatId: s.users.rafaqatMalik.id, projects: s.projects };
+      await seedMalikEquipment(prismaAdmin, base);
+      await seedMalikShuttering(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, projects: s.projects });
+      await seedMalikCloseout(prismaAdmin, base);
+      await seedMalikChangeOrders(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, bilalId: s.users.bilal.id, rafaqatId: s.users.rafaqatMalik.id, dhaProjectId: s.projects.dha.id });
+    },
+  },
+  /** Step 16: Malik & Sons equipment & shuttering on the base seed (no stock / labour). */
+  malik_equipment: {
+    build: async (s: Seeded) => {
+      await seedMalikEquipment(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, bilalId: s.users.bilal.id, rafaqatId: s.users.rafaqatMalik.id, projects: s.projects });
+    },
+  },
+  /** Step 16 part 2: + RNT-0002 (100 props idle at Johar Town for 12 days, idle alert sent). */
+  malik_shuttering: {
+    extends: 'malik_equipment',
+    build: async (s: Seeded) => {
+      await seedMalikShuttering(prismaAdmin, { tenantId: s.malik.id, ownerId: s.users.khalid.id, projects: s.projects });
     },
   },
 } satisfies Record<string, DemoSeedDef>;

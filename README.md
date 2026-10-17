@@ -8,6 +8,74 @@ Tenant = construction company. Company users are `THEKEDAR` (owner), `PM` (proje
 
 Changelog: see [CHANGELOG.md](CHANGELOG.md). Deployment (Docker, VPS, HTTPS, CI/CD, backups, rollback): see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
+## Product overview
+
+Everything below is built (Phase 1, the pilot parts and Phase 2 + 3, Steps 11–18). Each module has its own section further down; `docs/PROJECT_CONTEXT.md` is the short version for a new session.
+
+### Modules
+
+| Area | What it does | API module(s) |
+|---|---|---|
+| Sign-in and accounts | Password and OTP login, web cookies / mobile tokens, refresh rotation, sessions, devices, invitations | `auth`, `team` |
+| Company | Profile (NTN, logo, address, phone), settings, holidays, own audit log, onboarding checklist, Excel / CSV import, opening balances, demo data | `company`, `onboarding` |
+| Permissions | Role templates + per-user overrides, scopes, approval limits, field permissions | `permissions` |
+| Subscription + platform admin | Plans, manual payments, lifecycle; platform console (companies, payment review, plans, holidays, rulebook versions, act-as) | `subscription`, `platform-admin` |
+| Master data | Materials, quality categories + price list, labour rates, worker types, payment templates, suppliers, workers, sub-contractors | `master-data` |
+| Clients + projects | Owners, project wizard (contract, supply rules, billing stages, plot, foundation, floors / rooms / walls / openings, roof), statuses | `clients`, `projects` |
+| Estimate (BoQ) | Rulebook (platform → company → project), full 14-section BoQ, saved revisions, compare, owner shopping list | `estimate`, `rulebook` |
+| Sales | Quotes Q-YYYY-NNNN, quick estimate + price, customer / internal PDFs, won → draft project, insights | `sales` |
+| Schedule | Milestones from the approved estimate, curing, company calendar, baseline + re-plans, stoppages, delay breakdown | `schedule` |
+| Procurement + stock | Purchase orders, purchases, supplier ledger + payments, dispatch / receiving / shortages, owner deliveries, usage, counts | `procurement`, `inventory`, `dispatch` |
+| Equipment + shuttering | Register, movement ledger, transfers, yard rentals, losses, daily hire / rent, shuttering demand planner, idle-rent alert | `equipment` |
+| Labour + site cash | Team on site, hazri, measurements, peshgi, weekly settlements, sub-contract accounts, cash book (floats, kharcha, top-ups, counts) | `labor`, `cashbook` |
+| Billing + tax | Stages, invoices (stage / running / recoverable / retention / variation / manual), payments + WHT, cheques, receivables, owner statement, sales tax (off by default) | `billing`, `tax` |
+| Change orders | CO-001 per project, owner price + markup, days impact, approval proof, billing, site instructions | `change-orders` |
+| Control & alerts | Material / cost variance, burn rate vs progress, projected margin, delay analysis, alert engine | `control` |
+| Closeout | Drawings, snag list, handover checklist + sign-off + certificate, retention | `closeout` |
+| Dashboard, finance, reports | Company + site dashboards, approvals inbox, notifications, receivables ageing, cash-flow outlook, P&L, reports (Phase 1 + Step 18) with per-project books, tax reports | `dashboard`, `approvals`, `notifications`, `finance`, `reports`, `tax` |
+| Site work + offline | Daily logs, offline sync for the Munshi app | `dailylogs`, `sync` |
+
+### Permissions in short
+
+- Accounts: **THEKEDAR** (owner — every permission, cannot be limited), **PM** (office seat), **MUNSHI** (site, phone OTP, free). What a PM or Munshi may do comes only from permission keys (`<module>.<resource>.<action>`, catalogue in `src/core/auth/permissionCatalog.ts`, `GET /permissions/catalog`).
+- System role templates per company: Administrator, Project Manager, Munshi, Accountant, Store Keeper (read-only; duplicate to change) + custom roles; several roles per member (union, widest scope, highest limit) + per-user ALLOW / DENY overrides.
+- Scopes `ASSIGNED_PROJECTS` / `ALL_PROJECTS` (outside the scope → 404); approval limits (`maxAmountPaisa`) on approve keys → `403 APPROVAL_LIMIT_EXCEEDED`.
+- Field permissions decide which money is sent at all: `fields.rates` (rates, purchase / stock values), `fields.amounts` (billing money), `fields.profit` (P&L, margins), `fields.contract` (contract value, price). Applied on REST, sync, report files and PDFs.
+- Phase 2 + 3 modules: `estimate.*` / `rulebook.*`, `sales.quote.*`, `schedule.*`, `equipment.*`, `changeorder.*`, `control.*`, `closeout.*`, `tax.*`; reports need `finance.reports.view` + the module's view key. Existing companies: `npm run backfill:permissions` after a deploy that adds keys.
+
+### Scheduled jobs
+
+In-process (`src/jobs/scheduler.ts`), Pakistan time, one instance at a time (`pg_try_advisory_lock`), off in tests. Every run is recorded in `JobRun` (platform admin → health).
+
+| Job | When (PKT) | What |
+|---|---|---|
+| `quote-expiry` | daily 01:00 | SENT / NEGOTIATION quotes past their validity → EXPIRED |
+| `equipment-accrual` | daily 01:30 | yesterday's internal hire + rent → `EquipmentCharge` (P&L EQUIPMENT) |
+| `subscription-lifecycle` | start-up + daily 02:00 | trial end, grace, lapse, downgrades, reminder SMS (`npm run jobs:subscriptions` by hand) |
+| `billing-overdue` | start-up + daily 02:30 | overdue invoices, billing alerts |
+| `retention-reminders` | daily 02:45 | owner / sub-contractor retention due |
+| `sync-retention` | daily 03:00 | sync change rows older than 30 days dropped |
+| `control-alerts` | daily 06:30 | material overuse, behind plan / late, quota exhausted, spend ahead, equipment idle rows |
+| `equipment-idle` | daily 09:00 | rented equipment idle at a site → EQUIPMENT_IDLE |
+| `missing-logs` | every 15 min | missing daily log, at each company's own alert time |
+
+### PDFs
+
+All PDFs share one look (`src/core/pdf`): the same letterhead (logo, company name, address, phone, NTN — STRN on tax reports — and the document title, number and date), A4 with the same margins and typography, and a footer with the document line, the generated-on date and "Page X of Y". Every PDF is made in the requesting user's language or `?lang=en|roman|ur`; Urdu is right-to-left with the embedded Nastaliq font. Owner-facing documents never show costs, overheads, contingency, margins or markups (`tests/pdf/pdfDocuments.test.ts`).
+
+| PDF | Endpoint | Reader | Stored as |
+|---|---|---|---|
+| Invoice | `GET /invoices/:id/pdf` (also made on issue) | owner | `INVOICE_PDF` |
+| Receipt (RV) | `GET /payments/:id/receipt-pdf` (also made on record) | owner | `RECEIPT_PDF` |
+| Owner statement | `GET /projects/:id/owner-statement/pdf` | owner | `STATEMENT_PDF` |
+| Customer quotation | `GET /quotes/:id/pdf?variant=customer` (also on send) | client | `REPORT` |
+| Change order slip | `GET /change-orders/:id/pdf` | owner | `DOCUMENT` |
+| Handover certificate | `GET /projects/:id/handover/certificate` | owner | `DOCUMENT` |
+| Owner shopping list | `GET /projects/:id/owner-shopping-list/pdf` | owner | `REPORT` |
+| Quote costing | `GET /quotes/:id/pdf?variant=internal` | internal | `REPORT` |
+| Estimate (BoQ) | `GET /estimates/:id/pdf` (money only with `fields.rates`) | internal | `REPORT` |
+| Reports | `GET /reports/<name>?format=pdf`; books `GET /reports/<name>/:projectId?format=pdf`; tax `GET /reports/wht-summary` / `tax-invoice-register` `?format=pdf` | internal | `REPORT` |
+
 ## Getting started
 
 ```bash
@@ -329,7 +397,11 @@ Everything the server writes for people — SMS, emails, in-app notifications, P
 | Invite SMS + email | the invite's `language` (`POST /invitations` body, default: the company's `defaultLanguage`); it becomes the new user's language on accept. Platform-created owner invites: Roman Urdu |
 | Notifications (+ their SMS) | each recipient's `User.language`, see below |
 | Dispatch / cash / subscription / payment-review SMS | each recipient's language |
-| Invoice / receipt / statement PDFs, report CSV / Excel / PDF | the requesting user's language; `?lang=en\|roman\|ur` overrides. The WhatsApp share text for the project owner follows the same language |
+| Invoice / receipt / statement PDFs, report CSV / Excel / PDF | `?lang=en\|roman\|ur` when given, else the web's UI language (`X-Lang`), else the requesting user's language. The WhatsApp share text for the project owner follows the same language |
+| Texts in JSON for the requesting user: control alert title / body, inbox, dashboard alerts, tax adviser note, delay notes (SLOW_PROGRESS), plan-version notes | `X-Lang` when sent, else `User.language` |
+| Free text in report JSON (subtitle, notes, reason cells; `/reports/*`, tax reports) | `X-Lang` when sent, else English (column labels stay English — translate by `columns[].key`; tax notes also come as `noteCodes`) |
+
+**`X-Lang` (QA-B-20).** The web app sends its UI language on every request: `X-Lang: en | roman | ur` (case-insensitive; any other value is ignored). It is kept in the request context (`ctx.uiLang`) and read through `responseLang(tx, userId)` / `jsonLang()` (`src/core/i18n/requestLang.ts`). It only changes texts for the **requesting** user — notifications, SMS, e-mail and WhatsApp texts for other people stay in the recipient's language. CORS allows the header (the `cors` middleware reflects the requested headers). The mobile app sends nothing and keeps the account language.
 
 **API contract.** `User.language` stays the DB enum `Language` (ENGLISH / ROMAN_URDU / URDU); the API speaks the short codes. `/auth/me` and every login / OTP / invite-accept result have `user.language: 'en' | 'roman' | 'ur'`. `PATCH /auth/me/preferences` `{ language }` → `200 { language }` — any signed-in company user, also in a read-only company, not audited (a personal display setting). `PATCH /auth/me` still accepts `language` in either form. Team screens (`/users/:id`) and company settings keep the enum values.
 
@@ -339,7 +411,7 @@ Everything the server writes for people — SMS, emails, in-app notifications, P
 
 **SMS templates.** `SMS_TEMPLATES` overrides still work; a language-specific entry wins: `{"OTP.ur": "…{code}…", "OTP": "…"}`. `{message}` is the built-in text in the recipient's language. WhatsApp template messages keep `WHATSAPP_TEMPLATE_LANGUAGE` (templates are approved per language by Meta).
 
-**Urdu PDFs** are `<html lang="ur" dir="rtl">` with logical CSS (`text-align: end`, `margin-inline-start`), money / dates / codes in `<bdi dir="ltr">`, and **Noto Nastaliq Urdu** embedded as a base64 `@font-face` from `assets/fonts/NotoNastaliqUrdu-arabic.woff2` (SIL OFL 1.1, see `assets/fonts/NOTICE.txt`; copied into the Docker image) — no CDN or system font needed. If the file is missing the CSS falls back to system Urdu fonts (Jameel Noori Nastaleeq, Urdu Typesetting, Segoe UI, Tahoma) and a warning is logged. Stored invoice / receipt PDFs carry the language in the file name (`INV-2026-0010-ur.pdf`); asking in another language makes a new one. Report files translate the title, column headers, "Total" and status / type / unit cells; subtitles (filters, dates), names and numbers stay as built, and JSON reports are not translated.
+**Urdu PDFs** are `<html lang="ur" dir="rtl">` with logical CSS (`text-align: end`, `margin-inline-start`), money / dates / codes in `<bdi dir="ltr">`, and **Noto Nastaliq Urdu** embedded as a base64 `@font-face` from `assets/fonts/NotoNastaliqUrdu-arabic.woff2` (SIL OFL 1.1, see `assets/fonts/NOTICE.txt`; copied into the Docker image) — no CDN or system font needed. If the file is missing the CSS falls back to system Urdu fonts (Jameel Noori Nastaleeq, Urdu Typesetting, Segoe UI, Tahoma) and a warning is logged. Stored invoice / receipt PDFs carry the language in the file name (`INV-2026-0010-ur.pdf`); asking in another language makes a new one. Report files translate the title, column headers, "Total", status / type / unit cells and the subtitle words ("All projects", "as of", "estimate Rev", "Tax year"); names and numbers stay as built. Free text inside RTL documents (descriptions, names, notes) is a `<bdi dir="auto">` island and quantity + unit one island (`-155.687 cft`, `1 job`). Report money in files is in whole rupees (`−Rs 43,250`; invoices / receipts keep paisa). Tables wider than 8 columns print A4 landscape; wider than 12 they are split into parts that repeat the leading text columns.
 
 ## Attachments
 
@@ -377,6 +449,8 @@ CLOUDINARY_API_SECRET=…
 
 The three `CLOUDINARY_*` credentials are validated at start-up only when `STORAGE_PROVIDER=cloudinary`. Switching is safe in both directions: each stored key says which provider holds it (`storageForKey`), so existing local files stay readable after moving to Cloudinary (keep `STORAGE_DIR` until you migrate them). Tests always use the local provider; the Cloudinary and S3 providers are tested with mocked SDKs (`tests/cloudinaryProvider.test.ts`, `tests/providers/s3Storage.test.ts`) and never call the services. `s3:` keys are read by the S3 provider whatever `STORAGE_PROVIDER` says; copy older files over with `npm run storage:migrate`.
 - `GET /api/v1/attachments/:id` returns metadata + a fresh URL (RLS: other companies get 404).
+- **File names (QA-B-15).** Exports and documents are signed with their file name: local links are `/api/v1/attachments/:id/file/<file name>?tid&exp&sig[&dl=1]` and answer `Content-Disposition: inline|attachment; filename="…"; filename*=UTF-8''…`; S3 links carry `ResponseContentDisposition`; Cloudinary's private download API cannot rename a file (`dl` → `attachment=true`; the web should save with the response `fileName`). Report exports return `url` (preview) and `downloadUrl` (save) and are named `<report>[-<project code>]-<yyyy-mm-dd>.<ext>` (Pakistan date), e.g. `tax-invoice-register-2026-10-17.xlsx`, `variance-MSB-2026-012-2026-10-17.pdf`.
+- **Share links (QA-B-02).** Every share payload (`{ attachmentId, url, expiresAt, fileUrl, fileUrlExpiresAt, whatsappText }`) puts the durable `/api/v1/public/files/:id?tid&exp&sig` link in `url` and `whatsappText` (valid `SHARE_LINK_TTL_DAYS`, default 30; 302 to a fresh signed file URL). `fileUrl` is the short-lived named file link for previews. See docs/SECURITY.md §8.
 
 Other modules call `signedUrlFor()` / `optionalSignedUrl()` from `attachments.service.ts` (company logo, user photo in `/auth/me`).
 
@@ -744,9 +818,9 @@ Audit actions: `client.create`, `client.update`, `project.create`, `project.dele
 
 **Seed.** Malik & Sons: 6 clients; DHA Phase 6 · 10 Marla (`MSB-2026-012`, ACTIVE, grey structure, Rs 1,85,00,000, full wizard with 17 rooms on Ground / First / Mumty, PM Bilal, Munshi Rafaqat), Johar Town · 5 Marla (`MSB-2026-008`, ACTIVE, PM Bilal), Bahria Town · 1 Kanal (`MSB-2026-014`, ACTIVE, basement, Munshi **Asif Mehmood** `03224567890` OTP), Valencia · 7 Marla (`MSB-2025-031`, HANDED_OVER, labour-only Rs 450/sq ft) and a DRAFT Model Town · 1 Kanal (tabs 1–2). Ahmed Constructions: Wapda Town · 5 Marla (`AC-2026-001`, ACTIVE). Older seed rows are renamed in place, so foreign keys survive.
 
-## Estimate (BoQ) — grey structure
+## Estimate (BoQ) — rulebook, revisions and the full BoQ
 
-`src/modules/estimate/`: `engine.ts` (pure quantities + costing, no database — unit-tested in `tests/unit/estimateEngine.test.ts` with a hand-checked 5-marla example), `settings.ts` (assumptions, defaults, ranges), `estimate.service.ts` (loads the project + price list, field visibility), routes / controller / docs. Computed **live** on every read from the project's plot, structure type, foundation (bunyaad), floors / rooms / openings, the estimate settings and the company price list; nothing is stored but the settings the user changed (`Project.estimateSettings` JSONB, migration `20261027090000_project_estimate_settings`). No snapshots / versions yet (Phase 2 "Estimate revisions").
+`src/modules/estimate/`: `engine.ts` (pure grey-structure quantities + costing, no database — unit-tested in `tests/unit/estimateEngine.test.ts` with a hand-checked 5-marla example), `boq.ts` (pure BoQ builder: 14 sections, build stages, traces, lump sums, overheads, contingency — `tests/unit/estimateBoq.test.ts`, a hand-checked 10-marla example), `rulebookDefs.ts` (every rule-of-thumb number as a rulebook parameter: key, labels, unit, v1 value per region, safe range), `rulebook.ts` (the three layers), `settings.ts` (the per-project layer: engine settings + BoQ keys, ranges), `estimate.service.ts` (live estimate + preview), `revisions.service.ts` (saved revisions, compare, owner shopping list, PDFs), routes / controller / docs. `src/modules/rulebook/` = the company rulebook API; `src/modules/platform-admin/rulebook.*` = the admin versions. The live `GET /projects/:id/estimate` keeps its grey-structure shape and adds `boq` — a preview of what Generate would save. See [Rulebook, revisions and the full BoQ](#rulebook-revisions-and-the-full-boq-step-11).
 
 | Method | Path | Permission | Notes |
 |---|---|---|---|
@@ -779,14 +853,14 @@ The contract value is usually agreed **after** seeing the estimate, so tab 2 can
 
 ### How the estimate is calculated
 
-Units: ft, sq ft, cft (inches only in settings). Every default below is a setting the owner can change per project (`PUT …/estimate/settings`); the range is what the API accepts.
+Units: ft, sq ft, cft (inches only in settings). **Every number below is a rulebook parameter** resolved in three layers — (1) the platform rulebook: the highest PUBLISHED version for the company's region (`Tenant.region`: PUNJAB_KP or KARACHI_SINDH; built-in v1 when none is published), (2) the company's own value (`PUT /rulebook/overrides`, inside the parameter's safe range), (3) the project's own value (`PUT /projects/:id/estimate/settings`). The bold values are Punjab v1; the ranges in brackets are what the project API accepts (rulebook safe ranges are narrower — `GET /rulebook`). Karachi / Sindh v1 differs in: concrete blocks (`blockMasonry` 1, 1.125 blocks per sq ft of wall face), 6″ external / 4″ internal walls, 6″ lintels, 0.10 cft mortar per cft.
 
 **Materials (dry-volume method)**
 - Concrete: dry volume = wet volume × **1.54** (1.2–1.7). Mix *c : s : a* → cement = dry × c / (c+s+a) ÷ **1.25 cft per 50 kg bag** (1–1.5); sand = dry × s / Σ; crush = dry × a / Σ. RCC mix **1:2:4** (or 1:1.5:3); foundation PCC and RCC footings use the foundation's own `pccMix` / `rccMix`; DPC is always 1:2:4.
 - Brickwork: **13.5 bricks per cft** with mortar (10–16); wet mortar **0.25 cft per cft** of brickwork (0.15–0.4) × **1.33** dry factor (1.1–1.6), mix **1:6** (1:3 – 1:8) → cement = dry / 7 ÷ 1.25 bags, sand = dry × 6/7.
-- Plaster: area × thickness ÷ 12 × 1.33, mix **1:4** internal + ceilings (**0.5″**) and **1:4** external (**0.75″**; 1:6 option).
+- Plaster: area × thickness ÷ 12 × 1.33, mix **1:6** internal + ceilings (**0.5″**; Phase 1 default was 1:4) and **1:4** external (**0.75″**; 1:6 option).
 - Steel: concrete volume × steel % × **222 kg per cft** (7,850 kg/m³ ÷ 35.315; 1 % ≈ 2.22 kg/cft). Slab **1 %** (0.3–3), beams + columns **2.5 %** (0.8–6), lintels **1 %**, footings / raft / piles **0.8 %**.
-- Wastage on every material line: **5 %** (0–25), bricks **5 %** (0–25). Work lines (volumes, areas, shuttering) carry none.
+- Wastage per material: bricks / blocks **5 %**, cement **2 %**, sand + crush **5 %**, steel **4 %**, tiles **7 %**, paint **5 %**, everything else **5 %** (`wastagePercent`; a project `wastagePercent` also covers cement / sand / steel unless those are set too — the Phase 1 meaning). Work lines (volumes, areas, shuttering) carry none.
 
 **Walls and floors** (rooms are clear inside sizes; height = the floor's ceiling height)
 - Σ room perimeters *P* counts every internal wall twice (once from each room) and every external wall once: *P = E + 2·I* → **internal run I = (P − E) ÷ 2**.
@@ -839,6 +913,160 @@ Units: ft, sq ft, cft (inches only in settings). Every default below is a settin
 
 **Worked example** (the unit test): 5 marla 25 × 45, covered 1,125 sq ft, single storey 10 ft, load-bearing, brick strip footing 5 ft × 3 ft × 9″, rooms 1,000 sq ft with P = 320 ft, 7 doors 3 × 7, 5 windows 4 × 4, 2 ventilators 2 × 1.5. E = 2 × (√(1125/1.8) + √(1125 × 1.8)) = 2 × (25 + 45) = 140 ft, I = (320 − 140) / 2 = 90 ft, foundation run 230 ft. Excavation 230 × 3 × 5 = 3,450 cft; walls (140 × 10 − 86) × 0.75 + (90 × 10 − 147) × 0.375 = 1,267.88 cft → 17,116 bricks; slab 1,125 × 5/12 = 468.75 cft → 82.5 bags, 1,040.6 kg steel. Totals with wastage: cement **289.04 bags**, bricks **38,849**, sand **1,481.85 cft**, crush **645.14 cft**, steel **1,144.23 kg**, waterproofing 3.98 kg, termite 5.91 L. At Malik's A-standard rates (cement 1,450, bricks 17, sand 70, crush 180, steel 2,85,000 / ton) materials ≈ Rs 16,25,505; piece-rate labour Rs 5,34,018; total ≈ Rs 21,59,524 (≈ Rs 1,920 / sq ft).
 
+### Rulebook, revisions and the full BoQ (Step 11)
+
+**Rulebook.** Platform tables `Rulebook` (region PUNJAB_KP / KARACHI_SINDH, version, DRAFT / PUBLISHED, publishedAt, notes) + `RulebookParameter` (key, group, labels en / roman / ur, unit, value, safeMin, safeMax, reviewStatus PENDING_ENGINEER_REVIEW / REVIEWED) — read-only for companies (GRANT SELECT to app_user), written by platform admins. The parameter set is defined in code (`estimate/rulebookDefs.ts`, 68 keys in 14 groups); v1 of both regions is inserted PUBLISHED by migration `20261101090000_estimation_rulebook` (and by the seed) with **every value PENDING_ENGINEER_REVIEW**. A company's own values live in `CompanyRulebookOverride` (tenant table, RLS) and must stay in the safe range (`400 OUT_OF_SAFE_RANGE { key, value, safeMin, safeMax }`); a project's own values in `Project.estimateSettings` (the Phase 1 setting keys are the same rulebook keys — stored mixes "1:6" are read as 6; a stored `wastagePercent` still covers cement / sand / steel). Region = `Tenant.region` (chosen at sign-up; PUNJAB_KP when missing).
+
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| GET | `/rulebook` | `rulebook.override.view` | Every parameter with platform value, company value / note, value in effect + `source` RULEBOOK / COMPANY, safe range, review status, `projectOverridable`. |
+| GET | `/rulebook/overrides` | `rulebook.override.view` | The company's own values. |
+| PUT | `/rulebook/overrides` | `rulebook.override.manage` | `{ overrides: [{ key, value, note? }] }` upsert; `UNKNOWN_PARAMETER`, `OUT_OF_SAFE_RANGE`. Audit `rulebook.override_set`. |
+| DELETE | `/rulebook/overrides/:key` | `rulebook.override.manage` | Back to the platform value (`404 OVERRIDE_NOT_FOUND`). Audit `rulebook.override_delete`. |
+| GET / POST | `/admin/rulebooks` | platform admin | List per region; create DRAFT version n + 1 copied from `copyFromId` or the latest. |
+| GET / PATCH / DELETE | `/admin/rulebooks/:id` | platform admin | Detail with parameters; notes; delete a DRAFT (`409 RULEBOOK_PUBLISHED`). |
+| PATCH | `/admin/rulebooks/:id/parameters/:key` | platform admin | Value / safe range on a DRAFT only; review status and labels any time. |
+| POST | `/admin/rulebooks/:id/publish` | platform admin | DRAFT → PUBLISHED; companies of the region use it from now on. All admin writes audited `admin.rulebook_*`. |
+
+**Saved estimates.** `Estimate` (projectId, revision, status DRAFT / APPROVED / SUPERSEDED, `rulebookVersionId`, region, `overridesSnapshot` { company, project, parameters with source }, `ratesSnapshot` { materials, labour }, `basis` + warnings, covered area, direct / overhead / contingency / total paisa, `ratesOutdated`, generated / approved by + at) + `EstimateLine` (lineKey, section, stageKey, kind, description, material, materialId (snapshot reference, no FK), unit, quantity, wastage %, quantity with wastage, suppliedBy, formula, trace, rate, rate unit + factor, rate quantity, amount, rate status, override quantity / rate / note / by / at). Stored line amounts are the effective ones (after overrides). One APPROVED per project (partial unique index), one DRAFT at a time.
+
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| POST | `/projects/:id/estimates` | `projects.estimate.manage` | Generate DRAFT Rev n (`409 ESTIMATE_DRAFT_EXISTS { estimateId }`, `409 PROJECT_LOCKED`). Audit `estimate.generate`. |
+| GET | `/projects/:id/estimates` | `projects.estimate.view` | Revisions, newest first. |
+| GET | `/estimates/:id` | `projects.estimate.view` | Sections with lines + trace + overrides, stage totals, direct / overheads / contingency / total, cost per sq ft, margin vs the contract. |
+| POST | `/estimates/:id/regenerate` | `projects.estimate.manage` | DRAFT only (`409 ESTIMATE_LOCKED`): current project, rulebook and rates; overrides kept by lineKey; `ratesOutdated` cleared. |
+| PATCH | `/estimates/:id/lines/:lineId` | `projects.estimate.manage` | `{ quantity?, ratePaisa?, note }` (null clears; note required; rate needs `fields.rates`; `LINE_NOT_EDITABLE` for overheads / contingency; `OWNER_SUPPLIED_NO_RATE`). Totals recomputed. Audit `estimate.line_override`. |
+| POST | `/estimates/:id/approve` | `estimate.revision.approve` | DRAFT → APPROVED, the previous APPROVED → SUPERSEDED (`409 ESTIMATE_NOT_DRAFT`; `409 RATES_OUTDATED` unless `confirmOutdatedRates`). Audit `estimate.approve`. |
+| GET | `/estimates/:a/compare/:b` | `projects.estimate.view` | Line diffs by lineKey (ADDED / REMOVED / CHANGED / UNCHANGED), section and total deltas (b − a). `400 DIFFERENT_PROJECTS`. |
+| GET | `/estimates/:id/pdf?lang=` | `projects.estimate.view` | Internal BoQ PDF (money columns only with `fields.rates`), stored as a REPORT attachment, signed link + WhatsApp text. |
+| GET | `/projects/:id/owner-shopping-list[?estimateId]` | `projects.estimate.view` | Owner-supplied materials: item, quantity, unit, `neededBy` stage + per-stage quantities; from the APPROVED revision, else the DRAFT, else the live preview. Never a rate. |
+| GET | `/projects/:id/owner-shopping-list/pdf` | `projects.estimate.view` | The list as a PDF for the owner + WhatsApp text and the client phone. |
+
+A price-list change (`PUT /price-list`, `POST /price-list/bulk-percent`) marks DRAFT estimates that use a changed material `ratesOutdated` (APPROVED / SUPERSEDED never change). `POST /projects/:id/activate` answers `nextStep: "GENERATE_ESTIMATE"`. Field visibility as for the live estimate; the Munshi has no estimate permission.
+
+**The BoQ** (`boq.ts`, built from the engine lines). One line per section × build stage × material / labour item, with a `trace` (every contributing engine line with its formula and numbers) and a one-line `formula`:
+
+| Section | What | Stage (`stageKey`) |
+|---|---|---|
+| EXCAVATION_EARTHWORK | excavation cft × **Rs 12 / cft**; plinth filling = lowest footprint × plinth height × **Rs 10 / cft**; termite chemical | FOUNDATION_PLINTH |
+| CONCRETE | cement / sand / crush of PCC, footings, DPC, slabs, beams, columns, lintels, topping | per floor (basement → FOUNDATION_PLINTH, ground → GF_STRUCTURE, first → F1_STRUCTURE …, mumty → MUMTY_ROOF) |
+| STEEL | steel (by bar size when detailed) of footings, slabs, frame, lintels | per floor |
+| MASONRY | bricks (or blocks, or stone) + mortar of foundation walls, walls and the roof parapet | per floor; parapet → MUMTY_ROOF |
+| PLASTER | cement / sand of every plaster face | PLASTER_MEP |
+| ROOF_WATERPROOFING | DPC compound / bitumen; T-iron roofs (garders, infill, screed, earth at Rs 10 / cft), planks, deck; roof waterproofing over the main roof footprint at the company WATERPROOFING sub-contract rate, else **Rs 60 / sq ft** | FOUNDATION_PLINTH (DPC), the floor, MUMTY_ROOF |
+| FLOORING_TILES | floor tiles = Σ room floor areas; wall tiles = baths / wet rooms 2 (L + W) × **7 ft** (capped at the room height) and kitchens 2 (L + W) × **3 ft** splash, minus doors up to that height; **1″ 1:4** bed under the floor tiles | FINISHING |
+| PAINT | painted area = all plastered faces − wall tiles; emulsion = area × **2 coats** ÷ **350 sq ft per gallon**; primer = area × **1 coat** ÷ **400** | FINISHING |
+| MEP_ROUGH_IN | electrical **Rs 150 / sq ft** covered; plumbing **Rs 35,000 per wet room** (baths + kitchen); sewerage + gas **Rs 75,000** lump sum (always contractor work) | PLASTER_MEP |
+| GREY_LABOUR | sub-contract piece rates per stage: brick masonry (bricks / blocks), plaster, shuttering, steel fixing — or the project labour rate per sq ft × each floor's footprint | per stage |
+| FINISHING_LABOUR | TILE_LAYING × tile area, PAINT × painted area (left out for GREY_OWNER_FINISHING) | FINISHING |
+| EQUIPMENT_SHUTTERING | covered area × **Rs 60 / sq ft** (plates, props, mixer, vibrator, scaffolding) | FOUNDATION_PLINTH |
+| SITE_OVERHEADS | **3 %** of the direct cost | — |
+| CONTINGENCY | **5 %** of (direct + overheads) | — |
+
+Supply split: MATERIAL lines follow the project supply rules; for GREY_OWNER_FINISHING every FINISHING-stage material is the owner's. OWNER lines keep the quantity, never a rate / amount (`rateStatus: OWNER_SUPPLIED`) and feed the owner shopping list. Material rates are matched as before plus `blocks` (/block/), `floorTiles` (/floor tile/), `wallTiles` (/wall tile/), `paint` (/emulsion|wall paint/, per gallon — 1 gallon = 3.64 L) and `primer` (/primer|sealer/). Norm checks: steel kg and RCC cft per sq ft of covered area more than 30 % away from the rulebook norm (frame **4.0 kg** / **0.6 cft**, load-bearing **2.5 kg** / **0.45 cft**) → warnings `STEEL_NORM_DEVIATION` / `RCC_NORM_DEVIATION`.
+
+**Worked 10-marla BoQ** (`tests/unit/estimateBoq.test.ts`, every section total written out): plot 30 × 75, covered 1,440 sq ft, load-bearing single storey, Punjab v1, FULL contract → excavation & earthwork Rs 88,632 · concrete 3,74,093.90 · steel 4,11,597 · masonry 10,65,612.44 · plaster 1,30,069.60 · roof & waterproofing 45,640 · tiles 5,17,267.60 · paint 1,99,150 · MEP 3,96,000 · grey labour 6,58,995.42 · finishing labour 2,62,750 · equipment 86,400 → direct 42,36,207.96 + overheads 1,27,086.24 + contingency 2,18,164.71 = **Rs 45,81,458.91** (Rs 3,181.57 / sq ft).
+
+**Rulebook values still to be reviewed by a civil engineer** (all v1 values are PENDING_ENGINEER_REVIEW; these matter most): bricks per cft 13.5; blocks per sq ft 1.125 and block mortar 0.10 cft / cft (Karachi); mortar 0.25 cft / cft; masonry mortar 1:6; internal plaster 1:6 ½″ (Phase 1 used 1:4), external 1:4 ¾″; dry factors 1.54 / 1.33; cement bag 1.25 cft; slab 5″; beams + columns 45 % of slab concrete; steel % slab 1 / frame 2.5 / lintel 1 / footing 0.8 (the norm check flags these as far below the 4.0 / 2.5 kg per sq ft norms); norms RCC 0.6 / 0.45 cft and steel 4.0 / 2.5 kg per sq ft; wastage bricks 5, cement 2, sand 5, steel 4, tiles 7, paint 5, others 5 %; DPC compound 1 kg / bag, bitumen 0.15 kg / sq ft, termite 0.005 L / sq ft; paint 2 coats + 1 primer, coverage 350 / 400 sq ft per gallon; wall tiles 7 ft baths / 3 ft kitchen splash, 1″ 1:4 tile bed; all Rs rates (excavation 12, earth filling 10, roof waterproofing 60, MEP 150 / sq ft, 35,000 per wet room, 75,000 lump sum, equipment 60 / sq ft) and overheads 3 % / contingency 5 %; Karachi wall thicknesses 6″ / 4″ and lintel width 6″; productivity and curing days for the schedule (excavation 500 cft, bricks 1,500, blocks 400, concrete 400 cft, shuttering 300 sq ft, steel 400 kg, plaster 250 sq ft, tiles 120 sq ft, paint 600 sq ft per team-day; slab 14, columns 7, plaster 7 curing days).
+
+**Decisions.** Rulebook keys = the existing setting keys (no mapping table; mixes stored as the sand parts n of 1:n / 1:n:2n). The live estimate keeps its grey-structure `cost` (the contract-value suggestion still uses it) and adds the `boq` preview. Owner-supplied lines carry no money at all (Phase 1 valued them as `ownerSuppliedPaisa` in the live view, which stays). MEP rough-in lump sums are always contractor work. `materialId` on estimate lines is a snapshot reference without a foreign key (material deletes must not be blocked by old estimates). Estimate PDFs are REPORT attachments (no new enum value).
+
+## Schedule (Step 13) — milestones, curing, holidays, stoppages, delays
+
+`src/modules/schedule/`: `calendar.ts` (PURE working calendar), `scheduler.ts` (PURE forward pass + pace), `generator.ts` (PURE: approved estimate lines → stages, milestones, efforts, curing lags, quotas), `schedule.shared.ts` (calendar from the database, DTOs, plan recompute + plan versions), `schedule.service.ts` (generate / read / re-plan / baseline / versions / milestone edit), `progress.service.ts` (site progress + stage-lock warning), `stoppages.service.ts`, `insights.service.ts` (delays, quotas, Aaj). Unit tests `tests/schedule/engine.test.ts`, API tests `tests/schedule/schedule.test.ts`. **Nothing in the schedule carries money** (quotas are quantities); the only amounts are the stage-lock warning's balances, with `fields.amounts`.
+
+**Model.** `Schedule` (one per project: start date, teams, current plan `version`, `planFloor` of a "re-plan from today", `changeOrderDays` — the Step 15 hook) → `ScheduleStage` (estimate stage keys FOUNDATION_PLINTH, GF_STRUCTURE, F1–F3_STRUCTURE, MUMTY_ROOF, PLASTER_MEP, FINISHING) → `Milestone` (stable `key` such as `GF_STRUCTURE.SLAB`, effort `workDays`, planned window, `curingDays`, `startNoEarlierThan`, status PLANNED / IN_PROGRESS / CURING / DONE / BLOCKED, progress, actual dates, `billingStageId`) with `MilestoneDependency` (FS / SS + lag in calendar days) and `MilestoneQuota` (material, unit, planned quantity from the APPROVED estimate). `MilestoneUpdate` = site progress log (append-only). `ScheduleBaseline` (the first plan) and `SchedulePlanVersion` (every revised plan) are frozen: app_user has SELECT / INSERT only. `StoppageDay` (dates, reason, category, PENDING / APPROVED / REJECTED, photos).
+
+**Generator** (from the APPROVED estimate; without one → `409 NO_APPROVED_ESTIMATE`). Effort (team-days, net quantities ÷ rulebook productivity ÷ teams, rounded up): excavation cft ÷ `productivityExcavationCftPerDay`; foundation = bricks + steel + concrete; per floor **walls** (columns & brickwork: bricks ÷ `productivityBricksPerDay`, blocks ÷ `productivityBlocksPerDay`) and **slab** (shuttering sq ft ÷ `productivityShutteringSqftPerDay` + steel kg ÷ `productivitySteelKgPerDay` + concrete cft ÷ `productivityConcreteCftPerDay`, concrete = crush ÷ (dry factor × 2n / (1 + 3n))); mumty structure + roof waterproofing; MEP (covered sq ft ÷ 300 a day — schedule default); plaster sq ft ÷ `productivityPlasterSqftPerDay`; tiles ÷ `productivityTileSqftPerDay`; paint (gallons × coverage ÷ coats) ÷ `productivityPaintSqftPerDay`. Stages without quantities (e.g. no foundation details) use default efforts flagged in `basis`. Curing = FS lags: walls → slab `curingDaysColumns`, slab → next floor / mumty / MEP `curingDaysSlab`, plaster → tiles `curingDaysPlaster`; plaster starts 7 days after MEP (SS). Quotas: each MATERIAL line of the stage goes to the milestone of its section (masonry → walls, concrete / steel → slab, tiles / paint → finishing milestones), converted to the material's own unit (steel kg → ton). Billing stages are linked by label to the first milestone of their schedule stage (foundation, ground, first, second, third, roof, plaster / MEP, tiles / finishing).
+
+**Calendar.** Capacity of a day: 0 on weekly off days (`TenantSettings.workingDays` — drop FRIDAY for Friday off), platform (nationwide + company region) and company NON_WORKING holidays and APPROVED stoppage days of the project; 0.5 on PARTIAL holidays; × `ramadanDayFactor` (company setting, default 0.75) in Ramadan (`ramadanPeriods`, null = built-in approximate Pakistan dates 2025–2030). Lags are calendar days, then the next working day.
+
+**Plan.** One forward pass (dependencies, `startNoEarlierThan`, schedule start, `planFloor`): DONE / CURING milestones sit on their actual dates, IN_PROGRESS ones start on their actual start. It runs on generate (version 1 + baseline), re-plan (`fromToday` default true → floor = today; `refreshQuantities` re-reads the current APPROVED estimate), milestone edits (Gantt drag = `startNoEarlierThan`; `dryRun` previews the shifts) and stoppage approval (approved days push not-done milestones and their successors). Each recompute that moves a date writes a `SchedulePlanVersion`; the baseline never changes.
+
+**Delays** (`GET /projects/:id/schedule/delays`): original end = project end date (contract), else the baseline end; revised end = original + APPROVED OWNER + EXCUSABLE stoppage working days + change-order days; projected end = remaining effort from today at the current pace (earned ÷ planned work to date, 0.5–1); contractor days = working days the projected end is past the revised end (contractor stoppages + SLOW_PROGRESS), with the reasons; pending stoppages listed, not counted.
+
+**Site.** `POST /milestones/:id/progress` (and sync `MILESTONE_PROGRESS`, idempotent by clientId): progress > 0 starts a milestone, 100 % finishes it (CURING when it has curing days), BLOCKED needs a note, DONE reopens only with `schedule.plan.manage`. Warnings never block: `PREDECESSOR_NOT_DONE`, and the **stage-lock warning** `PREVIOUS_STAGE_UNPAID` when the milestone starts a billing stage while an earlier stage's invoice still has a balance (BillingEvent PREVIOUS_STAGE_UNPAID `refType: MILESTONE` + notification `milestoneStageLock` to the owner / PMs with billing). Stoppages: `POST /projects/:id/stoppages` (and sync `STOPPAGE_LOG`), photo required except HOLIDAY, overlapping days → 409. Usage entries may carry `milestoneId` (validated: `400 INVALID_MILESTONE`) → quota used.
+
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| GET | `/projects/:id/schedule` | `schedule.plan.view` | Gantt data: stages, milestones (planned / baseline / actual, curing, deps, quotas), calendar, stoppage bands, planned / baseline / projected end; `schedule: null` + `canGenerate` before generating |
+| POST | `/projects/:id/schedule/generate` | `schedule.plan.manage` | `{ startDate?, teams? 1–6, note? }` → 201; 409 NO_APPROVED_ESTIMATE / SCHEDULE_EXISTS / PROJECT_LOCKED, 400 NO_START_DATE. Audit `schedule.generate` |
+| POST | `/projects/:id/schedule/replan` | `schedule.plan.manage` | `{ note, fromToday?, refreshQuantities?, teams? }` → new version, baseline kept. Audit `schedule.replan` |
+| GET | `/projects/:id/schedule/baseline` · `/versions` · `/delays` · `/quotas` · `/today` | `schedule.plan.view` | frozen baseline · plan versions · delay breakdown · Milestones & Quotas · Aaj (today / upcoming 7 days / late) |
+| GET · POST | `/projects/:id/stoppages` | `schedule.plan.view` · `schedule.stoppage.create` | list with approved days per category · log (PENDING). Audit `stoppage.create` |
+| GET · PATCH | `/milestones/:id` | `schedule.plan.view` · `schedule.plan.manage` | detail + updates · edit (name, workDays, curingDays, startNoEarlierThan, dependsOn, billingStageId, dryRun). Audit `milestone.update` |
+| POST | `/milestones/:id/progress` | `schedule.progress.edit` | site progress / status (+ warnings). Audit `milestone.progress` |
+| GET | `/stoppages/:id` | `schedule.plan.view` | |
+| POST | `/stoppages/:id/approve` · `/reject` | `schedule.stoppage.approve` | approve (category) → plan pushed · reject (note). Audits `stoppage.approve` / `stoppage.reject` |
+
+Templates: Administrator all; Project Manager all five; Munshi `schedule.plan.view`, `schedule.progress.edit`, `schedule.stoppage.create`; Accountant `schedule.plan.view` (all projects). Sync pull tables `milestones` (not DONE + DONE in the last 14 days, quota planned / used) and `stoppages` (PENDING + 60 days). Seed: DHA Phase 6 · 10 Marla has a generated schedule (2 teams) + baseline, foundation and ground floor DONE, first-floor walls CURING, first-floor slab IN_PROGRESS, one APPROVED RAIN and one PENDING SMOG_BAN stoppage (`prisma/seedSchedule.ts`).
+
+## Control & alerts (Step 14)
+
+`src/modules/control/`: `plan.ts` (planned vs actual milestone progress, behind / late, stage and value-weighted physical progress, progress as of a past date), `estimate.ts` (APPROVED estimate → line buckets, stage values, estimate rate per material unit), `variance.service.ts` (material variance), `cost.service.ts` (cost variance, burn rate, projected margin), `delay.service.ts`, `summary.service.ts`, `alerts/` (registry, built-in rules, engine), `alerts.service.ts` (list / rules / run / thresholds), `changeOrders.hook.ts` (Step 15), `trigger.ts` (on-write hook). Unit tests `tests/control/engine.test.ts` (hand-checked maths), API tests `tests/control/control.test.ts` (seed snapshot `malik_control`).
+
+**Material variance** (per material at the site; `?milestoneId=` for one milestone): estimated to date = Σ milestone quota (APPROVED estimate quantities in the material's unit) × actual milestone progress; delivered = receipts + site purchases + owner deliveries − returns; used = usage entries; counted loss = − Σ stock-count adjustments; consumed = used + loss; variance = consumed − estimated to date (status OVER / UNDER beyond `overuseAlertPercent`). PKR (`fields.rates`): quantity variance × estimate rate (Σ line amount ÷ Σ line quantity) + (site average cost − estimate rate) × consumed. **Cost variance**: buckets MATERIALS / LABOUR / SUBCONTRACT (LUMP_SUM lines, e.g. MEP) / EQUIPMENT / OVERHEADS / LOSSES / CONTINGENCY — estimate to date = each line × its stage's progress — vs the cost engine. **Burn rate**: cumulative cost % of contract vs physical progress (stage progress weighted by the estimate value of each stage; effort-weighted without amounts) per month. **Projected margin** at completion: EAC = cost to date + (budget − earned value) ÷ CPI (0.5–1.5, 1 below 10 % progress); margin = revised contract − EAC — also in the P&L and dashboard. Money keys are left out without `fields.rates` (material), `fields.amounts` + `fields.rates` (cost), `fields.amounts` / `fields.contract` (burn rate), all four (projected margin).
+
+**Alert engine**: rules registered in `alerts/registry.ts` (MATERIAL_OVERUSE, MILESTONE_BEHIND_PLAN, QUOTA_EXHAUSTED, SPEND_AHEAD_OF_PROGRESS, EQUIPMENT_IDLE placeholder for Step 16, and the existing MISSING_DAILY_LOG / STAGE_READY_UNBILLED jobs listed). Findings → `ControlAlert` (one per dedupe key: OPEN, RESOLVED when gone, reopened when back) + notification `CONTROL_ALERT` to the users holding the rule's permission (+ money permissions) with the project in scope (never the Munshi); renotified after the rule's window or at once on escalation to CRITICAL (2× the threshold). Runs daily (`control-alerts` 06:30 PKT), on writes (material usage, site stock counts, milestone progress — REST and sync) and on `POST /control/alerts/run`. **Plug in a rule**: `registerAlertRule({ rule, severity, permission, moneyPermissions, thresholdSetting, renotifyHours, dedupeKey, actionUrl, description, evaluate })` from your module and import it once from `alerts/rules/index.ts`.
+
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| GET | `/projects/:id/control/material-variance` | `control.view` | `?milestoneId=` (400 INVALID_MILESTONE) |
+| GET | `/projects/:id/control/cost-variance` · `/burn-rate` · `/delay-analysis` · `/alerts` | `control.view` | |
+| GET | `/control/summary` · `/control/alerts` · `/control/alerts/rules` · `/control/settings` | `control.view` | |
+| POST | `/control/alerts/run` | `control.manage` | `{ projectId?, rules? }`; 400 UNKNOWN_RULE, 409 ALERTS_DISABLED. Audit `control.alerts_run` |
+| PUT | `/control/settings` | `control.manage` | thresholds (also in `PATCH /company/settings`). Audit `control.settings_update` |
+
+Thresholds (TenantSettings): `overuseAlertPercent` 10 (1–20), `behindPlanAlertPoints` 15 (5–50), `lateFinishGraceDays` 3 (0–30), `quotaAlertPercent` 100 (50–150), `spendAheadAlertPoints` 10 (1–50), `controlAlertsEnabled`. Templates: `control.view` Project Manager + Accountant (all projects) + Administrator; `control.manage` Administrator. Seed (`prisma/seedControl.ts`, with the stock demo): DHA's site purchases + usage per milestone (cement ~18 % over, steel bought 4 % dear), the first-floor slab behind plan, alerts opened.
+
+## Quotes / sales pipeline (Step 12)
+
+`src/modules/sales/`: `quickMode.ts` (PURE quick-mode geometry + quote price, unit-tested in `tests/unit/quickMode.test.ts` with a hand-checked 10-marla example), `quote.compute.ts` (inputs → the Step 11 engine + BoQ with the company rulebook, price list and sub-contract rates → cost, price, margin, stages, quantities, specifications), `sales.service.ts` (quotes, revisions, status actions, Mark as Won → draft project, PDFs, insights), `sales.dto.ts` (field visibility), routes / schema / docs. Job: `src/jobs/quoteExpiry.ts`. Contract: `PHASE_2_3_CONTRACTS.md` → Step 12.
+
+**Model.** `Quote` (number `Q-YYYY-NNNN` per company from `TenantCounter`, client (inline new client allowed), title, site, status DRAFT / SENT / NEGOTIATION / WON / LOST / EXPIRED, `validUntil` = today + company `quoteValidityDays` (default 15), lost reason COMPETITOR_CHEAPER / CLIENT_POSTPONED / SELF_BUILD / OTHER + note, `wonProjectId` (no FK — the draft may be deleted; Mark as Won then makes a new one), the latest revision's price / per sq ft / covered area / contract type, `lastActivityAt`) + `QuoteRevision` (inputs with every company default filled in, the quick-mode `result` JSON, direct / overhead / contingency / cost / finishing allowance / computed price / price / per sq ft / margin in paisa, payment stages with amounts). Migration `20261104090000_sales_quotes` (RLS + grants, composite FKs).
+
+**Quick mode** — no room-by-room input: synthetic floors are laid out from the covered area and run through the SAME engine (`estimateQuantities`) and BoQ builder (`buildBoq`) as a project estimate. Assumptions (`GET /quotes/assumptions`, code constants pending civil-engineer review; candidates for the rulebook later):
+
+| Key | Value | Meaning |
+|---|---|---|
+| `quickMumtyPercent` | **10 %** | mumty = 10 % of one storey (part of the covered area) |
+| `quickRoomFillPercent` | **80 %** | rooms are 80 % of each floor (rest: walls, passages, stairs) |
+| `quickRoomSizeSqft` | **160** | dry rooms share the room area in ~160 sq ft rooms (12 ft wide) |
+| `quickSqftPerBath` / `quickBathSizeSqft` | **450** / **48** | one 6 × 8 ft bath per 450 sq ft of floor, at least one per above-ground floor |
+| `quickKitchensPerFloor` / `quickKitchenSizeSqft` | **1** / **110** | a 10 × 11 ft kitchen on every above-ground floor |
+| `quickDoorWidthFt` / `quickWindowSizeFt` | **3** / **4** | one 3 × 7 ft door per room (baths 2.5 ft), a 4 × 4 ft window per dry room / kitchen, a 2 × 1.5 ft ventilator per bath |
+| `quickGroundCeilingFt` / `quickUpperCeilingFt` / `quickMumtyCeilingFt` | **11** / **10** / **9** | ceilings (basement = its own height) |
+| `quickExcavationDepthFt` / `quickPlinthHeightFt` | **5** / **2** | foundation depth (+ basement height), plinth |
+| `quickPadSizeFt` / `quickStripWidthFt` | **5** / **3** | FRAMED: 5 × 5 ft × 18″ isolated pads on the engine's ~15 ft column grid; LOAD_BEARING: 3 ft brick strip footing |
+| `quickProjectMonths` | **12** | end date of the draft project made by Mark as Won |
+
+Storey area = covered ÷ (above-ground storeys + basement + mumty share). Worked example (10 marla, 3,950 sq ft, ground + first + mumty): storey 1,880.95 sq ft; mumty 188.10; per floor 1,504.76 sq ft of rooms = 4 baths (192) + 1 kitchen (110) + 8 rooms of 150.35 sq ft; framed → 20 pads.
+
+**Price** — cost = BoQ total (direct + site overheads + contingency). FULL: cost × (1 + finishing %) × (1 + margin %) → nearest Rs 1,000; GREY_OWNER_FINISHING: cost × (1 + margin %) → Rs 1,000; LABOR_ONLY: rate = cost × (1 + margin %) ÷ covered → nearest Rs 5, price = rate × covered. Margin / finishing default to the company settings. `finalPricePaisa` (agreed price) overrides; margin = price − cost − finishing allowance. Payment stages = the chosen (or default) payment template, amounts to the rupee, last stage absorbs rounding.
+
+**Status flow.** DRAFT → (send) SENT → (negotiation) NEGOTIATION → WON / LOST. SENT / NEGOTIATION past `validUntil` → EXPIRED (daily job `quote-expiry`, 01:00 PKT, idempotent, audited as SYSTEM); DRAFT never expires; a new revision re-opens an EXPIRED quote as DRAFT. WON / LOST are closed (`409 QUOTE_CLOSED`). Lost needs a reason (OTHER also a note → `400 LOST_NOTE_REQUIRED`). Follow-up = SENT with no activity for more than 5 days.
+
+**Mark as Won** (`sales.quote.approve` + `projects.project.create`) makes a DRAFT project with wizard tabs 1–4 done: client, site, contract type + value (labour-only: rate per sq ft) = the quote price, billing model + stages of the payment template (amounts recomputed), supply split (preset + the quote's overrides, contractor rows in the quote's quality category), plot, structure, basement, floors with the quick ceilings, covered area, margin / finishing % (only when they differ from the company default), `createdFromQuoteId`. Idempotent: a WON quote returns its project. Rooms are added in the wizard for the full Step 11 estimate.
+
+**PDFs.** Customer quotation (`GET /quotes/:id/pdf?variant=customer`, also made by `send`): letterhead, client, total price, rate per sq ft, scope (contract, plot, storeys, structure, covered area, work sections by name), material specifications per supply category (who supplies, quality, material names), payment schedule (100 %), validity and terms — the template is built only from those fields, so costs, overheads, contingency and margins can never appear (tested on the rendered HTML). Internal costing (`variant=internal`, `fields.rates`): cost by section, overheads, contingency, finishing allowance, price (`fields.contract`), margin (`fields.contract` + `fields.profit`).
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/quotes/assumptions` | `sales.quote.view` |
+| POST | `/quotes/preview` | `sales.quote.view` — live quick estimate, nothing saved |
+| GET | `/quotes?status=&search=&clientId=&followUp=` | `sales.quote.view` |
+| POST | `/quotes` | `sales.quote.create` (+ `clients.client.create` for `newClient`) |
+| GET / PATCH / DELETE | `/quotes/:id` | view / `sales.quote.edit` / `sales.quote.manage` (not WON) |
+| GET / POST | `/quotes/:id/revisions` | view / edit |
+| POST | `/quotes/:id/send` | `sales.quote.edit` + `fields.contract` — customer PDF + WhatsApp text |
+| POST | `/quotes/:id/negotiation`, `/quotes/:id/lost` | `sales.quote.edit` |
+| POST | `/quotes/:id/won` | `sales.quote.approve` + `projects.project.create` |
+| GET | `/quotes/:id/pdf?variant=customer\|internal` | view + `fields.contract` / `fields.rates` |
+| GET | `/quotes/insights?months=` | `sales.quote.view` — win rate, quotes per month, loss reasons, follow-ups; average rate quoted vs won + values with `fields.contract` |
+
+Every write is audited (`quote.create`, `quote.update`, `quote.revision`, `quote.send`, `quote.negotiation`, `quote.lost`, `quote.won` + `project.create`, `quote.expire`, `quote.delete`); the quote's audit rows are its activity list. Money visibility: price `fields.contract`, cost `fields.rates`, margin `fields.contract` + `fields.profit`; keys are left out without them. Seed: six Malik quotes (WON linked to DHA Phase 6, LOST, SENT needing follow-up, NEGOTIATION with two revisions, DRAFT labour-only, EXPIRED) — `prisma/seedSales.ts`.
+
 ## Procurement & Inventory
 
 `src/modules/inventory` (locations, stock ledger, costing, usage, counts), `src/modules/procurement` (purchase orders, purchases, returns, corrections, supplier ledger + payments) and `src/modules/dispatch` (dispatches, receiving, shortages, owner deliveries).
@@ -888,6 +1116,37 @@ Units: ft, sq ft, cft (inches only in settings). Every default below is a settin
 Audit actions: `stock.low_levels_update`, `stock.usage_record`, `stock.count`, `stock.owner_delivery`, `purchase_order.create|update|cancel`, `purchase.create|rates_set|receive|correct|return`, `supplier_payment.create|cheque_cleared|cheque_bounced`, `dispatch.create|cancel|receive`, `shortage.resolve`.
 
 **Seed (`prisma/seedInventory.ts`, Malik & Sons, skipped when purchases exist; tests seed it on demand).** Store: CH-2198 200 cement @ 1,500 (15 Sep, cash), CB-1150 17,000 bricks @ 17 (Chaudhry, udhaar), store count SC-0001 on 28 Sep (cement −4 hardened in rain, bricks −50 breakage), CH-2231 400 cement @ 1,430 (Al-Madina, udhaar, 2 Oct → average ≈ 1,453), IT-8812 2 ton steel #4 @ 2,85,000 (part paid Rs 2,00,000). Direct to site: BT-451 400 cft Chenab sand @ 70 → DHA (cash, RECEIVED), CB-1190 10,000 bricks → Bahria (PENDING_RECEIPT). Gate passes: GP-0140 Johar 80 cement (RECEIVED), GP-0141 (cancelled), GP-0142 DHA 200 cement + 5,000 bricks, LES-4521, driver Nadeem 0300-1112233 (RECEIVED_WITH_SHORTAGE: cement 190, 200 bricks damaged → two OPEN shortages), GP-0143 Bahria 1 ton steel (ON_THE_WAY), GP-0144 DHA 100 cement (ON_THE_WAY). Supplier balances: Al-Madina 7,40,000 · Ittefaq 12,10,000 (with a bounced Rs 1,50,000 cheque) · Chaudhry 3,25,000 · Bilal Traders 1,15,000 · Punjab Shuttering 86,000 (OPENING entries as needed). DHA usage on the last three days. Store low-stock levels: cement 200, sand 500, PPR 100.
+
+## Equipment
+
+`src/modules/equipment` (Step 16, parts 1 + 2). Owned machines (mixer, vibrator) and bulk items (shuttering plates, props, scaffold) and equipment hired from yards. API contract: `PHASE_2_3_CONTRACTS.md` → Step 16.
+
+### Ledger and locations
+- Locations are the stock locations: the **Central Store is the equipment yard**, one TRANSIT bucket, one SITE per non-draft project.
+- Every change is one append-only `EquipmentMovement` (app_user SELECT + INSERT only): OPENING_IN / PURCHASE_IN (stock in), TRANSFER_OUT → TRANSIT_IN → TRANSIT_OUT → RECEIPT_IN (transfers), RENTAL_IN / RENTAL_RETURN_OUT (rentals), LOSS_OUT (missing), ADJUSTMENT. Quantity at a location = SUM per (equipment, rentalId); owned units have no rental. Per-location advisory locks stop two transfers taking the same plates (`400 INSUFFICIENT_EQUIPMENT` with `details.items`).
+- Transfers: DISPATCH (yard → site), TRANSFER (site → site), RETURN (site → yard). The receiver counts every item; sent − received → MISSING loss, damaged → DAMAGED loss (`source TRANSFER_GAP`), status RECEIVED_WITH_GAP. Blind count (company setting) hides `sentQty` from a Munshi while on the way.
+
+### Rentals
+Supplier (yard) + items × rate per day + deposit, delivered to a project site (rent charged to the project) or the yard. Return partly or fully; `missingQty` must already be reported as a MISSING loss. Supplier ledger (type ADJUSTMENT): `RENTAL_DEPOSIT` −deposit at create, `RENTAL_DAMAGE` +damage at each return, `RENTAL_CHARGE` +rent on the full return (= Σ daily RENTAL charges, so the project cost and the yard bill agree), `RENTAL_DEPOSIT_REFUND` +refund at close. ACTIVE → RETURNED → CLOSED.
+
+### Losses
+REPORTED → CHARGED: PROJECT (project P&L **LOSSES**), SUBCONTRACTOR (sub-contract ledger DEDUCTION, refType `EQUIPMENT_LOSS`) or WRITE_OFF (company; not in a project's cost). Default value = qty × replacement value. Yard damage charges on a rental are a supplier payable; who bears them inside the company is decided by charging the loss.
+
+### Daily cost (`accrual.ts`)
+`EquipmentCharge` per Karachi day: INTERNAL_HIRE = owned units on a SITE at the end of the day × `hireRatePaisaPerDay` → that project; RENTAL = outstanding rented units × item rate → the rental's project. Start day charged, return day not; only complete days (≤ yesterday). Each run appends only the difference between what a (day, key) should be and what is posted (correction rows `seq` 1, 2, …; posted days keep their rate), so it is idempotent and back-dated changes in the last 31 days are corrected. Daily job 01:30 PKT (`src/jobs/equipmentAccrual.ts`), `POST /equipment/accruals/run` (equipment.manage). Days are bucketed in code, not SQL, so the database session time zone never matters. Project cost: `EQUIPMENT_HIRE` + `EQUIPMENT_RENTAL` → bucket EQUIPMENT (`ProjectCost.equipmentPaisa`), charged project losses → LOSSES.
+
+### Access
+`equipment.view` (scoped; the yard and transit only with `equipment.manage`, `equipment.transfer.create` or ALL_PROJECTS), `equipment.manage` (register, stock in, adjust, send from the yard, accrual), `equipment.transfer.create`, `equipment.receiving.create`, `equipment.rental.manage`, `equipment.loss.create`, `equipment.loss.approve`. Rates, values and amounts need `fields.rates` (REST and sync). Offline: pull `equipment`, `equipment_stock`, `equipment_transfers`, `equipment_rentals`, `equipment_losses`; push `EQUIPMENT_RECEIVE`, `EQUIPMENT_LOSS_REPORT`.
+
+### Endpoints
+`/equipment` (GET, POST), `/equipment/:id` (GET, PATCH), `/equipment/:id/stock-in`, `/equipment/:id/adjust`, `/equipment/balances`, `/equipment/movements`, `/equipment/charges`, `/equipment/accruals/run`, `/equipment/transfers` (GET, POST), `/equipment/transfers/:id` (+ `/receive`, `/cancel`), `/equipment/rentals` (GET, POST), `/equipment/rentals/:id` (+ `/extend`, `/return`, `/close`), `/equipment/losses` (GET, POST), `/equipment/losses/:id` (+ `/charge`), `/projects/:id/equipment`, `/equipment/shuttering-demand`, `/projects/:id/shuttering-demand`, `/equipment/idle` (GET), `/equipment/idle/check` (POST).
+
+### Shuttering demand planner (part 2, `shuttering.ts` pure + `shuttering.service.ts`)
+`GET /equipment/shuttering-demand?projectId=&from=&weeks=` (equipment.view; every ACTIVE project in scope, or one; weeks start Monday, default 8, max 26) and `GET /projects/:id/shuttering-demand`. No money. For each slab milestone of the schedule (`GF / F1 / F2 / F3_STRUCTURE.SLAB`, `MUMTY_ROOF.STRUCTURE`, not DONE): area from the APPROVED estimate — slab soffit + sunshade + beam sides parsed from the stage's `GREY_LABOUR.<stage>.SHUTTERING` line trace (`BOQ`; a % method "beams + columns" frame line counts as slab × 20 %), else the floor footprint of the estimate basis + 20 % beam sides (`ESTIMATE_FOOTPRINT`), else covered area ÷ slab floors (`COVERED_AREA`, warning `AREA_FALLBACK`). Plates = ceil(area ÷ coverage × (1 + spare %)) — coverage = qty-weighted `coverageSqftPerUnit` of the owned plates (else 6 sq ft, warning `NO_COVERAGE`); props = ceil(plates × props per plate). Plates are held from `actualStart ?? plannedStart` until `(actualEnd ?? plannedEnd, never before today while running) + curing lag` (milestone `curingDays`, else 14 days). Weekly need = the highest day of the week (plates struck from one slab go onto the next). Company view: owned available = every owned unit (yard + sites + transit), on rent = rented units on hand (an ACTIVE rental counts until its expected end; an overdue one still counts); project view: owned at the site + the yard, rented at the site. Suggestions per project shortfall (peak over the horizon): `EXTEND_RENTAL` (the site's own rental ends while it is still short), `TRANSFER` from the yard, then from sites that need fewer from that week on (`idleAfterWeek`), `RENT` the rest (supplier = the yard last rented from), `RETURN_RENTAL` for rented units no site needs. Company settings (owner, Alerts & Limits): `shutteringPropsPerPlate` (default 0.75), `shutteringSparePercent` (default 5). **Engineer review**: beam sides 20 %, strike 14 days, 6 sq ft default plate, props per plate, spare %.
+
+### Idle-rent alert (`idle.ts`, job `src/jobs/equipmentIdle.ts`)
+Rented units at a SITE whose project had no milestone activity — a progress update (`MilestoneUpdate.date`), a material-usage entry linked to a milestone, or a structure milestone (foundation … mumty) IN_PROGRESS / CURING inside its curing lag (= today) — for at least `equipmentIdleDays` (company setting, default 5). since = max(last activity, the units' arrival at the site); projects without a schedule count from the arrival. `GET /equipment/idle?projectId=&all=` (equipment.view, sites in scope; `dailyCostPaisa` / `idleCostPaisa` / `totalDailyCostPaisa` only with fields.rates). Daily job 09:00 PKT (`equipment-idle`) and `POST /equipment/idle/check` (equipment.rental.manage, audited `equipment.idle.check`): notification **EQUIPMENT_IDLE** (WARNING, link `/equipment/rentals/:id`) per idle rental to the active users holding `equipment.rental.manage` for the project (owner, ALL_PROJECTS or assigned) + the project's PMs; text `equipmentIdle` with the daily rent for users with fields.rates, `equipmentIdleNoCost` without; at most once per rental per 7 days per user. Migration `20261107090000_shuttering_idle`.
+
 
 ## Labor & Cash Book
 
@@ -972,7 +1231,7 @@ Spent to date (`projectCost.service.ts`, reused by P&L in Step 9) = contractor m
 
 ### PDFs and sharing
 
-`src/core/pdf`: Playwright chromium, A4, letterhead (logo, name, NTN, address, phone), Inter, page numbers. Templates: invoice, receipt (RV), owner statement. Stored as attachments (`INVOICE_PDF`, `RECEIPT_PDF`, `STATEMENT_PDF`). Every PDF endpoint returns `{ url, expiresAt, whatsappText, clientPhone }`, in the requesting user's language or `?lang=en|roman|ur` (see **Languages**; Urdu = RTL with an embedded Nastaliq font). If chromium is missing → `503 PDF_UNAVAILABLE` (tests use a fake renderer). **Windows / new machine:** `npx playwright install chromium` once.
+`src/core/pdf`: Playwright chromium; every PDF in the product goes through `templates.ts` `shell()` (one letterhead: logo, name, address, phone, NTN — STRN on tax reports — document title, number, date) and `renderer.ts` `pdfPageOptions()` (A4, 14 / 18 mm margins, footer: document line, generated-on date, "Page X of Y"); the full list is in [Product overview → PDFs](#pdfs). Billing templates: invoice, receipt (RV), owner statement. Stored as attachments (`INVOICE_PDF`, `RECEIPT_PDF`, `STATEMENT_PDF`). Every PDF endpoint returns `{ url, expiresAt, whatsappText, clientPhone }`, in the requesting user's language or `?lang=en|roman|ur` (see **Languages**; Urdu = RTL with an embedded Nastaliq font). If chromium is missing → `503 PDF_UNAVAILABLE` (tests use a fake renderer). **Windows / new machine:** `npx playwright install chromium` once.
 
 ### Alerts
 
@@ -1072,6 +1331,13 @@ Owner-recoverable and rejected kharcha are never cost. Dates: movement / payment
 | `supplier-ageing` | THEKEDAR | udhaar per supplier in 0–15 / 16–30 / 31–60 / 60+ (FIFO), oldest days, last payment |
 | `receivables-ageing` | THEKEDAR | outstanding per project / client in the same buckets, overdue, pending cheques |
 | `stock-valuation` | THEKEDAR | store + sites + transit: quantity × weighted-average cost (owner stock without value) |
+| `delay-analysis` (Step 18) | + `control.view` | per scheduled project: original / revised / projected end, owner / excusable / contractor / change-order days, days late, late / behind milestones, top reasons (Step 13 `delayBreakdown`) |
+| `variance` (Step 18) | + `control.view` | per running project: progress vs plan, materials over / under, material PKR impact (`fields.rates`), cost variance (`fields.amounts` + `fields.rates`), spent % vs progress, revised contract, projected margin (Step 14 rules) |
+| `change-orders` (Step 18) | + `changeorder.view` | every change order: project, code, title, type, status, total (`fields.rates` or `fields.amounts`), days, proof, billing invoice; `status`, `type`, dates; totals = approved set |
+| `equipment-utilisation` (Step 18) | + `equipment.view` | per item / `group=category`: days and unit-days on site vs idle (ledger end-of-day balances), utilisation %, rented unit-days, hire / rent / loss value (`fields.rates`); period ≤ 366 days (default 30), `category`, project |
+| `snags` (Step 18) | + `closeout.snag.view` | per project: open / fixed / verified, overdue, ageing 0–7 / 8–30 / 31+, defect period, cost attribution (`fields.amounts`) |
+
+**Step 18 reports** need `finance.reports.view` **and** the module key in the "Who" column (its project scope picks the rows; the Munshi never). Money columns follow the module's own field rule and are left out of the JSON and the files without it. Delay analysis, variance and snags also have a **per-project book** — `GET /reports/<name>/:projectId` — a summary + several tables (delay: categories, stoppages, change-order days, late / slipped milestones, `409 NO_SCHEDULE` without a schedule; variance: material variance, cost buckets, burn by month; snags: by assignee, open list, defect period) exported as CSV (sections one after the other), Excel (one sheet per section) or PDF (letterhead, summary, one table per section). Multi-project reports load each project's plan and estimate once and the cost rows of all projects in one query (~10–50 ms each on the seed, warm).
 
 ### Endpoints
 
@@ -1084,6 +1350,60 @@ Owner-recoverable and rejected kharcha are never cost. Dates: movement / payment
 | Reports | `GET /reports/project-summary`, `/material-audit`, `/labor-peshgi`, `/cash-book`, `/supplier-ageing`, `/receivables-ageing`, `/stock-valuation` |
 
 **Seed (`prisma/seedNotifications.ts`, with the full demo only, written in the same run as the billing seed).** Replaces the notifications the demo seeds raised with a set pointing at real records, backdated: MCB cheque 118845 bounced (CRITICAL, SMS sent, unread), DHA and Johar invoices overdue (the older one read), GP-0142 shortages, Asif's Rs 32,000 water-pump kharcha waiting for approval (the only kharcha above the limit in the demo), wages 21–27 Sep submitted (Khalid read, Bilal unread), Rafaqat's Rs 40,000 top-up, Chenab sand below its store minimum (read), Latif overpaid Rs 23,590 (read), Sharif's mumty-slab measurement to verify (Bilal) and GP-0144 on the way to DHA (Rafaqat + Bilal). On a database that already has the demo, run `npm run db:seed:notifications` (replaces Malik's notifications).
+
+## Change orders + site instructions (Step 15)
+
+Module `src/modules/change-orders` (`changeOrders.service.ts` builder + status flow, `changeOrders.shared.ts` DTOs / rates / line maths, `billing.ts` bill endpoint, `invoiceHooks.ts` called by the invoice service, `siteInstructions.service.ts` (+ snag → CO), `slip.ts` owner PDF, `totals.ts` / `summary.ts` / `estimateLayer.ts` read by receivables / projects / schedule / estimate, `changeOrders.sync.ts`), migration `20261106090000_change_orders`, tag **Change Orders** in Swagger. Full shapes: `PHASE_2_3_CONTRACTS.md` → "Step 15".
+
+**Change order.** Per-project number CO-001; type ADDITION / DEDUCTION (signed total); lines MATERIAL (rate = the APPROVED estimate's frozen rate, else the price list's default quality), LABOUR (company labour rate) or OTHER (description + unit + rate); explicit rates / markup need `fields.rates`. Line cost = qty × rate, owner price rate = rate × (1 + markup %), total = ± Σ qty × price rate. Days impact (working days) and affected milestones. Status DRAFT → SENT → APPROVED / REJECTED → IN_PROGRESS → COMPLETED → BILLED (reopen SENT / REJECTED → DRAFT). Approval needs a proof (WhatsApp screenshot / signed slip file, or a verbal note).
+
+**What approval changes.** Revised contract = original + Σ approved-set totals (APPROVED, IN_PROGRESS, COMPLETED, BILLED) — `moneyOf()` in receivables, so receivables / dashboard / P&L / reports use it. `Schedule.changeOrderDays` = Σ their days → delay breakdown (OWNER category, reason CHANGE_ORDER) and `GET /projects/:id` `changeOrders.revisedEndDate` (contract end + days in company working days). The approved estimate gets a read-only `changes` layer.
+
+**Billing.** `POST /change-orders/:id/bill` NEXT_STAGE (one "CO-003 · title" line on the next STAGE / RUNNING_BILL invoice; a draft one gets it at once) or VARIATION (own DRAFT invoice, type VARIATION, items at the owner price; ADDITION only). Issue → BILLED (`changeorder.billed` audit), cancel → back to COMPLETED / IN_PROGRESS / APPROVED.
+
+**Site instructions.** The Munshi records the owner's request (note + SITE_PHOTO photos; REST or sync `SITE_INSTRUCTION_CREATE`, idempotent `clientId`), sees only own ones; the office (`changeorder.instruction.view`) converts (CO draft, source SITE_INSTRUCTION) or dismisses. Notification SITE_INSTRUCTION_CREATED → owner + project PMs. A snag with cost attribution CHANGE_ORDER becomes a CO draft via `POST /snags/:id/change-order`.
+
+**Permissions.** `changeorder.view|create|edit|approve` (PM), `changeorder.manage` (billing; Accountant, Administrator), `changeorder.instruction.create` (Munshi, PM), `changeorder.instruction.view` (PM). Money keys absent without `fields.rates` (cost side) / `fields.rates` or `fields.amounts` (owner price) / `fields.contract` (contract values). CO line descriptions are plain text (no rate formulas), so nothing needs the estimate rate redaction.
+
+## Closeout — drawings, snags, handover, retention (Step 17)
+
+Module `src/modules/closeout` (routes / controller / `drawings.service.ts`, `snags.service.ts`, `handover.service.ts`, `retention.service.ts`, `retention.dates.ts`, `certificate.ts`, schema, docs), migration `20261103090000_closeout`, tag **Closeout** in Swagger. Full request / response shapes: `PHASE_2_3_CONTRACTS.md` → "Step 17".
+
+**Permissions** (project-scoped): `closeout.drawing.view|manage`, `closeout.snag.view|create|manage`, `closeout.handover.manage`, `closeout.retention.view`. Administrator + Project Manager templates get all; Munshi `drawing.view`, `snag.view`, `snag.create`; Accountant `snag.view`, `retention.view`. Money (snag cost amount, retention amounts) also needs `fields.amounts` — omitted otherwise (a Munshi never gets it). Setting a snag cost needs `closeout.snag.manage` + `fields.amounts`; completing the handover needs `closeout.handover.manage` + `projects.project.manage`. Existing companies get the keys with `npm run backfill:permissions`.
+
+**Drawings.** `Drawing` (folder ARCHITECTURAL / STRUCTURAL / MEP / SOCIETY_APPROVED / OTHER, title, number, `milestoneId` — plain uuid until Step 13) + `DrawingRevision` (DOCUMENT attachment, `revisionNo` R0, R1 …, `approvedAt`, notes, `isLatest`). A new revision supersedes the latest; superseded revisions stay readable. Deleting a drawing keeps its files.
+
+**Snags.** Per-project number (`SN-007`), room (optional, no FK) or location, description, before / after SITE_PHOTO ids, assignee worker OR sub-contractor, target date, status OPEN → FIXED (`closeout.snag.create`, site) → VERIFIED (`manage`); reopen with a reason. Logged on ACTIVE / CLOSEOUT / HANDED_OVER projects; after handover they are defect-period snags (`inDefectPeriod`), refused after the retention due date (`409 DEFECT_PERIOD_ENDED`). Offline `clientId`.
+Cost attribution (`PUT /snags/:id/cost`): **REWORK** → project cost (cost engine source `REWORK`, P&L bucket LOSSES, dated when attributed); **SUBCONTRACTOR_DEDUCTION** → `DEDUCTION` on the sub-contract account (`refType SNAG`; a change / removal posts a reversing DEDUCTION `SNAG_REVERSAL`, the ledger stays append-only); **CHANGE_ORDER** → stored flag + amount only (Step 15 turns it into a change order); NONE.
+
+**Handover.** `ProjectHandover` + `HandoverItem` (KEYS, ELECTRICITY_CONNECTION, GAS_CONNECTION, WATER_CONNECTION, WARRANTY_CARDS, FINAL_DRAWINGS, FINAL_PHOTOS), owner sign-off (name, date, signature photo). `POST /projects/:id/handover/complete` (CLOSEOUT only, every item + sign-off, open snags need `acceptOpenSnags`) → HANDED_OVER, `handedOverAt`, `defectPeriodMonths` copied from the project, `retentionDueDate = handedOverAt + defect months` (day clamped to the month end). The plain `PATCH /projects/:id/status` → HANDED_OVER records the same dates (today). Certificate PDF `GET /projects/:id/handover/certificate?lang=` (letterhead, Urdu RTL, no money; stored as a DOCUMENT attachment).
+
+**Retention.** `GET /projects/:id/retention`: owner retention (retention stage / RETENTION invoice), sub-contractor retention held per account, due date, days to due, defect snags, reminder status. A RETENTION invoice created for a handed-over project gets `dueDate = retentionDueDate`; draft RETENTION invoices are updated at handover. Sub-contractor `RETENTION_RELEASE` payments are now allowed on HANDED_OVER projects, but not before the retention due date (`409 RETENTION_HELD { releaseDate }`). Job `retention-reminders` (daily 02:45 PKT, `src/jobs/retentionReminders.ts`): `reminderDaysBefore` (default 14, `PATCH /projects/:id/retention`) days before → `RETENTION_RELEASE_DUE` (INFO), and on / after the due date (WARNING) — owner + PMs with amounts, once each, with the open defect-snag count.
+
+**Sync.** Pull tables `snags` (no money) and `drawings` (latest revision's attachment id); push `SNAG_CREATE` / `SNAG_FIX` (`closeout.snag.create`). Triggers on Drawing, DrawingRevision (→ Drawing) and Snag. Only ACTIVE / CLOSEOUT projects are in a phone's scope.
+
+Audit actions: `drawing.create|update|delete|revision_add|revision_update`, `snag.create|update|delete|fix|verify|reopen|cost`, `handover.item|sign_off|complete|certificate`, `retention.settings`.
+
+**Seed (`prisma/seedCloseout.ts`, CLI seed with the billing demo, skipped when drawings exist).** DHA: 4 drawings (A-101 and S-201 with R0 superseded + R1 latest, E-301, DHA approved plan), 2 snags (one deducted Rs 4,500 from Ustad Sharif's sub-contract). Johar Town moved to CLOSEOUT: snags in every status (overdue OPEN, OPEN with Haji Plumbing, FIXED with an after photo, VERIFIED with Rs 12,000 rework), as-built drawing, checklist 4 of 7 done, no sign-off. Valencia (HANDED_OVER): handover ~6 months ago, retention due in 10 days, one defect-period snag.
+
+## Tax (Step 18)
+
+`src/modules/tax/`: `tax.rules.ts` (the one place for tax rules: authorities + default rates, effective tax of a project, taxable base, rounding, WHT from a rate, Pakistan tax year), `tax.service.ts` (settings + project override, audited, drafts recalculated), `taxReports.ts` (WHT summary + tax-wise invoice register through the reports export pipeline), routes / schema / docs. Contract: `PHASE_2_3_CONTRACTS.md` → Step 18 — Tax. **Off by default**; every rate and rule is a default for the company's tax adviser to confirm.
+
+- **Settings** (`TenantSettings.taxEnabled / taxAuthority / taxRatePercent / taxLabel / taxStrn / whtDefaultRatePercent`, company NTN = `Tenant.ntn`): authorities PRA (16 %), SRB (15 %), KPRA (15 %), ICT (16 %) — defaults only pre-fill the form. Switching on needs an authority and a rate > 0 (`400 TAX_SETTINGS_INCOMPLETE`). The legacy `PATCH /company/settings` tax fields still work (owner only).
+- **Project override** (`Project.taxMode` INHERIT / ON / OFF + `taxAuthority` / `taxRatePercent`): a project in another province uses its own authority / rate.
+- **Invoices**: taxable base = every line except `CASH_ENTRY` (owner purchases passed through at cost); change-order lines and the running-bill retention deduction count; tax = round half-up (base × rate ÷ 100) on the paisa, once per invoice. Drafts follow the settings (recalculated on every settings change); **issue freezes** `taxAuthority`, `taxRatePercent`, `taxLabel`, `taxableBasePaisa`, `taxPaisa`, `sellerNtn`, `sellerStrn`, `buyerNtn` (`Client.ntn`). Cancel keeps the snapshot. The PDF prints the tax line, the taxable value (when it differs from the subtotal), seller NTN / STRN and the client's NTN.
+- **Client WHT** (`ClientPayment.whtDeductedPaisa / whtRatePercent / whtCertificateNo / whtCertificateDate / whtCertificateAttachmentId`): only when tax is on for the project; rate alone → WHT = round(cash × r ÷ (100 − r)) (r % of the gross); amount + rate must agree within Rs 1; WHT settles invoices like cash (paid, balance, receivables "received"). Certificate later: `PATCH /payments/:id/wht-certificate`.
+
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| GET / PATCH | `/tax/settings` | `tax.view` / `tax.settings.manage` | Audit `tax.settings.update` (before / after, drafts recalculated) |
+| GET / PATCH | `/projects/:id/tax` | `billing.invoice.view` / `tax.settings.manage` | Effective tax + company WHT default; audit `project.tax.update` |
+| PATCH | `/payments/:id/wht-certificate` | `billing.payment.create` | 409 NO_WHT / PAYMENT_BOUNCED; audit `payment.wht_certificate` |
+| GET | `/reports/wht-summary` | `tax.view` + `fields.amounts` | Per client × month: gross, cash, WHT, WHT %, certificates received / missing; default period = current tax year (1 Jul – 30 Jun) |
+| GET | `/reports/tax-invoice-register` | `tax.view` + `fields.amounts` | Issued invoices (cancelled listed, not counted): taxable value, rate, tax, authority, status; notes = subtotal per authority + rate |
+
+Seed `prisma/seedTax.ts`: Malik stays **tax OFF**; the DHA client gets an NTN and the company a STRN. `SEED_TAX_DEMO=1` (tests: `seedMalikTax(db, { …, enable: true })`) switches PRA 16 % on — existing invoices are never touched. Tests: `tests/tax/tax.test.ts`.
 
 ## Daily Logs
 
@@ -1202,6 +1522,14 @@ curl -s localhost:4000/api/v1/sync/push -H "authorization: Bearer $TOKEN" -H 'co
 | `20261021090000_message_deliveries` | `MessageChannel`, `MessageStatus`, `MessageDelivery` (delivery log of every SMS / email / WhatsApp: masked recipient, status, provider id, error; tenantId nullable) — written by app_admin; RLS + `SELECT` for app_user (own company only) |
 | `20261022090000_onboarding` | `TenantSettings.onboardingDismissedAt` / `onboardingDismissedById` / `ratesReviewedAt`; `isDemo` on `Project`, `Client`, `Worker`, `Supplier`, `CashAccount`; `CashEntryType.OPENING`, `StockMovementType.OPENING_IN`; `OpeningBalanceKind` + `OpeningBalance` (RLS, SELECT + INSERT); SECURITY DEFINER `purge_demo_data()` (EXECUTE for app_user only) |
 | `20261018090000_worker_types` | Company-defined worker types: `Worker.type` enum → text (values kept; `WorkerType` enum dropped); `LaborRate.labelRoman`, `labelUrdu`, `isActive`; default DAILY types backfilled with Roman Urdu / Urdu names and plain-English labels (Mason, Tile mason, Labourer, Steel-fixer helper, Watchman — only where the label was still the old default); `sync_track` trigger on `LaborRate` (sync table `worker_types`). RLS / grants on `LaborRate` unchanged |
+| `20261103090000_closeout` | Step 17: `DrawingFolder`, `SnagStatus`, `SnagCostAttribution`, `HandoverItemKey`; `Drawing`, `DrawingRevision` (file FK → Attachment), `Snag` (worker / sub-contractor FKs, `(tenantId, clientId)` unique), `ProjectHandover`, `HandoverItem` — RLS (ENABLE + FORCE + `tenant_isolation`), grants, composite FKs (project FKs cascade so a deleted draft / demo project takes them along); `NotificationType.RETENTION_RELEASE_DUE`; `sync_track` triggers on Drawing, DrawingRevision (→ Drawing), Snag. Then `npm run backfill:permissions` for the `closeout.*` keys. |
+| `20261106090000_change_orders` | Step 15: `ChangeOrderType`, `ChangeOrderStatus`, `ChangeOrderProofType`, `ChangeOrderSource`, `ChangeOrderLineKind`, `ChangeOrderBillingMode`, `SiteInstructionStatus`; `ChangeOrder` (FKs → Project, SiteInstruction, Snag), `ChangeOrderLine` (FKs → Material, LaborRate), `SiteInstruction` (`(tenantId, clientId)` unique) — RLS (ENABLE + FORCE + `tenant_isolation`), grants, composite FKs; `InvoiceType.VARIATION`, `InvoiceLineSource.CHANGE_ORDER`, `NotificationType.SITE_INSTRUCTION_CREATED`; `sync_track` trigger on SiteInstruction. Then `npm run backfill:permissions` for the `changeorder.*` keys. |
+| `20261105090000_schedule` | Step 13: `MilestoneStatus`, `DependencyType`, `StoppageReason`, `StoppageStatus`, `DelayCategory`; `Schedule`, `ScheduleStage`, `Milestone`, `MilestoneDependency`, `MilestoneQuota`, `StoppageDay` (RLS, full grants), `MilestoneUpdate`, `ScheduleBaseline`, `SchedulePlanVersion` (RLS, SELECT / INSERT only — frozen); composite FKs, `Milestone.billingStageId` ON DELETE SET NULL; `TenantSettings.ramadanDayFactor` / `ramadanPeriods`; sync triggers on the milestone tables, stoppages and milestone-linked usage |
+| `20261017090000_system_user` | Hidden system user per company (platform admin working inside a company) |
+| `20261027090000_project_estimate_settings` | `Project.estimateSettings` JSONB (only changed keys) |
+| `20261102090000_equipment` | Step 16: 10 equipment tables (register, movement ledger, transfers, rentals, losses, charges) — RLS + grants; `EquipmentMovement` / `EquipmentCharge` SELECT + INSERT only; sync triggers |
+| `20261108090000_control_alerts` | Step 14: `ControlAlert` (RLS + grants), `NotificationType.CONTROL_ALERT`, alert threshold settings with a range check |
+| `20261109100000_tax` | Step 18: enums `TaxAuthority`, `ProjectTaxMode`; tax columns on TenantSettings, Project, Client (NTN), Invoice (snapshot), ClientPayment (WHT) — no new tables |
 
 Prisma's `migrate dev` refuses to run non-interactively when a change has warnings (enum value removed). Generate SQL with `npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script`, hand-edit renames (e.g. `ALTER TYPE … RENAME VALUE`, `RENAME COLUMN`) so data is kept, save it as a new migration folder and run `npx prisma migrate deploy`.
 

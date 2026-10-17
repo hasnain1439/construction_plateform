@@ -7,28 +7,122 @@
  *   overdue      outstanding of invoices past their due date
  *   own money    spent to date − received (negative = the owner has paid ahead)
  *   ageing       outstanding by days since the invoice was issued (0–15 / 16–30 / 31–60 / 60+)
+ *   contract     revised = original (stages / contract value) + approved change orders (Step 15)
  */
 import { assertPerm } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
-import type { Project } from '../../generated/prisma/client.js';
+import type { Invoice, Project, ProjectBillingStage } from '../../generated/prisma/client.js';
 import { projectScope } from '../projects/access.js';
 import type { ReceivablesQuery } from './billing.schema.js';
 import { actor, billingProject, daysBetween, today, ymd } from './billing.shared.js';
 import { overdueOf } from './invoices.service.js';
-import { LIVE, projectCredit } from './ledger.js';
+import { LIVE } from './ledger.js';
 import { costDto, projectCost } from './projectCost.service.js';
 import { ageing, ageingDto, addAgeing } from '../finance/ageing.js';
 import { stageDto } from './stages.service.js';
+import { approvedChangesMany, type ApprovedChanges } from '../change-orders/totals.js'; // Step 15
+
+export type Money = Awaited<ReturnType<typeof moneyOf>>;
 
 export async function moneyOf(tx: Tx, tenantId: string, project: Project) {
-  const stages = await tx.projectBillingStage.findMany({ where: { tenantId, projectId: project.id }, orderBy: { sortOrder: 'asc' } });
-  const invoices = await tx.invoice.findMany({ where: { tenantId, projectId: project.id, status: { in: LIVE } }, orderBy: { issueDate: 'asc' } });
-  const payments = await tx.clientPayment.groupBy({ by: ['status'], where: { tenantId, projectId: project.id }, _sum: { amountPaisa: true, whtDeductedPaisa: true } });
-  const pay = (s: string) => payments.find((p) => p.status === s);
-  const received = (pay('CLEARED')?._sum.amountPaisa ?? 0n) + (pay('CLEARED')?._sum.whtDeductedPaisa ?? 0n);
-  const pendingCheques = pay('PENDING')?._sum.amountPaisa ?? 0n;
+  return (await moneyOfMany(tx, tenantId, [project])).get(project.id)!;
+}
 
-  const contract = stages.reduce((s, x) => s + x.amountPaisa, 0n) || (project.contractValuePaisa ?? 0n);
+/**
+ * Step 18 · receivables of several projects in a fixed number of set-based queries (stages,
+ * invoices, payments, approved change orders, retention, recoverables, credit) instead of ~9
+ * per project. Same numbers as one `moneyOf` per project; every project gets an entry.
+ * `pre.changes` reuses approved change-order totals the caller already loaded.
+ */
+export async function moneyOfMany(tx: Tx, tenantId: string, projects: Project[], pre: { changes?: Map<string, ApprovedChanges> } = {}) {
+  const ids = projects.map((p) => p.id);
+  const out = new Map<string, ReturnType<typeof moneyRow>>();
+  if (!ids.length) return out;
+  // One id → plain equality (same plan as before); several → IN.
+  const projectId = ids.length === 1 ? ids[0]! : { in: ids };
+  const byProject = <T extends { projectId: string }>(rows: T[]) => {
+    const m = new Map<string, T[]>(ids.map((id) => [id, []]));
+    for (const r of rows) m.get(r.projectId)?.push(r);
+    return m;
+  };
+  const stagesBy = byProject(await tx.projectBillingStage.findMany({ where: { tenantId, projectId }, orderBy: { sortOrder: 'asc' } }));
+  const invoicesBy = byProject(await tx.invoice.findMany({ where: { tenantId, projectId, status: { in: LIVE } }, orderBy: { issueDate: 'asc' } }));
+  const payments = await tx.clientPayment.groupBy({ by: ['projectId', 'status'], where: { tenantId, projectId }, _sum: { amountPaisa: true, whtDeductedPaisa: true } });
+  const changes = pre.changes ?? (await approvedChangesMany(tx, tenantId, ids));
+  // Retention held on running bills (retention stage not invoiced yet): Σ RETENTION lines (negative).
+  const runningRetention: string[] = [];
+  for (const p of projects) {
+    if (p.billingModel !== 'RUNNING_BILLS') continue;
+    const s = stagesBy.get(p.id)!.find((x) => x.isRetention);
+    if (s && !invoicesBy.get(p.id)!.some((i) => i.billingStageId === s.id)) runningRetention.push(s.id);
+  }
+  const heldBy = new Map<string, bigint | null>();
+  if (runningRetention.length) {
+    const held = await tx.invoiceLine.groupBy({
+      by: ['sourceId'],
+      where: { tenantId, sourceType: 'RETENTION', sourceId: { in: runningRetention }, invoice: { status: { in: LIVE } } },
+      _sum: { amountPaisa: true },
+    });
+    for (const h of held) if (h.sourceId) heldBy.set(h.sourceId, h._sum.amountPaisa);
+  }
+  const recoverableBy = new Map(
+    (
+      await tx.cashEntry.groupBy({
+        by: ['projectId'],
+        where: { tenantId, projectId, type: 'EXPENSE', costBucket: 'RECOVERABLE_FROM_OWNER', status: { not: 'REJECTED' }, billedInvoiceId: null },
+        _sum: { amountPaisa: true },
+      })
+    ).map((g) => [g.projectId, g._sum.amountPaisa]),
+  );
+  const stageInvoicesBy = byProject(await tx.invoice.findMany({ where: { tenantId, projectId, status: { not: 'CANCELLED' }, billingStageId: { not: null } }, orderBy: { createdAt: 'asc' } }));
+  // Credit (ledger `projectCredit`): unallocated money per non-bounced payment, only positive ones count.
+  const creditBy = new Map<string, bigint>();
+  const credits = await tx.clientPayment.findMany({
+    where: { tenantId, projectId, status: { not: 'BOUNCED' } },
+    select: { projectId: true, amountPaisa: true, whtDeductedPaisa: true, allocations: { select: { amountPaisa: true } } },
+  });
+  for (const pay of credits) {
+    const free = pay.amountPaisa + pay.whtDeductedPaisa - pay.allocations.reduce((s, a) => s + a.amountPaisa, 0n);
+    if (free > 0n) creditBy.set(pay.projectId, (creditBy.get(pay.projectId) ?? 0n) + free);
+  }
+  for (const project of projects) {
+    const pay = (st: string) => payments.find((p) => p.projectId === project.id && p.status === st);
+    out.set(
+      project.id,
+      moneyRow(project, {
+        stages: stagesBy.get(project.id)!,
+        invoices: invoicesBy.get(project.id)!,
+        received: (pay('CLEARED')?._sum.amountPaisa ?? 0n) + (pay('CLEARED')?._sum.whtDeductedPaisa ?? 0n),
+        pendingCheques: pay('PENDING')?._sum.amountPaisa ?? 0n,
+        changes: changes.get(project.id)?.totalPaisa ?? 0n,
+        heldBy,
+        recoverable: recoverableBy.get(project.id) ?? null,
+        stageInvoices: stageInvoicesBy.get(project.id)!,
+        credit: creditBy.get(project.id) ?? 0n,
+      }),
+    );
+  }
+  return out;
+}
+
+function moneyRow(
+  project: Project,
+  d: {
+    stages: ProjectBillingStage[];
+    invoices: Invoice[];
+    received: bigint;
+    pendingCheques: bigint;
+    changes: bigint;
+    heldBy: Map<string, bigint | null>;
+    recoverable: bigint | null;
+    stageInvoices: Invoice[];
+    credit: bigint;
+  },
+) {
+  const { stages, invoices } = d;
+  const originalContract = stages.reduce((s, x) => s + x.amountPaisa, 0n) || (project.contractValuePaisa ?? 0n);
+  // Step 15: revised contract = original + approved change orders (signed; deductions lower it).
+  const contract = originalContract + d.changes;
   const invoiced = invoices.reduce((s, i) => s + i.totalPaisa, 0n);
   const outstanding = invoices.reduce((s, i) => s + i.balancePaisa, 0n);
   let overdue = 0n;
@@ -47,35 +141,28 @@ export async function moneyOf(tx: Tx, tenantId: string, project: Project) {
     const retInv = invoices.find((i) => i.billingStageId === retentionStage.id);
     if (retInv) retentionHeld = retInv.balancePaisa;
     else if (project.billingModel === 'RUNNING_BILLS') {
-      const held = await tx.invoiceLine.aggregate({ where: { tenantId, sourceType: 'RETENTION', sourceId: retentionStage.id, invoice: { status: { in: LIVE } } }, _sum: { amountPaisa: true } });
-      retentionHeld = held._sum.amountPaisa ? -held._sum.amountPaisa : retentionStage.amountPaisa;
+      const held = d.heldBy.get(retentionStage.id) ?? null;
+      retentionHeld = held ? -held : retentionStage.amountPaisa;
     } else retentionHeld = retentionStage.amountPaisa;
   }
-  const unbilledRecoverable = -(
-    (
-      await tx.cashEntry.aggregate({
-        where: { tenantId, projectId: project.id, type: 'EXPENSE', costBucket: 'RECOVERABLE_FROM_OWNER', status: { not: 'REJECTED' }, billedInvoiceId: null },
-        _sum: { amountPaisa: true },
-      })
-    )._sum.amountPaisa ?? 0n
-  );
-  const invoiceOfStage = new Map(
-    (await tx.invoice.findMany({ where: { tenantId, projectId: project.id, status: { not: 'CANCELLED' }, billingStageId: { not: null } }, orderBy: { createdAt: 'asc' } })).map((i) => [i.billingStageId!, i]),
-  );
+  const unbilledRecoverable = -(d.recoverable ?? 0n);
+  const invoiceOfStage = new Map(d.stageInvoices.map((i) => [i.billingStageId!, i]));
   const next = stages.find((s) => s.status === 'READY') ?? stages.find((s) => s.status === 'UPCOMING' && !s.isRetention) ?? null;
   return {
     stages,
     invoiceOfStage,
+    originalContract,
+    approvedChanges: d.changes,
     contract,
     invoiced,
-    received,
-    pendingCheques,
+    received: d.received,
+    pendingCheques: d.pendingCheques,
     outstanding,
     overdue,
     oldestOverdueDays,
     retentionHeld,
     unbilledRecoverable,
-    credit: await projectCredit(tx, tenantId, project.id),
+    credit: d.credit,
     readyStagesCount: stages.filter((s) => s.status === 'READY').length,
     next,
     ageing: ageing(invoices.filter((i) => i.balancePaisa > 0n).map((i) => ({ days: daysBetween(ymd(i.issueDate) ?? today(), today()), amountPaisa: i.balancePaisa }))),
@@ -90,8 +177,8 @@ export async function projectReceivables(projectId: string) {
     const cost = await projectCost(tx, a.tenantId, project.id);
     return {
       project: { id: project.id, code: project.code, name: project.name, status: project.status, billingModel: project.billingModel },
-      originalContractPaisa: m.contract.toString(),
-      approvedChangesPaisa: '0',
+      originalContractPaisa: m.originalContract.toString(),
+      approvedChangesPaisa: m.approvedChanges.toString(),
       revisedContractPaisa: m.contract.toString(),
       invoicedPaisa: m.invoiced.toString(),
       receivedPaisa: m.received.toString(),
@@ -137,9 +224,10 @@ export async function companyReceivables(query: ReceivablesQuery) {
       include: { client: { select: { id: true, name: true, phone: true } } },
       orderBy: { createdAt: 'asc' },
     });
+    const money = await moneyOfMany(tx, a.tenantId, projects);
     const rows = [];
     for (const p of projects) {
-      const m = await moneyOf(tx, a.tenantId, p);
+      const m = money.get(p.id)!;
       if (m.invoiced === 0n && m.contract === 0n) continue;
       rows.push({
         project: { id: p.id, code: p.code, name: p.name, status: p.status },

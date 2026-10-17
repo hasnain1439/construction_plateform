@@ -64,6 +64,8 @@ export interface EstimateOpening {
 export interface EstimateRoom {
   id?: string;
   name?: string;
+  /** Room type (KITCHEN, ATTACHED_BATH …) — the BoQ uses it for wall tiles. */
+  type?: string | null;
   /** Four sides (null / missing = not entered). */
   walls?: Wall[] | null;
   lengthFt: number;
@@ -138,12 +140,14 @@ export const MATERIALS = [
   'bitumen',
   'termite',
   'stone',
+  'blocks',
 ] as const;
 export type MaterialKey = (typeof MATERIALS)[number];
 /** The unit every quantity of a material is given in. */
 export const MATERIAL_UNITS: Record<MaterialKey, string> = {
   cement: 'bag',
   bricks: 'nos',
+  blocks: 'nos',
   sand: 'cft',
   crush: 'cft',
   steel: 'kg',
@@ -202,7 +206,7 @@ export type LineMethod = 'DETAILED' | 'ESTIMATED';
 /** Steel bars by size: #3 → steel10 … #6 → steel20. */
 export const steelKey = (bar: BarNo): MaterialKey => `steel${BAR_MM[bar]}` as MaterialKey;
 export const STEEL_SIZE_KEYS: MaterialKey[] = ['steel10', 'steel12', 'steel16', 'steel20'];
-const isBarSteel = (m: MaterialKey | null) => m === 'steel' || (m !== null && STEEL_SIZE_KEYS.includes(m));
+export const isBarSteel = (m: MaterialKey | null) => m === 'steel' || (m !== null && STEEL_SIZE_KEYS.includes(m));
 
 export interface EstimateLine {
   id: string;
@@ -367,6 +371,7 @@ export const FORMULA_TEXT: Record<string, string> = {
   plasterCement: '{area} sq ft × {thicknessIn}″ × {dry} dry × 1/{parts} ÷ {bagCft} cft per bag',
   plasterSand: '{area} sq ft × {thicknessIn}″ × {dry} dry × {part}/{parts}',
   bricks: '{volume} cft × {perCft} bricks per cft',
+  blocks: '{volume} cft ÷ {thicknessIn}″ = {area} sq ft of wall × {perSqft} blocks per sq ft',
   stone: '{volume} cft of stone masonry',
   steel: '{volume} cft × {percent}% × 222 kg per cft',
   waterproofing: '{bags} cement bags × {perBag} kg',
@@ -437,9 +442,18 @@ function work(c: Ctx, w: Where, measure: Measure, net: number, unit: string, for
   });
 }
 
+/** Wastage % of a material: bricks / blocks, cement, sand + crush, bar steel each have their own; the rest share `wastagePercent`. */
+export function wastageOf(s: EstimateSettings, key: MaterialKey): number {
+  if (key === 'bricks' || key === 'blocks') return s.brickWastagePercent;
+  if (key === 'cement') return s.cementWastagePercent ?? s.wastagePercent;
+  if (key === 'sand' || key === 'crush') return s.sandWastagePercent ?? s.wastagePercent;
+  if (isBarSteel(key)) return s.steelWastagePercent ?? s.wastagePercent;
+  return s.wastagePercent;
+}
+
 function material(c: Ctx, w: Where, key: MaterialKey, net: number, formula: Formula) {
   if (net <= 0) return;
-  const wastagePercent = key === 'bricks' ? c.s.brickWastagePercent : c.s.wastagePercent;
+  const wastagePercent = wastageOf(c.s, key);
   c.lines.push({
     id: idOf(w, key),
     ...lineBase(w),
@@ -484,14 +498,21 @@ function steel(c: Ctx, w: Where, volume: number, percent: number) {
   material(c, w, 'steel', volume * (percent / 100) * STEEL_KG_PER_CFT, { key: 'steel', params: { volume: r2(volume), percent } });
 }
 
-/** Bricks + mortar (or stone + mortar) of `volume` cft of masonry. */
-function masonry(c: Ctx, w: Where, volume: number, stone = false) {
+/**
+ * Bricks (or concrete blocks, or stone) + mortar of `volume` cft of masonry. Blocks (rulebook
+ * `blockMasonry` = 1, Karachi / Sindh) are counted per sq ft of wall face: volume ÷ the wall
+ * thickness `thicknessIn` × blocks per sq ft (one block leaf per wall).
+ */
+function masonry(c: Ctx, w: Where, volume: number, stone = false, thicknessIn = c.s.externalWallThicknessIn) {
   if (volume <= 0) return;
   const [cem, sand] = mixParts(c.s.masonryMortarMix) as [number, number];
   const parts = cem + sand;
   const dryVol = volume * c.s.mortarPerCftBrickwork * c.s.mortarDryFactor;
   if (stone) material(c, w, 'stone', volume, { key: 'stone', params: { volume: r2(volume) } });
-  else material(c, w, 'bricks', volume * c.s.bricksPerCft, { key: 'bricks', params: { volume: r2(volume), perCft: c.s.bricksPerCft } });
+  else if (c.s.blockMasonry === 1 && thicknessIn > 0) {
+    const area = volume / inFt(thicknessIn);
+    material(c, w, 'blocks', area * c.s.blocksPerSqft, { key: 'blocks', params: { volume: r2(volume), thicknessIn, area: r2(area), perSqft: c.s.blocksPerSqft } });
+  } else material(c, w, 'bricks', volume * c.s.bricksPerCft, { key: 'bricks', params: { volume: r2(volume), perCft: c.s.bricksPerCft } });
   const base = { volume: r2(volume), mortar: c.s.mortarPerCftBrickwork, dry: c.s.mortarDryFactor, parts };
   material(c, w, 'cement', (dryVol * cem) / parts / c.s.cementBagCft, { key: 'mortarCement', params: { ...base, bagCft: c.s.cementBagCft } });
   material(c, w, 'sand', (dryVol * sand) / parts, { key: 'mortarSand', params: { ...base, part: sand } });
@@ -572,7 +593,7 @@ function floorGeometry(input: EstimateInput, ratio: number, coveredSource: 'PROJ
               lengthFt: r2(t.lengthFt),
               areaSqft: r2(t.areaSqft),
               volumeCft: r2(t.volumeCft),
-              bricks: r2(t.volumeCft * s.bricksPerCft),
+              bricks: r2(s.blockMasonry === 1 ? (t.volumeCft / inFt(t.thicknessIn)) * s.blocksPerSqft : t.volumeCft * s.bricksPerCft),
             })),
           }
         : null,
@@ -665,7 +686,7 @@ function foundationStage(c: Ctx, f: EstimateFoundation, lengthFt: number, footpr
     masonryFormula = { key: 'masonryWall', params: { length: p(L), wallIn, height: p(h) } };
   }
   work(c, at('foundationMasonry'), 'VOLUME', masonryVol, 'cft', masonryFormula);
-  masonry(c, at('foundationMasonry'), masonryVol, stone);
+  masonry(c, at('foundationMasonry'), masonryVol, stone, wallIn);
 
   // 5. DPC: concrete on top of the plinth walls + waterproofing compound or bitumen
   const dpcVol = L * t * inFt(f.dpcThicknessIn);
@@ -703,7 +724,7 @@ function wallsStage(c: Ctx, g: FloorGeo, parapetOn: boolean) {
     for (const t of g.detail.byThickness) {
       const w: Where = { ...at('walls'), variant: `t${String(t.thicknessIn).replace('.', '_')}` };
       work(c, w, 'VOLUME', t.volumeCft, 'cft', { key: 'wallsDetailed', params: { thicknessIn: t.thicknessIn, length: r2(t.lengthFt), area: r2(t.areaSqft) } });
-      masonry(c, w, t.volumeCft);
+      masonry(c, w, t.volumeCft, false, t.thicknessIn);
     }
   } else if (g.rooms > 0) {
     const ext = Math.max(0, g.externalWallFt * H - g.windowsSqft) * tE;
@@ -721,7 +742,11 @@ function wallsStage(c: Ctx, g: FloorGeo, parapetOn: boolean) {
         doors: r2(g.doorsSqft),
       },
     });
-    masonry(c, at('walls'), vol);
+    if (s.blockMasonry === 1) {
+      // Blocks are counted per sq ft of each wall's face → external and internal walls separately.
+      masonry(c, { ...at('walls'), variant: 'ext' }, ext, false, s.externalWallThicknessIn);
+      masonry(c, { ...at('walls'), variant: 'int' }, int, false, s.internalWallThicknessIn);
+    } else masonry(c, at('walls'), vol);
   }
   const run = parapetRun(g);
   if (parapetOn && s.parapetHeightFt > 0 && run > 0) {
@@ -730,7 +755,7 @@ function wallsStage(c: Ctx, g: FloorGeo, parapetOn: boolean) {
       key: g.detail ? 'parapetDetailed' : 'parapet',
       params: { length: r2(run), height: s.parapetHeightFt, wallIn: s.internalWallThicknessIn },
     });
-    masonry(c, at('parapet'), vol);
+    masonry(c, at('parapet'), vol, false, s.internalWallThicknessIn);
   }
 }
 
@@ -1115,7 +1140,7 @@ export function estimateQuantities(input: EstimateInput, settings: EstimateSetti
     stageTotals,
     totals,
     work: {
-      bricks: workSum((l) => l.material === 'bricks' && l.stage !== 'RCC'),
+      bricks: workSum((l) => (l.material === 'bricks' || l.material === 'blocks') && l.stage !== 'RCC'),
       plasterSqft: workSum((l) => l.stage === 'PLASTER' && l.kind === 'WORK'),
       shutteringSqft: workSum((l) => l.measure === 'SHUTTERING'),
       steelKg: workSum((l) => isBarSteel(l.material)),
@@ -1153,6 +1178,9 @@ const UNIT_ALIASES: Record<string, string> = {
   '1000': 'thousand',
   trolley: 'trolley',
   sqft: 'sqft',
+  gallon: 'gallon',
+  gallons: 'gallon',
+  gal: 'gallon',
   'sq ft': 'sqft',
 };
 const BUILT_IN: Record<string, Record<string, number>> = {
@@ -1160,6 +1188,8 @@ const BUILT_IN: Record<string, Record<string, number>> = {
   nos: { thousand: 1 / 1000 },
   cft: { trolley: 1 / 100 },
   bag: { kg: 50 },
+  // Pakistani paint "gallon" tins hold 3.64 litres
+  gallon: { litre: 3.64 },
 };
 const normUnit = (u: string) => UNIT_ALIASES[u.trim().toLowerCase()] ?? u.trim().toLowerCase();
 

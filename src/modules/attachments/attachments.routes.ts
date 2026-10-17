@@ -36,5 +36,7 @@ attachmentsRouter.post(
 
 // Signed link: no login, the signature is the credential.
 attachmentsRouter.get('/:id/file', validate({ params: attachmentIdParams, query: fileQuery }), h(c.downloadFile));
+// QA-B-15: same, with the file name as the last path segment (ignored; the stored name is used).
+attachmentsRouter.get('/:id/file/:name', validate({ params: attachmentIdParams, query: fileQuery }), h(c.downloadFile));
 
 attachmentsRouter.get('/:id', authenticate, tenantContext, validate({ params: attachmentIdParams }), h(c.getMetadata));

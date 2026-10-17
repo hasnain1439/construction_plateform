@@ -8,7 +8,9 @@ import type { Project } from '../../generated/prisma/client.js';
 import { createClientTx } from '../clients/clients.service.js';
 import { caller, findEditableProject, findProjectFor, projectNotFound, projectScope, type Caller } from './access.js';
 import { nextProjectCode } from './code.js';
-import { toDetailDto, toListDto } from './projects.dto.js';
+import { contractTotalPaisa, toDetailDto, toListDto } from './projects.dto.js';
+import { fieldAccess } from '../../core/auth/access.js';
+import { projectChangeSummary } from '../change-orders/summary.js';
 import * as repo from './projects.repository.js';
 import type { CreateProjectInput, ListProjectsQuery, SetTeamInput, UpdateBasicInput } from './projects.schema.js';
 
@@ -27,7 +29,13 @@ export function audit(tx: Tx, c: Caller, action: string, projectId: string, deta
 }
 
 export async function detail(tx: Tx, c: Caller, id: string) {
-  return toDetailDto(await repo.loadFull(tx, id), c);
+  const p = await repo.loadFull(tx, id);
+  const dto = toDetailDto(p, c);
+  if (!('contract' in dto)) return dto; // site basic view
+  // Step 15: approved change orders → revised contract / revised end date.
+  const stages = p.billingStages.reduce((sum, st) => sum + st.amountPaisa, 0n);
+  const original = stages > 0n ? stages : contractTotalPaisa(p);
+  return { ...dto, changeOrders: await projectChangeSummary(tx, c.tenantId, p, original, c.fields ?? fieldAccess(c)) };
 }
 
 /** Records a finished wizard tab (1–5). */

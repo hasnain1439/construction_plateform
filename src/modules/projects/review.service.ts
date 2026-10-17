@@ -13,6 +13,8 @@ import * as repo from './projects.repository.js';
 import type { ChangeStatusInput } from './projects.schema.js';
 import { audit, detail } from './projects.service.js';
 import { track } from '../../core/observability/analytics.js';
+import { recordHandoverTx } from '../closeout/retention.dates.js';
+import { todayIn } from '../../core/utils/dates.js';
 
 export interface Issue {
   tab: 1 | 2 | 3 | 4 | 5;
@@ -70,7 +72,7 @@ export function reviewProject(p: repo.ProjectFull, c: Caller) {
     warn(
       5,
       'ROOM_AREA_VS_COVERED',
-      `Rooms add up to ${calc.totalFloorAreaSqft} sq ft vs ${covered} sq ft covered — more than 15% apart (walls and passages?)`,
+      `Rooms add up to ${calc.totalFloorAreaSqft.toLocaleString('en-PK')} sq ft vs ${covered.toLocaleString('en-PK')} sq ft covered — more than 15% apart (walls and passages?)`,
     );
   }
 
@@ -129,7 +131,7 @@ export async function activate(id: string) {
     const activated = await tx.project.update({ where: { id }, data: { status: 'ACTIVE', activatedAt: new Date() } });
     await siteLocation(tx, c.tenantId, activated); // stock can now be sent to the site
     await audit(tx, c, 'project.activate', id, { code: project.code, warnings: review.warnings.map((w) => w.code) });
-    return { ...(await detail(tx, c, id)), nextStep: 'ESTIMATE' as const };
+    return { ...(await detail(tx, c, id)), nextStep: 'GENERATE_ESTIMATE' as const };
   });
   track('project_activated');
   return result;
@@ -156,6 +158,8 @@ export async function changeStatus(id: string, input: ChangeStatusInput) {
       await assertWithinLimit(tx, c.tenantId, 'activeProjects', 0);
     }
     await tx.project.update({ where: { id }, data: { status: input.status } });
+    // Step 17: handover date, defect period and retention due date (kept if the handover page recorded them).
+    if (input.status === 'HANDED_OVER') await recordHandoverTx(tx, c.tenantId, project, todayIn('Asia/Karachi'));
     await audit(tx, c, 'project.status_change', id, { code: project.code, from: project.status, to: input.status, note: input.note ?? null });
     return detail(tx, c, id);
   });

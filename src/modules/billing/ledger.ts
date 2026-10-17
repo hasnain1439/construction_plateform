@@ -22,7 +22,10 @@ export async function recomputeInvoice(tx: Tx, tenantId: string, invoiceId: stri
   const pending = allocs.filter((a) => a.payment.status === 'PENDING').reduce((s, a) => s + a.amountPaisa, 0n);
   let status = inv.status;
   if (LIVE.includes(inv.status)) status = paid >= inv.totalPaisa ? 'PAID' : paid > 0n ? 'PARTLY_PAID' : 'ISSUED';
-  const updated = await tx.invoice.update({ where: { id: inv.id }, data: { paidPaisa: paid, pendingPaisa: pending, balancePaisa: inv.totalPaisa - paid, status } });
+  // QA-B-14: the stored invoice PDF prints Received / Balance — when they change it is dropped, so the
+  // next download (any language) is made again with the current figures.
+  const stale = paid !== inv.paidPaisa ? { pdfAttachmentId: null } : {};
+  const updated = await tx.invoice.update({ where: { id: inv.id }, data: { paidPaisa: paid, pendingPaisa: pending, balancePaisa: inv.totalPaisa - paid, status, ...stale } });
   if (inv.billingStageId) await syncStage(tx, tenantId, inv.billingStageId);
   if (updated.balancePaisa <= 0n) await resolveEvent(tx, tenantId, 'INVOICE_OVERDUE', inv.id);
   if (updated.status === 'PAID' || updated.status === 'CANCELLED') await resolveBouncedFor(tx, tenantId, inv.id);

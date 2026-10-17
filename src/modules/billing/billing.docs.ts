@@ -18,6 +18,7 @@ import {
   updateInvoiceBody,
   updateProgressBody,
   updateStageBody,
+  whtCertificateBody,
 } from './billing.schema.js';
 
 const LANG_NOTE = " Language: `?lang=en|roman|ur`, default the signed-in user's language (Urdu = right-to-left with an embedded Nastaliq font); the WhatsApp text is in the same language. A stored PDF in another language is made again.";
@@ -67,6 +68,11 @@ const invoice = {
   taxPaisa: '0',
   taxLabel: null,
   taxRatePercent: null,
+  taxableBasePaisa: '0',
+  taxAuthority: null,
+  sellerNtn: null,
+  sellerStrn: null,
+  buyerNtn: null,
   totalPaisa: '370000000',
   paidPaisa: '260000000',
   pendingPaisa: '0',
@@ -92,6 +98,9 @@ const payment = {
   receivedOn: '2026-09-20',
   amountPaisa: '110000000',
   whtDeductedPaisa: '0',
+  grossPaisa: '110000000',
+  whtRatePercent: null,
+  whtCertificate: null,
   method: 'CHEQUE',
   bankName: 'MCB',
   reference: null,
@@ -110,7 +119,16 @@ const payment = {
   receivedById: KHALID.id,
   createdAt: '2026-09-20T10:00:00.000Z',
 };
-const share = (text: string) => ({ attachmentId: B.pdf, url: 'https://res.cloudinary.com/demo/raw/upload/s--sig--/INV-2026-0010.pdf', expiresAt: '2026-10-06T10:15:00.000Z', whatsappText: text, clientPhone: AHMED.phone });
+/** QA-B-02: `url` = durable share link (30 days), `fileUrl` = short-lived named file link. */
+const share = (text: string) => ({
+  attachmentId: B.pdf,
+  url: `http://localhost:4000/api/v1/public/files/${B.pdf}?tid=…&exp=1764460800&sig=…`,
+  expiresAt: '2026-11-30T10:05:00.000Z',
+  fileUrl: `http://localhost:4000/api/v1/attachments/${B.pdf}/file/INV-2026-0010.pdf?tid=…&exp=…&sig=…`,
+  fileUrlExpiresAt: '2026-10-06T10:15:00.000Z',
+  whatsappText: text,
+  clientPhone: AHMED.phone,
+});
 
 export function registerBillingDocs(): void {
   // ─── Billing Stages ───────────────────────────────────────────────────────
@@ -186,7 +204,7 @@ export function registerBillingDocs(): void {
       '- **RUNNING_BILL** `from`/`to` — unbilled progress × rate per sq ft, less the retention %\n' +
       '- **RECOVERABLE** `cashEntryIds` — owner-recoverable kharcha not yet billed\n' +
       '- **RETENTION** — after handover (CLOSEOUT / HANDED_OVER)\n' +
-      '- **OTHER** `lines` — manual (THEKEDAR)\n\nTax is added when tax is on (subtotal × taxRatePercent).',
+      '- **OTHER** `lines` — manual (THEKEDAR)\n\nStep 18 tax: when tax is on for the project (company setting or project override) a tax line is added: round(taxable base × rate ÷ 100), base = all lines except owner-recoverable purchases (CASH_ENTRY). Drafts follow the current settings; issuing freezes `taxAuthority`, `taxRatePercent`, `taxLabel`, `taxableBasePaisa`, `taxPaisa`, `sellerNtn`, `sellerStrn`, `buyerNtn`.',
     request: {
       params: idParam('Project'),
       body: jsonBody(createInvoiceBody, {
@@ -257,18 +275,20 @@ export function registerBillingDocs(): void {
     summary: 'Record a payment',
     description:
       'THEKEDAR (PM only when `pmCanRecordPayments`). Numbered RV-2026-0001. Without `allocations` the oldest due invoices are settled first; the remainder is kept as project credit and settles the next issued invoice. ' +
-      'Cheques start PENDING (shown as pending, not paid). WHT (only when tax is on) counts towards the invoices.',
+      'Cheques start PENDING (shown as pending, not paid). WHT (only when tax is on for the project) counts towards the invoices like cash: paid / balance / received include it. ' +
+      'Step 18: `whtRatePercent` alone works the WHT out as r % of the gross (cash + WHT); with `whtDeductedPaisa` both must agree within Rs 1. The certificate number / date / file can be added later (PATCH /payments/{id}/wht-certificate).',
     request: {
       params: idParam('Project'),
       body: jsonBody(paymentBody, {
         cheque: ex('MCB cheque', { receivedOn: '2026-09-20', amountPaisa: '110000000', method: 'CHEQUE', bankName: 'MCB', chequeNo: '118845' }),
+        wht: ex('Bank transfer with 8% WHT withheld (tax on)', { receivedOn: '2026-09-25', amountPaisa: '92000000', method: 'BANK_TRANSFER', bankName: 'HBL', whtRatePercent: 8, whtCertificateNo: 'WHT-2026-00412', whtCertificateDate: '2026-09-25' }),
         transfer: ex('IBFT against one invoice', { receivedOn: '2026-06-14', amountPaisa: '277500000', method: 'BANK_TRANSFER', bankName: 'Meezan', reference: 'FT26165', allocations: [{ invoiceId: B.invoice, amountPaisa: '277500000' }] }),
       }),
     },
     responses: {
       ...createdResp('Recorded', payment),
       ...errors({
-        400: ['VALIDATION_ERROR', 'FUTURE_DATE', 'WHT_NOT_ENABLED', 'INVALID_ATTACHMENT', 'INVALID_ALLOCATION', 'ALLOCATION_EXCEEDS_BALANCE', 'ALLOCATION_EXCEEDS_PAYMENT'],
+        400: ['VALIDATION_ERROR', 'FUTURE_DATE', 'WHT_NOT_ENABLED', 'WHT_RATE_MISMATCH', 'WHT_TOO_HIGH', 'WHT_CERTIFICATE_WITHOUT_WHT', 'INVALID_ATTACHMENT', 'INVALID_ALLOCATION', 'ALLOCATION_EXCEEDS_BALANCE', 'ALLOCATION_EXCEEDS_PAYMENT'],
         ...AUTH,
         403: BILLING_403,
         ...PROJECT_404,
@@ -288,6 +308,21 @@ export function registerBillingDocs(): void {
       body: jsonBody(chequeStatusBody, { cleared: ex('Cleared', { status: 'CLEARED' }), bounced: ex('Bounced', { status: 'BOUNCED', reason: 'insufficient funds' }) }),
     },
     responses: { ...ok('Payment', { ...payment, status: 'BOUNCED', bounceReason: 'insufficient funds' }), ...errors({ 400: ['VALIDATION_ERROR', 'NOT_A_CHEQUE'], ...AUTH, 403: BILLING_403, 404: ['PAYMENT_NOT_FOUND'], 409: ['CHEQUE_ALREADY_SETTLED'] }) },
+  });
+  path(P, 'patch', '/api/v1/payments/{id}/wht-certificate', {
+    summary: 'WHT certificate (Step 18)',
+    description: "billing.payment.create. The client's withholding certificate for the WHT on this payment (it usually arrives weeks later). `certificateNo: null` removes it. Shown in the WHT summary report (certificates received / missing).",
+    request: {
+      params: idParam('ClientPayment'),
+      body: jsonBody(whtCertificateBody, {
+        add: ex('Certificate received', { certificateNo: 'WHT-2026-00412', certificateDate: '2026-10-05', attachmentId: IDS.photo }),
+        remove: ex('Remove', { certificateNo: null }),
+      }),
+    },
+    responses: {
+      ...ok('Payment', { ...payment, status: 'CLEARED', whtDeductedPaisa: '8000000', grossPaisa: '118000000', whtRatePercent: 6.78, whtCertificate: { number: 'WHT-2026-00412', date: '2026-10-05', attachmentId: IDS.photo } }),
+      ...errors({ 400: ['VALIDATION_ERROR', 'FUTURE_DATE', 'INVALID_ATTACHMENT'], ...AUTH, 403: BILLING_403, 404: ['PAYMENT_NOT_FOUND'], 409: ['NO_WHT', 'PAYMENT_BOUNCED'] }),
+    },
   });
   path(P, 'get', '/api/v1/payments/{id}/receipt-pdf', {
     summary: 'Receipt PDF + share text',
@@ -320,7 +355,7 @@ export function registerBillingDocs(): void {
         readyStagesCount: 0,
         collectedPercent: 88.1,
         spentToDatePaisa: '640000000',
-        spent: { materialPaisa: '420000000', wagesPaisa: '90000000', advancesPaisa: '20000000', subcontractPaisa: '100000000', kharchaPaisa: '10000000', lossesPaisa: '0', totalPaisa: '640000000' },
+        spent: { materialPaisa: '420000000', wagesPaisa: '90000000', advancesPaisa: '20000000', subcontractPaisa: '100000000', kharchaPaisa: '10000000', lossesPaisa: '0', equipmentPaisa: '0', totalPaisa: '640000000' },
         ownMoneyInvestedPaisa: '-175000000',
         nextBillableStage: { ...stage, sortOrder: 4, label: 'Grey structure — first floor & roof', status: 'UPCOMING', invoice: null },
         stages: [{ id: B.stage, label: 'Grey structure — ground floor', percent: 20, amountPaisa: '370000000', status: 'PARTLY_PAID', isRetention: false, expectedDate: null, invoiceId: B.invoice, invoiceNumber: 'INV-2026-0010', dueDate: '2026-09-03' }],

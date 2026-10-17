@@ -109,7 +109,7 @@ describe('attachments', () => {
     expect(none.status).toBe(400);
     expect(none.body.error.code).toBe('FILE_REQUIRED');
 
-    expect(await prismaAdmin.attachment.count()).toBe(0);
+    expect(await prismaAdmin.attachment.count({ where: { uploadedBy: { phone: SEED.malik.owner.phone } } })).toBe(0); // (the seed's site photos are Rafaqat's)
   });
 
   it('upload needs a login', async () => {

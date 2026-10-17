@@ -4,6 +4,7 @@ import { corsOrigins, env } from '../../config/env.js';
 import { created, ok } from '../../core/http/response.js';
 import type { AttachmentKindInput, FileQuery } from './attachments.schema.js';
 import * as service from './attachments.service.js';
+import { contentDisposition } from './storage.provider.js';
 
 /** 'self' + the web app (APP_URL and the CORS origins). */
 const FILE_FRAME_ANCESTORS = ["'self'", ...new Set([new URL(env.APP_URL).origin, ...corsOrigins])].join(' ');
@@ -19,10 +20,11 @@ export async function getMetadata(req: Request, res: Response) {
 }
 
 export async function downloadFile(req: Request, res: Response) {
-  const file = await service.openSignedFile(String(req.params['id']), req.query as unknown as FileQuery);
+  const query = req.query as unknown as FileQuery;
+  const file = await service.openSignedFile(String(req.params['id']), query);
   res.setHeader('Content-Type', file.mimeType);
   res.setHeader('Content-Length', String(file.size));
-  res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+  res.setHeader('Content-Disposition', contentDisposition(file.fileName, query.dl === '1'));
   res.setHeader('Cache-Control', `private, max-age=${file.maxAge}`);
   // The web app (another origin) embeds these as <img>/<audio>; helmet defaults to same-origin.
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');

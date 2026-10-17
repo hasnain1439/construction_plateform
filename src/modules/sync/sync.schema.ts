@@ -30,6 +30,13 @@ export const SYNC_MUTATION_TYPES = [
   'TOPUP_REQUEST_CREATE',
   'DAILY_LOG_UPSERT',
   'SITE_PURCHASE_CREATE',
+  'EQUIPMENT_RECEIVE', // Step 16
+  'EQUIPMENT_LOSS_REPORT', // Step 16
+  'SNAG_CREATE',
+  'SNAG_FIX',
+  'MILESTONE_PROGRESS',
+  'STOPPAGE_LOG',
+  'SITE_INSTRUCTION_CREATE', // Step 15
 ] as const;
 
 export const pushBody = z.object({
@@ -39,7 +46,7 @@ export const pushBody = z.object({
       z.object({
         clientId: z.uuid({ error: 'clientId must be a UUID (v7)' }),
         type: z.enum(SYNC_MUTATION_TYPES),
-        payload: z.record(z.string(), z.unknown()).meta({ description: 'The REST body of that action plus its path ids (projectId, settlementId, dispatchId, purchaseId, entryId). Ids may be clientIds of earlier mutations or attachments.' }),
+        payload: z.record(z.string(), z.unknown()).meta({ description: 'The REST body of that action plus its path ids (projectId, settlementId, dispatchId, purchaseId, entryId, snagId, milestoneId). Ids may be clientIds of earlier mutations or attachments.' }),
         deviceCreatedAt: z.iso.datetime({ offset: true }).optional(),
         dependsOn: z.array(z.uuid()).max(20).optional(),
       }),

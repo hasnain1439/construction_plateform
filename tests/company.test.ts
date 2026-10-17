@@ -109,6 +109,18 @@ describe('company settings', () => {
       defaultMarginPercent: 20,
       defaultFinishingAllowancePercent: 0,
       defaultLanguage: 'ROMAN_URDU',
+      ramadanDayFactor: 0.75,
+      ramadanPeriods: expect.arrayContaining([{ start: '2027-02-09', end: '2027-03-09' }]),
+      ramadanPeriodsCustom: false,
+      equipmentIdleDays: 5,
+      shutteringPropsPerPlate: 0.75,
+      shutteringSparePercent: 5,
+      // Step 14 · control alert thresholds
+      behindPlanAlertPoints: 15,
+      lateFinishGraceDays: 3,
+      quotaAlertPercent: 100,
+      spendAheadAlertPoints: 10,
+      controlAlertsEnabled: true,
     });
   });
 
@@ -131,6 +143,10 @@ describe('company settings', () => {
       { defaultMarginPercent: 101 },
       { defaultMarginPercent: -1 },
       { defaultFinishingAllowancePercent: 250 },
+      { equipmentIdleDays: 0 },
+      { equipmentIdleDays: 61 },
+      { shutteringPropsPerPlate: 6 },
+      { shutteringSparePercent: 31 },
       {},
     ]) {
       const res = await api().patch('/api/v1/company/settings').set(bearer(s.accessToken)).send(body);

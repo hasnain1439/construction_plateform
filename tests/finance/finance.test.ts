@@ -10,7 +10,7 @@ beforeEach(async () => {
   await seedMalikDemo(seeded());
 });
 
-type PnlRow = { project: { id: string; code: string }; cost: Record<string, string>; costToDatePaisa: string; billedToDatePaisa: string; grossProfitToDatePaisa: string; projectedMarginPercent: null };
+type PnlRow = { project: { id: string; code: string }; cost: Record<string, string>; costToDatePaisa: string; billedToDatePaisa: string; grossProfitToDatePaisa: string; projectedMarginPercent: number | null; projectedMarginBasis: string };
 
 describe('GET /finance/pnl', () => {
   it('cost buckets add up to the cost engine’s cost to date; gross profit = billed − cost', async () => {
@@ -24,10 +24,13 @@ describe('GET /finance/pnl', () => {
       const engine = await prismaAdmin.$transaction((tx) => projectCost(tx, seeded().malik.id, row.project.id));
       expect(row.costToDatePaisa).toBe(engine.totalPaisa.toString());
       expect(BigInt(row.grossProfitToDatePaisa)).toBe(BigInt(row.billedToDatePaisa) - BigInt(row.costToDatePaisa));
-      expect(row.projectedMarginPercent).toBeNull();
+      // Step 14: real projected margin where an approved estimate or enough progress exists
+      if (row.projectedMarginBasis === 'EARNED_VALUE' || row.projectedMarginBasis === 'PROGRESS_ONLY') expect(row.projectedMarginPercent).toEqual(expect.any(Number));
+      else expect(row.projectedMarginPercent).toBeNull();
     }
     const dha = (d.projects as PnlRow[]).find((r) => r.project.code === 'MSB-2026-012')!;
     expect(dha.billedToDatePaisa).toBe(rs(9250000));
+    expect(dha.projectedMarginBasis).toBe('EARNED_VALUE'); // DHA has an APPROVED estimate
     expect(BigInt(dha.cost['SUBCONTRACT']!)).toBeGreaterThan(0n);
     expect(d.totals.costToDatePaisa).toBe((d.projects as PnlRow[]).reduce((s, r) => s + BigInt(r.costToDatePaisa), 0n).toString());
     expect(d.trend).toHaveLength(12);

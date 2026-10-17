@@ -22,8 +22,10 @@ export default defineConfig(({ mode }) => {
   if (poolMax) testEnv['TEST_DB_POOL_MAX'] = poolMax;
 
   // Uploaded test files go to the OS temp folder (one sub-folder per worker, removed after the
-  // run), never into the project.
-  testEnv['TEST_STORAGE_ROOT'] = join(tmpdir(), 'construction-platform-tests', 'storage');
+  // run), never into the project. The folder is named after the test database, so checkouts with
+  // their own .env.test database (parallel worktrees) never share or delete each other's files.
+  const testDb = new URL(testEnv['DATABASE_MIGRATION_URL'] ?? 'postgres://x/construction_test').pathname.slice(1) || 'construction_test';
+  testEnv['TEST_STORAGE_ROOT'] = join(tmpdir(), 'construction-platform-tests', testDb, 'storage');
   testEnv['STORAGE_DIR'] = testEnv['TEST_STORAGE_ROOT'];
   // per-worker = each Vitest worker gets its own copy of the migrated template database
   // (tests/setup/workerDatabase.ts); shared = every file uses construction_test.

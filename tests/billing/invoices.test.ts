@@ -100,7 +100,8 @@ describe('B2 — invoices', () => {
       data: { tenantId: t, accountId: acc.id, projectId: dha(), type: 'EXPENSE', amountPaisa: -280000n, category: 'OWNER_PURCHASE', costBucket: 'RECOVERABLE_FROM_OWNER', description: 'Tile samples', status: 'APPROVED', occurredAt: new Date() },
     });
     const draft = await api().post(`/api/v1/projects/${dha()}/invoices`).set(o).send({ type: 'RECOVERABLE', cashEntryIds: [tiles.id] });
-    expect(draft.body.data).toMatchObject({ subtotalPaisa: rs(2800), taxPaisa: rs(448), totalPaisa: rs(3248), taxLabel: 'PRA', taxRatePercent: 16 });
+    // Step 18: owner-recoverable purchases are passed through at cost — not taxed
+    expect(draft.body.data).toMatchObject({ subtotalPaisa: rs(2800), taxableBasePaisa: '0', taxPaisa: '0', totalPaisa: rs(2800), taxLabel: null, taxRatePercent: null });
     expect((await api().post(`/api/v1/projects/${dha()}/invoices`).set(o).send({ type: 'RECOVERABLE', cashEntryIds: [tiles.id] })).body.error.code).toBe('SOURCE_ALREADY_BILLED');
     const issued = (await api().post(`/api/v1/invoices/${draft.body.data.id}/issue`).set(o).send({})).body.data;
     expect((await prismaAdmin.cashEntry.findUniqueOrThrow({ where: { id: tiles.id } })).billedInvoiceId).toBe(issued.id);
@@ -113,6 +114,8 @@ describe('B2 — invoices', () => {
     const stage = await api().post(`/api/v1/projects/${dha()}/invoices`).set(o).send({ type: 'STAGE', billingStageId: plinth!.id, force: true, forceNote: 'billing early', extraCashEntryIds: [tiles.id] });
     expect(stage.body.data.lines.map((l: { sourceType: string }) => l.sourceType)).toEqual(['BILLING_STAGE', 'CASH_ENTRY']);
     expect(stage.body.data.subtotalPaisa).toBe(rs(2777800));
+    // Tax only on the stage amount (Rs 27,75,000 × 16 %), not on the recoverable tiles
+    expect(stage.body.data).toMatchObject({ taxableBasePaisa: rs(2775000), taxPaisa: rs(444000), totalPaisa: rs(3221800), taxLabel: 'PRA', taxRatePercent: 16 });
   });
 
   it('cancel with payments → 409; manual (OTHER) invoices are owner-only; retention only after handover', async () => {

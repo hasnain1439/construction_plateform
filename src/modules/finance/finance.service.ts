@@ -3,13 +3,15 @@
  * come from billing (`moneyOf`, `companyReceivables`), cost from the cost engine, supplier dues
  * from the FIFO supplier balances, cash from the cash book.
  */
-import { assertPerm } from '../../core/auth/access.js';
+import { assertPerm, fieldAccess } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { dateOnly } from '../../core/utils/dates.js';
 import { addDays, today, ymd } from '../billing/billing.shared.js';
 import { LIVE } from '../billing/ledger.js';
 import { bucketsDto, bucketsOf, costRows, PNL_BUCKETS, projectCosts, type CostRow } from '../billing/projectCost.service.js';
-import { companyReceivables, moneyOf } from '../billing/receivables.service.js';
+import { companyReceivables, moneyOfMany } from '../billing/receivables.service.js';
+import { computeProjection, loadCostContexts, type Projection } from '../control/cost.service.js';
+import { moneyView } from '../control/control.shared.js';
 import { listAccounts } from '../cashbook/cashbook.service.js';
 import { pktDayEnd, pktDayStart } from '../inventory/inventory.service.js';
 import { laborSettings, weekOf } from '../labor/labor.shared.js';
@@ -115,7 +117,8 @@ async function buildCashFlow(tx: Tx, a: ReadActor, months: number) {
 
   const costs = await projectCosts(tx, a.tenantId, ids);
   let opening = 0n;
-  for (const p of projects) opening += costs.get(p.id)!.cost.totalPaisa - (await moneyOf(tx, a.tenantId, p)).received;
+  const money = await moneyOfMany(tx, a.tenantId, projects);
+  for (const p of projects) opening += costs.get(p.id)!.cost.totalPaisa - money.get(p.id)!.received;
 
   let position = opening;
   const rows = list.map((month) => {
@@ -168,7 +171,18 @@ export async function cashFlow(query: CashFlowQuery) {
 
 // ─── Profit & loss ──────────────────────────────────────────────────────────
 
-export const PROJECTED_MARGIN_NOTE = 'Available after the estimate engine (Phase 2)';
+/** Step 14: projected margin at completion = revised contract − estimate at completion (control/cost.service.ts). */
+export const PROJECTED_MARGIN_NOTE =
+  'Projected margin at completion = revised contract − estimate at completion (cost to date + the rest of the approved estimate, adjusted by cost performance so far). It is as of today, whatever the period.';
+
+/** Σ projected margin ÷ Σ revised contract of the projects that have one. */
+function projectedTotals(list: Projection[]) {
+  const withMargin = list.filter((p) => p.projectedMarginPaisa !== null);
+  if (!withMargin.length) return { projectedMarginPaisa: null, projectedMarginPercent: null };
+  const margin = withMargin.reduce((s, p) => s + p.projectedMarginPaisa!, 0n);
+  const contract = withMargin.reduce((s, p) => s + p.revisedContractPaisa, 0n);
+  return { projectedMarginPaisa: str(margin), projectedMarginPercent: contract > 0n ? percent(margin, contract) : null };
+}
 
 async function buildPnl(tx: Tx, a: ReadActor, query: PnlQuery) {
   if (query.projectId) await findProjectFor(tx, a, query.projectId);
@@ -191,8 +205,18 @@ async function buildPnl(tx: Tx, a: ReadActor, query: PnlQuery) {
     ).map((g) => [g.projectId, (g._sum.amountPaisa ?? 0n) + (g._sum.whtDeductedPaisa ?? 0n)]),
   );
 
+  // Step 14: projected margin at completion (as of today). Step 18: every project in one batch
+  // (cost contexts carry the receivables contract too).
+  const contexts = await loadCostContexts(tx, a.tenantId, projects);
   const contracts = new Map<string, bigint>();
-  for (const p of projects) contracts.set(p.id, (await moneyOf(tx, a.tenantId, p)).contract);
+  const projections = new Map<string, Projection>();
+  for (const [id, ctx] of contexts) {
+    contracts.set(id, ctx.contractPaisa + (ctx.changes.inContract ? 0n : ctx.changes.pricePaisa));
+    projections.set(id, computeProjection(ctx));
+  }
+  // QA-B-17: the projected margin (and the estimate at completion behind it) follows the same rule as
+  // /control/summary — amounts + rates + contract + profit; without it the keys are LEFT OUT.
+  const margin = moneyView(fieldAccess()).margin;
   const rows = projects.map((p) => {
     const contract = contracts.get(p.id)!;
     const c = costs.get(p.id)!;
@@ -210,8 +234,15 @@ async function buildPnl(tx: Tx, a: ReadActor, query: PnlQuery) {
       marginToDatePercent: billed > 0n ? percent(gp, billed) : null,
       percentBilled: percent(billed, contract),
       percentCostOfContract: percent(c.cost.totalPaisa, contract),
-      projectedMarginPercent: null,
-      projectedMarginNote: PROJECTED_MARGIN_NOTE,
+      ...(margin
+        ? {
+            projectedMarginPercent: projections.get(p.id)!.projectedMarginPercent,
+            projectedMarginPaisa: projections.get(p.id)!.projectedMarginPaisa === null ? null : str(projections.get(p.id)!.projectedMarginPaisa!),
+            estimateAtCompletionPaisa: projections.get(p.id)!.estimateAtCompletionPaisa === null ? null : str(projections.get(p.id)!.estimateAtCompletionPaisa!),
+            projectedMarginBasis: projections.get(p.id)!.basis,
+            projectedMarginNote: projections.get(p.id)!.note,
+          }
+        : {}),
     };
   });
   const sum = (k: 'revisedContractPaisa' | 'billedToDatePaisa' | 'receivedToDatePaisa' | 'costToDatePaisa' | 'grossProfitToDatePaisa') => rows.reduce((s, r) => s + BigInt(r[k]), 0n);
@@ -224,6 +255,7 @@ async function buildPnl(tx: Tx, a: ReadActor, query: PnlQuery) {
     cost: bucketsDto(bucketsOf(allRows)),
     grossProfitToDatePaisa: str(sum('grossProfitToDatePaisa')),
     marginToDatePercent: sum('billedToDatePaisa') > 0n ? percent(sum('grossProfitToDatePaisa'), sum('billedToDatePaisa')) : null,
+    ...(margin ? projectedTotals([...projections.values()]) : {}),
   };
 
   // Trend: the 12 months ending with `to` — billed (by issue month) vs cost (by month).
@@ -243,7 +275,7 @@ async function buildPnl(tx: Tx, a: ReadActor, query: PnlQuery) {
     projects: rows,
     totals,
     trend,
-    projectedMarginNote: PROJECTED_MARGIN_NOTE,
+    ...(margin ? { projectedMarginNote: PROJECTED_MARGIN_NOTE } : {}),
   };
 }
 

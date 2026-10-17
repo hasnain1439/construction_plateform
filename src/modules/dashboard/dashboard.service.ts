@@ -6,7 +6,10 @@
  * Site dashboard (MUNSHI / PM / THEKEDAR with access): no rates or values — only the caller's
  * own cash.
  */
-import { assertPerm, scopeAll } from '../../core/auth/access.js';
+import { assertPerm, can, fieldAccess, scopeAll } from '../../core/auth/access.js';
+import { alertDto, visibleAlerts } from '../control/alerts.service.js';
+import { loadPlans } from '../control/cost.service.js';
+import { delayedProjectIds, progressAndMargins } from '../control/summary.service.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { Forbidden } from '../../core/errors/AppError.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
@@ -15,7 +18,7 @@ import { collectApprovals } from '../approvals/approvals.service.js';
 import { addDays, today, ymd } from '../billing/billing.shared.js';
 import { eventHref, eventSeverity, eventTitle } from '../billing/events.service.js';
 import { projectCosts } from '../billing/projectCost.service.js';
-import { moneyOf } from '../billing/receivables.service.js';
+import { moneyOfMany } from '../billing/receivables.service.js';
 import { totalsOf } from '../cashbook/cash.js';
 import { balances, qn, systemLocations } from '../inventory/stock.js';
 import { pktDayEnd, pktDayStart } from '../inventory/inventory.service.js';
@@ -23,7 +26,7 @@ import { laborOverviewTx } from '../labor/overview.service.js';
 import { laborSettings, weekOf } from '../labor/labor.shared.js';
 import { subAccounts } from '../labor/subcontractLedger.js';
 import { labelsOf, typeLabels } from '../master-data/workerTypes.service.js';
-import { criticalUnread } from '../notifications/notifications.service.js';
+import { criticalUnread, readerLang } from '../notifications/notifications.service.js';
 import { supplierBalances } from '../procurement/supplierLedger.service.js';
 import { findProjectFor } from '../projects/access.js';
 import { cached } from './dashboard.cache.js';
@@ -54,15 +57,16 @@ async function projectMoney(tx: Tx, a: ReadActor, projects: ProjectWithClient[])
     a.tenantId,
     projects.map((p) => p.id),
   );
+  const money = await moneyOfMany(tx, a.tenantId, projects);
   const rows = [];
   for (const p of projects) {
-    const m = await moneyOf(tx, a.tenantId, p);
+    const m = money.get(p.id)!;
     const cost = costs.get(p.id)!.cost.totalPaisa;
     const own = cost - m.received;
     const atRisk = m.overdue > 0n || (m.contract > 0n && own * 100n > m.contract * BigInt(AT_RISK_OWN_MONEY_PERCENT));
     rows.push({ project: p, m, cost, own, atRisk });
   }
-  return rows;
+  return { rows, money };
 }
 
 async function siteStats(tx: Tx, a: ReadActor, ids: string[], date: string) {
@@ -148,6 +152,17 @@ async function alertsFor(tx: Tx, a: ReadActor, ids: string[]) {
     at: e.occurredAt.toISOString(),
     actionUrl: eventHref(e),
   }));
+  // Step 14: open control alerts the caller may see (variance, behind plan, quotas, spend ahead …)
+  const c = { tenantId: a.tenantId, userId: a.userId, role: a.role, fields: fieldAccess() };
+  const fromControl = can('control.view')
+    ? await (async () => {
+        const lang = await readerLang(tx, a.userId);
+        return (await visibleAlerts(tx, c, { status: 'OPEN', projectId: { in: ids } }, 10)).map((x) => {
+          const d = alertDto(x, lang);
+          return { source: 'CONTROL_ALERT' as const, id: d.id, type: d.rule, severity: d.severity as string, title: d.title, project: d.project!, at: d.lastSeenAt, actionUrl: d.actionUrl as string | null };
+        });
+      })()
+    : [];
   const fromNotes = (await criticalUnread(tx, a.tenantId, a.userId)).map((n) => ({
     source: 'NOTIFICATION' as const,
     id: n.id,
@@ -160,7 +175,10 @@ async function alertsFor(tx: Tx, a: ReadActor, ids: string[]) {
   }));
   // A bounced cheque is both an event and a notification — show it once.
   const seen = new Set(fromEvents.map((e) => `${e.type}:${e.project.id}`));
-  return [...fromEvents, ...fromNotes.filter((n) => !seen.has(`${n.type}:${n.project?.id}`))].sort((x, y) => (x.at < y.at ? 1 : -1)).slice(0, 10);
+  // A control alert's CRITICAL notification is the same alert — show the alert once.
+  const controlIds = new Set(fromControl.map((x) => x.actionUrl));
+  const notes = fromNotes.filter((n) => !seen.has(`${n.type}:${n.project?.id}`) && !(n.type === 'CONTROL_ALERT' && controlIds.has(n.actionUrl)));
+  return [...fromEvents, ...fromControl, ...notes].sort((x, y) => (x.at < y.at ? 1 : -1)).slice(0, 10);
 }
 
 async function buildOverview(tx: Tx, a: ReadActor, query: OverviewQuery) {
@@ -199,6 +217,9 @@ async function buildOverview(tx: Tx, a: ReadActor, query: OverviewQuery) {
     labor: { period: { from: period.from, to: period.to }, ...(await laborStats(tx, a, ids, period)) },
     alerts: await alertsFor(tx, a, ids),
   };
+  // Step 18: plans loaded once for the delayed count and the control columns.
+  const plans = await loadPlans(tx, a.tenantId, a.seesFinancials && can('control.view') ? projects.map((p) => p.id) : active.map((p) => p.id));
+  base.kpis.activeProjects.delayed = (await delayedProjectIds(tx, a.tenantId, active.map((p) => p.id), plans)).size; // Step 14
 
   if (!a.seesFinancials) {
     return {
@@ -207,10 +228,11 @@ async function buildOverview(tx: Tx, a: ReadActor, query: OverviewQuery) {
     };
   }
 
-  const money = await projectMoney(tx, a, projects);
+  const { rows: money, money: moneyBy } = await projectMoney(tx, a, projects);
   const sum = (f: (r: (typeof money)[number]) => bigint) => money.reduce((s, r) => s + f(r), 0n);
   const invoiced = sum((r) => r.m.invoiced);
   const received = sum((r) => r.m.received);
+  const controlRows: Awaited<ReturnType<typeof progressAndMargins>> = can('control.view') ? await progressAndMargins(tx, a.tenantId, projects, { plans, money: moneyBy }) : new Map();
   base.kpis.activeProjects.atRisk = money.filter((r) => r.atRisk && (r.project.status === 'ACTIVE' || r.project.status === 'CLOSEOUT')).length;
 
   const suppliers = await tx.supplier.findMany({ where: { tenantId: a.tenantId }, select: { id: true } });
@@ -252,6 +274,9 @@ async function buildOverview(tx: Tx, a: ReadActor, query: OverviewQuery) {
       percentBilled: percent(r.m.invoiced, r.m.contract),
       percentSpentOfContract: percent(r.cost, r.m.contract),
       atRisk: r.atRisk,
+      // Step 14: physical progress + projected margin at completion (control.view; margin also needs profit + contract)
+      ...(controlRows.has(r.project.id) ? { progressPercent: controlRows.get(r.project.id)!.progressPercent } : {}),
+      ...(controlRows.has(r.project.id) && a.seesProfit && fieldAccess().contract && a.seesRates ? { projectedMarginPercent: controlRows.get(r.project.id)!.projection.projectedMarginPercent } : {}),
       nextBillableStage: r.m.next ? { id: r.m.next.id, label: r.m.next.label, status: r.m.next.status, amountPaisa: str(r.m.next.amountPaisa) } : null,
     })),
     payments: { period: { from: period.from, to: period.to }, ...(await paymentStats(tx, a, ids, period)) },

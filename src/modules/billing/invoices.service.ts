@@ -8,7 +8,7 @@ import { assertApprovalLimit, assertPerm, can, permissionDenied } from '../../co
 import { logger } from '../../config/logger.js';
 import { nextNumber } from '../../core/db/counters.js';
 import { Prisma } from '../../core/db/prisma.js';
-import { withTenant, type Tx } from '../../core/db/withTenant.js';
+import { withPdfTenant, withTenant, type Tx } from '../../core/db/withTenant.js';
 import { pageMeta } from '../../core/http/pagination.js';
 import { BadRequest, Conflict, Forbidden, NotFound } from '../../core/errors/AppError.js';
 import { invoiceHtml, rs } from '../../core/pdf/templates.js';
@@ -33,6 +33,9 @@ import { documentLang, letterhead, pdfFileName, salutation, shareOf, shortDay, s
 import { tr, type Lang } from '../../core/i18n/index.js';
 import { applyCredit, LIVE, recomputeInvoice, resolveBouncedFor, resolveEvent, syncStage } from './ledger.js';
 import { track } from '../../core/observability/analytics.js';
+import { retentionDueDate } from '../closeout/retention.dates.js';
+import { markBilled, pendingStageLines, revertBilled } from '../change-orders/invoiceHooks.js'; // Step 15
+import { effectiveTax, taxableBase, taxOf } from '../tax/tax.rules.js'; // Step 18
 
 const include = {
   project: { select: { id: true, code: true, name: true, siteAddress: true, status: true } },
@@ -75,6 +78,12 @@ export function invoiceDto(inv: Row) {
     taxPaisa: inv.taxPaisa.toString(),
     taxLabel: inv.taxLabel,
     taxRatePercent: inv.taxRatePercent === null ? null : Number(inv.taxRatePercent),
+    // Step 18: tax snapshot (frozen at issue)
+    taxableBasePaisa: inv.taxableBasePaisa.toString(),
+    taxAuthority: inv.taxAuthority,
+    sellerNtn: inv.sellerNtn,
+    sellerStrn: inv.sellerStrn,
+    buyerNtn: inv.buyerNtn,
     totalPaisa: inv.totalPaisa.toString(),
     paidPaisa: inv.paidPaisa.toString(),
     pendingPaisa: inv.pendingPaisa.toString(),
@@ -167,6 +176,8 @@ async function buildLines(tx: Tx, a: BillingActor, project: { id: string; status
       forceNote = stage.status === 'UPCOMING' ? (input.forceNote ?? null) : null;
       lines = [{ description: `${stage.label} (${Number(stage.percent)}% of contract)`, amountPaisa: stage.amountPaisa, sourceType: 'BILLING_STAGE', sourceId: stage.id }];
       if (input.extraCashEntryIds?.length) lines.push(...(await recoverableLines(tx, a, project.id, input.extraCashEntryIds)));
+      // Step 15: approved change orders waiting for the next stage invoice.
+      lines.push(...(await pendingStageLines(tx, a.tenantId, project.id)));
       break;
     }
     case 'RUNNING_BILL': {
@@ -203,6 +214,8 @@ async function buildLines(tx: Tx, a: BillingActor, project: { id: string; status
         const gross = lines.reduce((s, l) => s + l.amountPaisa, 0n);
         lines.push({ description: `Less retention held (${Number(retention.percent)}%)`, amountPaisa: -percentOf(gross, retention.percent), sourceType: 'RETENTION', sourceId: retention.id });
       }
+      // Step 15: approved change orders waiting for the next bill.
+      lines.push(...(await pendingStageLines(tx, a.tenantId, project.id)));
       break;
     }
     case 'RECOVERABLE':
@@ -229,19 +242,47 @@ async function buildLines(tx: Tx, a: BillingActor, project: { id: string; status
   return { stageId, forceNote, lines };
 }
 
-async function writeTotals(tx: Tx, a: BillingActor, invoiceId: string) {
-  const s = await billingSettings(tx, a.tenantId);
+/**
+ * Recomputes subtotal / tax / total of a DRAFT invoice from its lines (Step 15 uses it for
+ * VARIATION invoices). Step 18: tax follows the project's effective tax (company setting +
+ * project override) on the taxable base (src/modules/tax/tax.rules.ts); the tax snapshot
+ * (authority, rate, label, base, seller NTN / STRN, buyer NTN) is written here and frozen at issue.
+ */
+export async function writeTotals(tx: Tx, a: Pick<BillingActor, 'tenantId'>, invoiceId: string) {
+  const inv = await tx.invoice.findUniqueOrThrow({ where: { id: invoiceId }, select: { projectId: true, clientId: true } });
   const lines = await tx.invoiceLine.findMany({ where: { tenantId: a.tenantId, invoiceId } });
   const subtotal = lines.reduce((sum, l) => sum + l.amountPaisa, 0n);
-  const taxOn = s.taxEnabled && s.taxRatePercent.gt(0) && subtotal > 0n;
-  const tax = taxOn ? percentOf(subtotal, s.taxRatePercent) : 0n;
+  const eff = await effectiveTax(tx, a.tenantId, inv.projectId);
+  const base = eff.applies ? taxableBase(lines) : 0n;
+  const taxOn = eff.applies && base > 0n;
+  const tax = taxOn ? taxOf(base, eff.ratePercent) : 0n;
+  const buyer = taxOn && inv.clientId ? await tx.client.findUnique({ where: { id: inv.clientId }, select: { ntn: true } }) : null;
   await tx.invoice.update({
     where: { id: invoiceId },
-    data: { subtotalPaisa: subtotal, taxPaisa: tax, taxLabel: taxOn ? (s.taxLabel ?? 'Sales tax') : null, taxRatePercent: taxOn ? s.taxRatePercent : null, totalPaisa: subtotal + tax, balancePaisa: subtotal + tax },
+    data: {
+      subtotalPaisa: subtotal,
+      taxableBasePaisa: base,
+      taxPaisa: tax,
+      taxLabel: taxOn ? (eff.label ?? 'Sales tax') : null,
+      taxRatePercent: taxOn ? eff.ratePercent : null,
+      taxAuthority: taxOn ? eff.authority : null,
+      sellerNtn: taxOn ? eff.company.ntn : null,
+      sellerStrn: taxOn ? eff.company.strn : null,
+      buyerNtn: buyer?.ntn ?? null,
+      totalPaisa: subtotal + tax,
+      balancePaisa: subtotal + tax,
+    },
   });
 }
 
-async function writeLines(tx: Tx, tenantId: string, invoiceId: string, lines: DraftLine[]) {
+/** Step 18: tax settings changed → every DRAFT invoice (of one project, or all) is recalculated. */
+export async function recalcDrafts(tx: Tx, tenantId: string, projectId?: string) {
+  const drafts = await tx.invoice.findMany({ where: { tenantId, status: 'DRAFT', ...(projectId ? { projectId } : {}) }, select: { id: true } });
+  for (const d of drafts) await writeTotals(tx, { tenantId }, d.id);
+  return drafts.length;
+}
+
+export async function writeLines(tx: Tx, tenantId: string, invoiceId: string, lines: DraftLine[]) {
   await tx.invoiceLine.createMany({
     data: lines.map((l, i) => ({
       tenantId,
@@ -265,6 +306,8 @@ export async function createInvoiceTx(tx: Tx, a: BillingActor, projectId: string
   const project = await billingProject(tx, a, projectId);
   if (project.status === 'DRAFT') throw new Conflict('PROJECT_IS_DRAFT', 'Activate the project first');
   const { stageId, forceNote, lines } = await buildLines(tx, a, project, input);
+  // Step 17: the retention is due at the end of the defect period (handover + defect months).
+  const retentionDue = input.type === 'RETENTION' ? await retentionDueDate(tx, a.tenantId, project.id) : null;
   const inv = await tx.invoice.create({
     data: {
       tenantId: a.tenantId,
@@ -274,6 +317,7 @@ export async function createInvoiceTx(tx: Tx, a: BillingActor, projectId: string
       billingStageId: stageId,
       notes: input.notes ?? null,
       forceNote,
+      ...(retentionDue ? { dueDate: dateOnly(retentionDue) } : {}),
       createdById: a.userId,
       ...(opts.at ? { createdAt: opts.at } : {}),
     },
@@ -338,7 +382,7 @@ export async function issueTx(tx: Tx, a: BillingActor, id: string, input: { issu
   if (issueDate > today()) throw new BadRequest('FUTURE_DATE', "An invoice can't be issued in the future");
 
   // Sources must still be free (another invoice may have taken them since the draft).
-  for (const type of ['BILLING_STAGE', 'BILLING_PROGRESS', 'CASH_ENTRY'] as const) {
+  for (const type of ['BILLING_STAGE', 'BILLING_PROGRESS', 'CASH_ENTRY', 'CHANGE_ORDER'] as const) {
     const ids = inv.lines.filter((l) => l.sourceType === type).map((l) => l.sourceId!);
     const taken = (await takenSources(tx, a.tenantId, type, ids, inv.id)).filter((t) => t.invoice.status !== 'DRAFT');
     if (taken.length) throw new Conflict('SOURCE_ALREADY_BILLED', 'Part of this invoice is already billed on another invoice', { taken });
@@ -358,6 +402,7 @@ export async function issueTx(tx: Tx, a: BillingActor, id: string, input: { issu
     await syncStage(tx, a.tenantId, inv.billingStageId);
     await resolveEvent(tx, a.tenantId, 'STAGE_READY_UNBILLED', inv.billingStageId);
   }
+  await markBilled(tx, a, { id: inv.id, number }, at); // Step 15
   const credit = await applyCredit(tx, a.tenantId, inv.id);
   await audit(tx, a, 'invoice.issue', 'Invoice', inv.id, { number, totalPaisa: inv.totalPaisa.toString(), creditAppliedPaisa: credit.toString() });
   return invoiceDto(await load(tx, inv.id));
@@ -368,7 +413,7 @@ export async function issue(id: string, input: { issueDate?: string | undefined 
   const a = actor();
   await withTenant(a.tenantId, (tx) => issueTx(tx, a, id, input));
   await withinOrBackground(
-    () => withTenant(a.tenantId, async (tx) => makeInvoicePdf(tx, a, id, await documentLang(tx, a.userId))),
+    () => withPdfTenant(a.tenantId, async (tx) => makeInvoicePdf(tx, a, id, await documentLang(tx, a.userId))),
     (err) => logger.warn({ err, invoiceId: id }, 'invoice PDF not made on issue — it is made on first download'),
   );
   const issued = await withTenant(a.tenantId, async (tx) => invoiceDto(await load(tx, id)));
@@ -387,6 +432,7 @@ export async function cancelTx(tx: Tx, a: BillingActor, id: string, reason: stri
   await tx.billingProgress.updateMany({ where: { tenantId: a.tenantId, billedInvoiceId: inv.id }, data: { billedInvoiceId: null } });
   await tx.cashEntry.updateMany({ where: { tenantId: a.tenantId, billedInvoiceId: inv.id }, data: { billedInvoiceId: null } });
   if (inv.billingStageId) await syncStage(tx, a.tenantId, inv.billingStageId);
+  await revertBilled(tx, a, inv); // Step 15
   await resolveEvent(tx, a.tenantId, 'INVOICE_OVERDUE', inv.id);
   await resolveBouncedFor(tx, a.tenantId, inv.id);
   await audit(tx, a, 'invoice.cancel', 'Invoice', inv.id, { number: inv.number, reason });
@@ -446,6 +492,8 @@ export async function makeInvoicePdf(tx: Tx, a: BillingActor, id: string, lang: 
     taxPaisa: inv.taxPaisa,
     taxLabel: inv.taxLabel,
     taxRatePercent: inv.taxRatePercent?.toString() ?? null,
+    taxableBasePaisa: inv.taxableBasePaisa,
+    taxRegistration: { sellerNtn: inv.sellerNtn, sellerStrn: inv.sellerStrn, buyerNtn: inv.buyerNtn },
     totalPaisa: inv.totalPaisa,
     paidPaisa: inv.paidPaisa,
     balancePaisa: inv.balancePaisa,
@@ -462,7 +510,7 @@ export const invoiceWhatsapp = (inv: { number: string | null; totalPaisa: bigint
 /** The PDF in `lang` (default: the caller's language); made again when the stored one is in another language. */
 export async function invoicePdf(id: string, langOverride?: Lang) {
   const a = actor();
-  return withTenant(a.tenantId, async (tx) => {
+  return withPdfTenant(a.tenantId, async (tx) => {
     const inv = await find(tx, a, id);
     if (inv.status === 'DRAFT') throw new Conflict('INVOICE_NOT_ISSUED', 'Issue the invoice to get its PDF');
     const lang = await documentLang(tx, a.userId, langOverride);

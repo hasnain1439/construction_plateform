@@ -71,18 +71,43 @@ export function registerAttachmentsDocs(): void {
     path: '/api/v1/attachments/{id}/file',
     tags,
     summary: 'Download the file through a signed link',
-    description: 'No login needed — use the `url` returned by the API as-is (e.g. in an `<img>` tag). Expired or edited links answer 403.',
+    description:
+      'No login needed — use the `url` returned by the API as-is (e.g. in an `<img>` tag). Expired or edited links answer 403. ' +
+      'Exports and documents come as `/attachments/{id}/file/<file name>?…` (the name is ignored by the server; browsers save the file under it) and `Content-Disposition` carries the name; `dl=1` (the `downloadUrl` of report exports) makes it an attachment (save instead of preview).',
     request: {
       params: idParam,
       query: z.object({
         tid: z.uuid().meta({ description: 'Company id (part of the signed link)' }),
         exp: z.number().int().meta({ description: 'Expiry, unix seconds' }),
         sig: z.string().meta({ description: 'HMAC signature' }),
+        dl: z.enum(['1']).optional().meta({ description: '1 = Content-Disposition: attachment (not signed)' }),
       }),
     },
     responses: {
       200: { description: 'The file bytes with its Content-Type' },
       ...errors({ 400: ['VALIDATION_ERROR'], 403: ['INVALID_SIGNATURE', 'LINK_EXPIRED'], 404: ['ATTACHMENT_NOT_FOUND'] }),
+    },
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/public/files/{id}',
+    tags,
+    summary: 'Open a shared document (WhatsApp link)',
+    description:
+      'The durable link the share payloads put in `url` / `whatsappText` (invoice, receipt, statement, change-order slip, handover certificate, estimate, quote). No login: the link carries its own HMAC (purpose `share:`, different from file links) and is valid for SHARE_LINK_TTL_DAYS (default 30). ' +
+      'A valid link answers **302** to a fresh short-lived signed storage URL of the PDF. Only server-made PDFs open this way. 30 requests / min per IP.',
+    request: {
+      params: idParam,
+      query: z.object({
+        tid: z.uuid().meta({ description: 'Company id (part of the signed link)' }),
+        exp: z.number().int().meta({ description: 'Expiry, unix seconds' }),
+        sig: z.string().meta({ description: 'HMAC signature (share:)' }),
+      }),
+    },
+    responses: {
+      302: { description: 'Redirect to the PDF (short-lived signed URL)' },
+      ...errors({ 400: ['VALIDATION_ERROR'], 403: ['INVALID_SIGNATURE', 'LINK_EXPIRED'], 404: ['ATTACHMENT_NOT_FOUND'], 429: ['RATE_LIMITED'] }),
     },
   });
 }

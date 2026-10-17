@@ -15,10 +15,19 @@ import { provisionMasterData } from '../src/modules/master-data/provision.js';
 import { provisionPermissions } from '../src/modules/permissions/provision.js';
 import { seedMalikMasterData } from './seedMasterData.js';
 import { seedMalikInventory } from './seedInventory.js';
+import { seedMalikEquipment } from './seedEquipment.js';
 import { seedMalikBilling } from './seedBilling.js';
 import { seedMalikNotifications } from './seedNotifications.js';
 import { seedMalikDailyLogs } from './seedDailyLogs.js';
 import { seedMalikLabor } from './seedLabor.js';
+import { seedMalikCloseout } from './seedCloseout.js';
+import { seedMalikEstimates } from './seedEstimate.js';
+import { seedMalikSchedule } from './seedSchedule.js';
+import { seedMalikShuttering } from './seedShuttering.js';
+import { seedMalikControl } from './seedControl.js';
+import { seedMalikTax } from './seedTax.js';
+import { seedMalikQuotes } from './seedSales.js';
+import { seedMalikChangeOrders } from './seedChangeOrders.js';
 import { ensureProjectRow, seedAhmedProject, seedMalikClients, seedMalikProjects } from './seedProjects.js';
 
 export const SEED = {
@@ -339,9 +348,12 @@ export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: b
     asifId: asif.id,
     clients,
   });
+  await seedMalikEstimates(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, dhaProjectId: malikProjects.dha.id }); // Step 11
+  await seedMalikQuotes(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, clients, dhaProjectId: malikProjects.dha.id }); // Step 12
   const ahmedProject = await seedAhmedProject(db, ahmed.id, ahmedOwner.id, rafaqatAhmed.id);
   if (opts.inventory !== false) {
     await seedMalikInventory(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, projects: malikProjects });
+    await seedMalikEquipment(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, projects: malikProjects }); // Step 16
   }
   if (opts.labor !== false) {
     await seedMalikLabor(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, asifId: asif.id, projects: malikProjects });
@@ -352,6 +364,13 @@ export async function seed(db: PrismaClient = prismaAdmin, opts: { inventory?: b
     // Notifications point at stock, labour and billing records — only with the full demo, written now.
     if (!billing.skipped && opts.inventory !== false && opts.labor !== false) await seedMalikNotifications(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, projects: malikProjects });
   }
+  if (opts.billing !== false) await seedMalikCloseout(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, projects: malikProjects }); // Step 17 closeout demo
+
+  await seedMalikSchedule(db, { tenantId: malik.id, ownerId: khalid.id, rafaqatId: rafaqatMalik.id, dhaProjectId: malikProjects.dha.id }); // Step 13 (after the estimate; links the stock demo's usage)
+  if (opts.billing !== false) await seedMalikChangeOrders(db, { tenantId: malik.id, ownerId: khalid.id, bilalId: bilal.id, rafaqatId: rafaqatMalik.id, dhaProjectId: malikProjects.dha.id }); // Step 15 (after the schedule + billing demo)
+  if (opts.inventory !== false) await seedMalikShuttering(db, { tenantId: malik.id, ownerId: khalid.id, projects: malikProjects }); // Step 16 part 2 (idle rental + planner shortfall; after the schedule)
+  if (opts.inventory !== false) await seedMalikControl(db, { tenantId: malik.id, ownerId: khalid.id, rafaqatId: rafaqatMalik.id, dhaProjectId: malikProjects.dha.id }); // Step 14: material history, cement overuse, slab behind plan
+  await seedMalikTax(db, { tenantId: malik.id, dhaProjectId: malikProjects.dha.id }); // Step 18: tax stays OFF; client NTN + STRN (SEED_TAX_DEMO=1 switches PRA 16 % on)
 
   return {
     malik,

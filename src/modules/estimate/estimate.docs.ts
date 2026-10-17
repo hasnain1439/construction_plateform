@@ -173,7 +173,9 @@ const EXAMPLE = {
   ],
 };
 
-const DESCRIPTION = `Computed live from the project's plot, structure type, foundation (bunyaad), floors / rooms / openings, the estimate settings and the company price list — nothing is stored but the settings.
+const DESCRIPTION = `Computed live from the project's plot, structure type, foundation (bunyaad), floors / rooms / openings, the rulebook (platform version of the company region → company values → the project's own settings) and the company price list — nothing is stored but the settings.
+
+**BoQ preview** \`boq\` = exactly what POST /projects/{id}/estimates would save: 14 sections with lines per build stage (\`stageKey\`), trace, wastage, supplier, rates / amounts (fields.rates), direct cost, overheads, contingency, total, cost per sq ft, \`parameters\` (value + source per rulebook key), \`warnings\` (RATES_MISSING, LABOUR_RATES_MISSING, STEEL_NORM_DEVIATION, RCC_NORM_DEVIATION). The fields below (grey-structure stages, materials, labour, cost) are unchanged.
 
 **Stages** FOUNDATION (excavation, PCC, RCC footing / raft / piles, brick or stone foundation walls to plinth, DPC + waterproofing compound or bitumen, termite), WALLS (brickwork per floor + roof parapet), RCC (roof slab per floor, beams + columns for an RCC frame, lintels, shuttering), PLASTER (room faces, ceilings, external faces, parapet). Each line: \`kind\` WORK (volume / area / shuttering) or MATERIAL, \`netQuantity\`, \`wastagePercent\`, \`quantity\` (to order), \`unit\`, \`formula\` { key, params } and \`formulaText\`.
 
@@ -181,7 +183,7 @@ const DESCRIPTION = `Computed live from the project's plot, structure type, foun
 
 **Costing** Each material is priced from the company price list in the project's quality category for its supply category (cement, bricks, steel, sand & bajri, waterproofing; the company default category otherwise), converted to the rate's unit (kg → ton, nos → thousand, cft → trolley, alt units). No rate → \`rateStatus: RATE_MISSING\`, left out of every total, warning RATES_MISSING. Steel by size is priced from Steel Grade-60 #3 / #4 / #5 / #6 (a company "Grade-40 #n" material first when a roof is G40); a size without a rate takes the general steel rate (\`rateFallback: true\`, warning STEEL_RATE_GENERIC). Owner-supplied categories are valued but kept out of the contractor cost (\`ownerSuppliedPaisa\`). Labour: covered area × \`labourRatePerSqftPaisa\` when set, else the SUBCONTRACT piece rates BRICK_MASONRY / PLASTER / SHUTTERING / STEEL_FIXING. \`cost.marginPercent\` = (contract total − estimated cost) ÷ contract total.
 
-**Contract value from this estimate** \`contractSuggestion\` (needs fields.contract + fields.rates; null before the contract type is chosen): \`kind\` CONTRACT_VALUE (FULL / GREY) = cost × (1 + finishing %) × (1 + margin %) rounded to the nearest Rs 1,000 — the finishing allowance applies to FULL only (\`finishingApplies\`) because this estimate is grey structure; RATE_PER_SQFT (LABOR_ONLY, the owner buys the material) = estimated labour × (1 + margin %) ÷ covered sq ft rounded to Rs 5. \`marginPercent\` / \`finishingAllowancePercent\` come from the project override (\`marginSource\` / \`finishingSource\` PROJECT) or the company settings (COMPANY; \`companyMarginPercent\`, \`companyFinishingAllowancePercent\`). \`basisPaisa\` = the cost (labour) used, \`suggestedPaisa\` (null without a cost / covered area), \`currentPaisa\` = the value already on the project. Apply it with POST /projects/{id}/contract/from-estimate.
+**Contract value from this estimate** \`contractSuggestion\` (needs fields.contract + fields.rates; null before the contract type is chosen): the cost is the **BoQ total** (Step 11: direct + site overheads + contingency, contractor scope; also returned as \`boqCost\`) of the saved revision the BoQ page opens by default (draft, else approved, else newest), else of the live BoQ preview (\`basisSource\` REVISION / LIVE, \`estimateId\`, \`estimateRevision\`, \`estimateStatus\`). \`kind\` CONTRACT_VALUE (FULL / GREY) = BoQ total × (1 + finishing %) × (1 + margin %) rounded to the nearest Rs 1,000 — the finishing allowance applies to FULL only, and only when the BoQ prices no finishing (\`finishingApplies\`; the BoQ normally prices tiles, paint and finishing labour, so finishing is never counted twice); RATE_PER_SQFT (LABOR_ONLY, the owner buys the material) = BoQ total × (1 + margin %) ÷ covered sq ft rounded to Rs 5. \`marginPercent\` / \`finishingAllowancePercent\` come from the project override (\`marginSource\` / \`finishingSource\` PROJECT) or the company settings (COMPANY; \`companyMarginPercent\`, \`companyFinishingAllowancePercent\`). \`basisPaisa\` = the cost (labour) used, \`suggestedPaisa\` (null without a cost / covered area), \`currentPaisa\` = the value already on the project. Apply it with POST /projects/{id}/contract/from-estimate.
 
 **Visibility** Rates, amounts and \`cost\` need fields.rates; \`contractTotalPaisa\` fields.contract; the margin fields.profit + fields.contract. Warnings: NO_FLOORS, NO_ROOMS, FOUNDATION_MISSING, STRUCTURE_TYPE_ASSUMED, COVERED_AREA_ESTIMATED, FOUNDATION_LENGTH_UNKNOWN, ROOMS_BELOW_COVERED, RATES_MISSING, LABOUR_RATES_MISSING, CONTRACT_VALUE_MISSING, CONTRACT_INCLUDES_FINISHING. A project with no rooms or foundation answers 200 with warnings.
 
@@ -209,7 +211,8 @@ export function registerEstimateDocs(): void {
     security: companySecurity,
     summary: 'Set the contract value from the estimate',
     description:
-      'Sets the contract value (FULL / GREY: cost × (1 + finishing %) × (1 + margin %), nearest Rs 1,000) or, for LABOR_ONLY, the rate per sq ft (labour × (1 + margin %) ÷ covered sq ft, nearest Rs 5) from the live estimate — the same numbers as `contractSuggestion` of GET /estimate. ' +
+      'Sets the contract value (FULL / GREY: BoQ total × (1 + finishing %) × (1 + margin %), nearest Rs 1,000; the finishing allowance only when the BoQ prices no finishing) or, for LABOR_ONLY, the rate per sq ft (BoQ total × (1 + margin %) ÷ covered sq ft, nearest Rs 5). ' +
+      'The BoQ total is that of the saved revision `estimateId` (the BoQ page sends the one on screen), else the draft / approved / newest revision, else the live BoQ preview — the same numbers as `contractSuggestion` of GET /estimate. Unknown `estimateId` → 404 ESTIMATE_NOT_FOUND. ' +
       'Omitted percentages = the project override, else the company default (TenantSettings.defaultMarginPercent / defaultFinishingAllowancePercent). A percentage that differs from the company default is stored on the project (it sticks for the next suggestion); one equal to it clears the override. ' +
       'Contract type, billing model, supply rules and stages are unchanged; stage amounts are recomputed. A project that already has a value → 409 CONTRACT_VALUE_EXISTS `{ currentPaisa, suggestedPaisa }` unless `replace: true` (the user confirmed). ' +
       'No contract type yet → 400 CONTRACT_MISSING; no cost (no rooms / rates; labour-only: no labour or covered area) → 400 ESTIMATE_COST_MISSING. ' +
@@ -228,7 +231,7 @@ export function registerEstimateDocs(): void {
         ...AUTH,
         400: ['VALIDATION_ERROR', 'CONTRACT_MISSING', 'ESTIMATE_COST_MISSING'],
         403: ['PERMISSION_DENIED', 'COMPANY_SUSPENDED', 'ACCOUNT_READ_ONLY'],
-        404: ['PROJECT_NOT_FOUND'],
+        404: ['PROJECT_NOT_FOUND', 'ESTIMATE_NOT_FOUND'],
         409: ['PROJECT_LOCKED', 'CONTRACT_VALUE_EXISTS'],
       }),
     },
