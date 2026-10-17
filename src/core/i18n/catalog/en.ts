@@ -587,6 +587,8 @@ export const en = {
   'pdf.estimateRevision': 'Revision {revision} · {status}',
   'pdf.ownerShoppingList': 'OWNER SHOPPING LIST',
   'pdf.neededBy': 'Needed by',
+  'pdf.toBuy': 'To buy',
+  'pdf.exactQty': 'Exact',
   'pdf.unit': 'Unit',
   'pdf.wastage': 'Wastage',
   'pdf.suppliedByOwner': 'Owner supplies',
@@ -594,7 +596,7 @@ export const en = {
   'pdf.costPerSqft': 'Cost per sq ft',
   'pdf.internalOnly': 'Internal document — not for the client',
   'share.estimate': 'Estimate {project} · Rev {revision}: {url}',
-  'share.ownerShoppingList': '{salutation}, these materials for {project} are to be bought by you: {items}. Full list: {url}',
+  'share.ownerShoppingList': '{salutation}, these materials for {project} are to be bought by you:{items}\nFull list: {url}',
   // ─── Step 12 · quotes ────────────────────────────────────────────────────
   'enum.QuoteStatus.DRAFT': 'Draft',
   'enum.QuoteStatus.SENT': 'Sent',
@@ -624,6 +626,7 @@ export const en = {
   'pdf.mumty': 'mumty',
   'pdf.structure': 'Structure',
   'pdf.workIncluded': 'Work included',
+  'pdf.workByOwner': 'By the owner / not included',
   'pdf.specifications': 'Material specifications',
   'pdf.category': 'Category',
   'pdf.suppliedBy': 'Supplied by',
@@ -675,6 +678,7 @@ export const en = {
   'pdf.ownerApproval': 'Approved by the owner',
   'share.changeOrder': '{salutation}, change order {code} for {project}: {title} — {amount}. Please reply OK to approve. Details: {url}',
   'share.changeOrderDays': '{salutation}, change order {code} for {project}: {title} — {amount}, {days} extra working days. Please reply OK to approve. Details: {url}',
+  'share.changeOrderApproved': '{salutation}, change order {code} for {project}: {title} — {amount}, approved on {date}. Details: {url}',
 } as const satisfies Record<string, string>;
 
 export type MessageKey = keyof typeof en;

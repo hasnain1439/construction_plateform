@@ -6,6 +6,19 @@ All notable changes to the Construction Platform API are documented here, follow
 
 ## [Unreleased]
 
+### QA fixes (area A)
+- **Contract value from the BoQ total (QA-A-01 / 02):** `GET /projects/:id/estimate` has a new `boqCost` (direct + site overheads + contingency for the contractor's scope, with per sq ft and margin) — of the revision the BoQ page opens by default (draft → approved → newest), else of the live BoQ preview. `contractSuggestion` now starts from this total (`basisPaisa`, new `basisSource` / `estimateId` / `estimateRevision` / `estimateStatus`) instead of the old grey-structure materials + labour cost, so the wizard, the BoQ page and the suggestion agree. `POST /projects/:id/contract/from-estimate` takes an optional `estimateId` (a revision; `null` = the live preview; unknown → 404 `ESTIMATE_NOT_FOUND`). Labour-only rates use the same BoQ total (the owner buys the material, so it is the labour scope).
+- **Finishing allowance decision:** the BoQ already prices tiles, paint and finishing labour, so the FULL-contract finishing allowance now applies only when the BoQ prices no finishing at all (`finishingApplies: false`, `finishingAllowancePercent: 0` otherwise) — finishing is never counted twice. A stored project / company allowance is kept for such a BoQ. `CONTRACT_INCLUDES_FINISHING` is only warned then too.
+- Customer quotation PDF: "Work included" lists only the sections the contractor prices; all-owner-supplied sections (e.g. tiles and paint on a grey + owner-finishing contract) are listed under "By the owner / not included" (QA-A-05). Internal quote PDF: site overheads and contingency once (in the totals) (QA-A-33). Phones in PDFs are formatted ("+92 300 1239901").
+- Owner shopping list: the WhatsApp text lists **every** item, one per line, with the "To buy" quantity rounded up and the unit in the document language; the PDF has "To buy" and "Exact" columns (QA-A-09).
+- Quote warnings carry `params` / `materials` / `items` so the app can translate them; the quick estimate no longer flags its own defaults with the steel / RCC norm checks (QA-A-10 / 22).
+- A rate adjustment on a "No rate" BoQ line removes that material from the revision's `RATES_MISSING` warning (QA-A-11).
+- "Rates outdated": only a price change of a **contractor-priced** material marks a draft; approving (with confirmation) clears the flag (QA-A-23).
+- BoQ PDF: a steel bar size priced at the general steel rate keeps its own name ("Steel #3 (10 mm) — general steel rate"); totals are not split over a page (QA-A-24).
+- Change order WhatsApp text: an approved change order says "approved on …" instead of asking for approval again (QA-A-27); the Urdu slip keeps an English description's punctuation in place (QA-A-35).
+- Review warning `ROOM_AREA_VS_COVERED` shows thousand separators (QA-A-32).
+- Tests: `tests/estimate/contractFromEstimate.test.ts` (BoQ total for the suggestion, `boqCost` = revision / live totals, `estimateId`, finishing rule), `tests/unit/qaFixesA.test.ts`, plus additions to the quotes, revisions and change-order tests. No migration.
+
 ### Step 18 — PDFs and docs
 - **One letterhead for every PDF**: invoice, receipt, owner statement, customer quotation, quote costing, change order slip, handover certificate, owner shopping list, estimate (BoQ), reports, report books and tax reports all use `templates.ts` `shell()` — logo, company name, address, phone, NTN (labelled in the document language; was a hard-coded English "NTN"), then the document title, number and date.
 - **One page setup**: `renderer.ts` `pdfPageOptions()` — A4, the same margins, and a footer with the document line, the **generated-on date** (new) and "Page X of Y" (numbers kept left-to-right in Urdu). Table headers repeat on every page and rows are not split across pages; section headings share one style.

@@ -92,6 +92,7 @@ const CSS = `
   .note { margin-top: 18px; padding: 10px; background: #f8fafc; border-radius: 6px; }
   h3 { font-size: 12px; margin: 16px 0 4px; }
   thead { display: table-header-group; } tr { page-break-inside: avoid; }
+  table.totals { page-break-inside: avoid; break-inside: avoid; }
 `;
 
 /** Urdu: Nastaliq (embedded) with room for its tall letters; no letter-spacing / upper-casing. */
@@ -109,11 +110,21 @@ function documentHead(lang: Lang): string {
   return `<!doctype html><html lang="${lang === 'ur' ? 'ur' : 'en'}" dir="${rtl ? 'rtl' : 'ltr'}"><head><meta charset="utf-8"><style>${CSS}${rtl ? URDU_CSS() : ''}</style></head>`;
 }
 
+/** "+923001239901" → "+92 300 1239901" (a Pakistani mobile in E.164); anything else as stored. */
+export function displayPhone(phone: string): string {
+  const digits = phone.replace(/[\s-]/g, '');
+  const mobile = /^\+92(3\d{2})(\d{7})$/.exec(digits);
+  if (mobile) return `+92 ${mobile[1]} ${mobile[2]}`;
+  // landline: "+924235761234" → "+92 42 35761234"
+  const land = /^\+92([1-9]\d)(\d{7,8})$/.exec(digits);
+  return land ? `+92 ${land[1]} ${land[2]}` : phone;
+}
+
 /** Company line under the name: address · phone · NTN (· STRN when the letterhead carries it). */
 function companyLine(company: Letterhead, lang: Lang): string {
   return [
     company.address ? ltr(esc(company.address)) : null,
-    company.phone ? ltr(esc(company.phone)) : null,
+    company.phone ? ltr(esc(displayPhone(company.phone))) : null,
     company.ntn ? `${label(lang, 'pdf.ntn')} ${ltr(esc(company.ntn))}` : null,
     company.strn ? `${label(lang, 'pdf.strn')} ${ltr(esc(company.strn))}` : null,
   ]
@@ -189,7 +200,7 @@ export function invoiceHtml(d: InvoicePdfData, lang: Lang = 'en'): string {
     .join('');
   const body = `
   <div class="grid">
-    <div><div class="label">${L('pdf.billTo')}</div><strong>${esc(d.client?.name ?? '—')}</strong><div class="muted">${[d.client?.phone ? ltr(esc(d.client.phone)) : null, d.client?.address ? esc(d.client.address) : null, d.taxRegistration?.buyerNtn ? `${L('pdf.ntn')} ${ltr(esc(d.taxRegistration.buyerNtn))}` : null].filter(Boolean).join('<br>')}</div></div>
+    <div><div class="label">${L('pdf.billTo')}</div><strong>${esc(d.client?.name ?? '—')}</strong><div class="muted">${[d.client?.phone ? ltr(esc(displayPhone(d.client.phone))) : null, d.client?.address ? esc(d.client.address) : null, d.taxRegistration?.buyerNtn ? `${L('pdf.ntn')} ${ltr(esc(d.taxRegistration.buyerNtn))}` : null].filter(Boolean).join('<br>')}</div></div>
     <div><div class="label">${L('pdf.project')}</div><strong>${esc(d.project.name)}</strong><div class="muted">${ltr(esc(d.project.code))}${d.project.siteAddress ? `<br>${esc(d.project.siteAddress)}` : ''}</div></div>
     <div><div class="label">${L('pdf.due')}</div><strong>${date(d.dueDate)}</strong></div>
   </div>
@@ -415,14 +426,28 @@ export interface ShoppingListPdfData {
 }
 
 /** What the owner buys himself: item, quantity, unit, stage it is needed by. Never any rate. */
+/** "To buy" quantity of an owner shopping item: rounded up to a whole unit (the web page shows the same). */
+export const buyQuantity = (q: number) => Math.ceil(q - 1e-9);
+
+/**
+ * The owner shopping list as one WhatsApp line per item (QA-A-09): every item, "To buy" rounded up
+ * as on the page, unit in the document language.
+ */
+export function shoppingShareItems(items: Array<{ description: string; quantity: number; unit: string }>, lang: Lang): string {
+  return items.map((i) => `\n• ${i.description} — ${buyQuantity(i.quantity).toLocaleString('en-PK')} ${unitLabel(lang, i.unit)}`).join('');
+}
+
 export function shoppingListHtml(d: ShoppingListPdfData, lang: Lang = 'en'): string {
   const L = (key: MessageKey) => label(lang, key);
   const rows = d.items
-    .map((i, n) => `<tr><td>${n + 1}</td><td>${esc(i.description)}</td><td class="r">${qty(i.quantity)}</td><td>${esc(unitLabel(lang, i.unit))}</td><td>${stageLabel(lang, i.neededBy)}</td></tr>`)
+    .map(
+      (i, n) =>
+        `<tr><td>${n + 1}</td><td>${esc(i.description)}</td><td class="r"><strong>${qty(buyQuantity(i.quantity))}</strong></td><td class="r muted">${qty(i.quantity)}</td><td>${esc(unitLabel(lang, i.unit))}</td><td>${stageLabel(lang, i.neededBy)}</td></tr>`,
+    )
     .join('');
   const html = `
   <div class="grid"><div><div class="label">${L('pdf.project')}</div><strong>${esc(d.project.name)}</strong><div class="muted">${ltr(esc(d.project.code))}</div></div></div>
-  <table><thead><tr><th>#</th><th>${L('pdf.description')}</th><th class="r">${L('pdf.qty')}</th><th>${L('pdf.unit')}</th><th>${L('pdf.neededBy')}</th></tr></thead><tbody>${rows || `<tr><td colspan="5">${esc(tr(lang, 'common.noRows'))}</td></tr>`}</tbody></table>`;
+  <table><thead><tr><th>#</th><th>${L('pdf.description')}</th><th class="r">${L('pdf.toBuy')}</th><th class="r">${L('pdf.exactQty')}</th><th>${L('pdf.unit')}</th><th>${L('pdf.neededBy')}</th></tr></thead><tbody>${rows || `<tr><td colspan="6">${esc(tr(lang, 'common.noRows'))}</td></tr>`}</tbody></table>`;
   return shell(d.company, tr(lang, 'pdf.ownerShoppingList'), label(lang, 'pdf.generated', {}, { date: date(d.generatedOn) }), html, lang);
 }
 
@@ -445,8 +470,10 @@ export interface QuotePdfData {
   floors: number;
   basement: boolean;
   mumty: boolean;
-  /** BoQ sections the price covers (names only — never their amounts). */
+  /** BoQ sections the price covers (contractor-priced work; names only — never their amounts). */
   sections: string[];
+  /** Sections whose material is all owner-supplied (QA-A-05): listed as "By the owner / not included". */
+  ownerSections?: string[];
   specifications: Array<{ categoryKey: string; suppliedBy: 'CONTRACTOR' | 'OWNER'; quality: string | null; materials: string[] }>;
   paymentStages: Array<{ label: string; percent: number; amountPaisa: bigint }>;
   pricePaisa: bigint;
@@ -474,7 +501,7 @@ function quoteHead(d: QuotePdfData, lang: Lang) {
   const building = [L('pdf.storeys', { count: d.floors }), d.basement ? L('pdf.basement') : null, d.mumty ? L('pdf.mumty') : null].filter(Boolean).join(' + ');
   return `
   <div class="grid">
-    <div><div class="label">${L('pdf.preparedFor')}</div><strong>${esc(d.client.name)}</strong>${d.client.phone ? `<div class="muted">${ltr(esc(d.client.phone))}</div>` : ''}</div>
+    <div><div class="label">${L('pdf.preparedFor')}</div><strong>${esc(d.client.name)}</strong>${d.client.phone ? `<div class="muted">${ltr(esc(displayPhone(d.client.phone)))}</div>` : ''}</div>
     <div><div class="label">${L('pdf.project')}</div><strong>${esc(d.title)}</strong><div class="muted">${esc([d.siteAddress, d.city].filter(Boolean).join(', '))}</div></div>
     <div><div class="label">${L('pdf.validUntil')}</div><strong>${date(d.validUntil)}</strong></div>
   </div>
@@ -486,6 +513,7 @@ function quoteHead(d: QuotePdfData, lang: Lang) {
     <tr><td>${L('pdf.structure')}</td><td>${esc(enumLabel(lang, 'StructureType', d.structureType))}</td></tr>
     <tr><td>${L('pdf.coveredArea')}</td><td>${qty(d.coveredAreaSqft)} ${esc(unitLabel(lang, 'sqft'))}</td></tr>
     <tr><td>${L('pdf.workIncluded')}</td><td>${d.sections.map((s) => sectionLabel(lang, s)).join(' · ')}</td></tr>
+    ${d.ownerSections?.length ? `<tr><td>${L('pdf.workByOwner')}</td><td>${d.ownerSections.map((s) => sectionLabel(lang, s)).join(' · ')}</td></tr>` : ''}
   </tbody></table>`;
 }
 
@@ -540,7 +568,11 @@ export function quoteCustomerHtml(d: QuotePdfData, lang: Lang = 'en'): string {
 /** Internal quote costing: the customer content plus cost by BoQ section, overheads, contingency, finishing allowance, price and margin. */
 export function quoteInternalHtml(d: QuoteInternalPdfData, lang: Lang = 'en'): string {
   const L = (key: MessageKey, params?: Params, html?: Record<string, string>) => label(lang, key, params, html);
-  const rows = d.costSections.map((s) => `<tr><td>${sectionLabel(lang, s.section)}</td><td class="r">${money(s.amountPaisa)}</td></tr>`).join('');
+  // Overheads and contingency are shown once, in the totals below (QA-A-33)
+  const rows = d.costSections
+    .filter((s) => s.section !== 'SITE_OVERHEADS' && s.section !== 'CONTINGENCY')
+    .map((s) => `<tr><td>${sectionLabel(lang, s.section)}</td><td class="r">${money(s.amountPaisa)}</td></tr>`)
+    .join('');
   const html = `
   ${quoteHead(d, lang)}
   <h3>${L('pdf.estimatedCost')}</h3>

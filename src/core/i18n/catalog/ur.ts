@@ -572,6 +572,8 @@ export const ur: Record<MessageKey, string> = {
   'pdf.estimateRevision': 'ریویژن {revision} · {status}',
   'pdf.ownerShoppingList': 'مالک کی خریداری کی فہرست',
   'pdf.neededBy': 'کب چاہیے',
+  'pdf.toBuy': 'خریدنا ہے',
+  'pdf.exactQty': 'اصل مقدار',
   'pdf.unit': 'اکائی',
   'pdf.wastage': 'ضیاع',
   'pdf.suppliedByOwner': 'مالک دے گا',
@@ -579,7 +581,7 @@ export const ur: Record<MessageKey, string> = {
   'pdf.costPerSqft': 'فی مربع فٹ لاگت',
   'pdf.internalOnly': 'اندرونی دستاویز — کلائنٹ کے لیے نہیں',
   'share.estimate': 'تخمینہ {project} · ریویژن {revision}: {url}',
-  'share.ownerShoppingList': '{salutation}، {project} کے لیے یہ سامان آپ نے لینا ہے: {items}۔ مکمل فہرست: {url}',
+  'share.ownerShoppingList': '{salutation}، {project} کے لیے یہ سامان آپ نے لینا ہے:{items}\nمکمل فہرست: {url}',
   // ─── Step 12 · quotes ────────────────────────────────────────────────────
   'enum.QuoteStatus.DRAFT': 'ڈرافٹ',
   'enum.QuoteStatus.SENT': 'بھیج دیا',
@@ -609,6 +611,7 @@ export const ur: Record<MessageKey, string> = {
   'pdf.mumty': 'ممٹی',
   'pdf.structure': 'ڈھانچہ',
   'pdf.workIncluded': 'شامل کام',
+  'pdf.workByOwner': 'مالک کے ذمے / شامل نہیں',
   'pdf.specifications': 'سامان کی تفصیل',
   'pdf.category': 'قسم',
   'pdf.suppliedBy': 'کون دے گا',
@@ -660,4 +663,5 @@ export const ur: Record<MessageKey, string> = {
   'pdf.ownerApproval': 'مالک کی منظوری',
   'share.changeOrder': '{salutation}، {project} کا تبدیلی آرڈر {code}: {title} — {amount}۔ منظوری کے لیے OK لکھ دیں۔ تفصیل: {url}',
   'share.changeOrderDays': '{salutation}، {project} کا تبدیلی آرڈر {code}: {title} — {amount}، {days} اضافی کام کے دن۔ منظوری کے لیے OK لکھ دیں۔ تفصیل: {url}',
+  'share.changeOrderApproved': '{salutation}، {project} کا تبدیلی آرڈر {code}: {title} — {amount}، {date} کو منظور ہوا۔ تفصیل: {url}',
 };

@@ -20,13 +20,13 @@ import { assertPerm, fieldAccess, type FieldAccess } from '../../core/auth/acces
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { BadRequest, Conflict, NotFound } from '../../core/errors/AppError.js';
 import { tr, type Lang } from '../../core/i18n/index.js';
-import { estimateHtml, shoppingListHtml } from '../../core/pdf/templates.js';
+import { estimateHtml, shoppingListHtml, shoppingShareItems } from '../../core/pdf/templates.js';
 import { Prisma, type Estimate, type EstimateLine } from '../../generated/prisma/client.js';
 import { documentLang, letterhead, pdfFileName, salutation, shareOf, storePdf } from '../billing/documents.js';
 import { assertEditable, assertProjectScope, caller, findProjectFor, type Caller } from '../projects/access.js';
 import { contractTotalPaisa } from '../projects/projects.dto.js';
 import * as repo from '../projects/projects.repository.js';
-import { BOQ_SECTIONS, BUILD_STAGES, priceQuantity, summarize, type BoqLine, type BuildStageKey, type TotalsLine } from './boq.js';
+import { BOQ_SECTIONS, BUILD_STAGES, MATERIAL_LABELS, priceQuantity, summarize, type BoqLine, type BoqMaterialKey, type BuildStageKey, type TotalsLine } from './boq.js';
 import { computeEstimate, ratesSnapshot, type EstimateContext } from './estimate.service.js';
 import { lineTexts, visibleParameters } from './rateRedaction.js';
 import { estimateChangesLayer } from '../change-orders/estimateLayer.js'; // Step 15
@@ -145,6 +145,36 @@ function summaryDto(e: EstimateRow, p: ProjectInfo, counts: { lines: number; own
   };
 }
 
+const BAR_OF: Partial<Record<string, number>> = { steel10: 3, steel12: 4, steel16: 5, steel20: 6 };
+
+/**
+ * PDF line text (QA-A-24): a bar size priced at another size's / the general steel rate keeps its
+ * own name ("Steel #3 (10 mm) — general steel rate"), not the price-list material it took the rate from.
+ */
+export function pdfLineDescription(l: { material: string | null; description: string }): string {
+  const bar = l.material ? BAR_OF[l.material] : undefined;
+  if (!bar || new RegExp(`#\\s*${bar}\\b`).test(l.description)) return l.description;
+  return `${MATERIAL_LABELS[l.material as BoqMaterialKey]} — general steel rate`;
+}
+
+/**
+ * The stored RATES_MISSING warning without the materials whose every contractor line now has a
+ * rate typed in as an adjustment (QA-A-11); dropped when none is left.
+ */
+export function ratesFixedByOverride(warnings: unknown[], lines: Array<Pick<LineRow, 'material' | 'suppliedBy' | 'kind' | 'overrideRatePaisa'>>): unknown[] {
+  const fixed = (m: string) => {
+    const own = lines.filter((l) => l.material === m && l.suppliedBy === 'CONTRACTOR' && l.kind === 'MATERIAL');
+    return own.length > 0 && own.every((l) => l.overrideRatePaisa !== null);
+  };
+  return warnings.flatMap((w) => {
+    const x = w as { code?: string; items?: string[]; message?: string };
+    if (x.code !== 'RATES_MISSING' || !Array.isArray(x.items)) return [w];
+    const items = x.items.filter((m) => !fixed(m));
+    if (!items.length) return [];
+    return [{ ...x, items, message: `No price-list rate for: ${items.join(', ')} — these lines are left out of the cost` }];
+  });
+}
+
 function detailDto(e: EstimateRow, p: ProjectInfo, lines: LineRow[], fa: FieldAccess) {
   const counts = { lines: lines.length, owner: lines.filter((l) => l.suppliedBy === 'OWNER').length };
   const amountOf = (pred: (l: LineRow) => boolean) => lines.filter((l) => pred(l) && l.suppliedBy === 'CONTRACTOR' && l.amountPaisa !== null).reduce((a, l) => a + l.amountPaisa!, 0n);
@@ -161,7 +191,7 @@ function detailDto(e: EstimateRow, p: ProjectInfo, lines: LineRow[], fa: FieldAc
     })).filter((s) => s.lines.length),
     stages: BUILD_STAGES.map((stageKey) => ({ stageKey, ...(fa.rates ? { amountPaisa: amountOf((l) => l.stageKey === stageKey && l.kind !== 'PERCENT').toString() } : {}) })),
     parameters: visibleParameters(snap.parameters ?? {}, fa.rates),
-    warnings: (warnings ?? []).filter((w) => fa.rates || !String((w as { code?: string }).code ?? '').includes('RATES')),
+    warnings: ratesFixedByOverride(warnings ?? [], lines).filter((w) => fa.rates || !String((w as { code?: string }).code ?? '').includes('RATES')),
     basis: rest,
   };
 }
@@ -395,7 +425,8 @@ export async function approveInTx(tx: Tx, c: Pick<Caller, 'tenantId' | 'userId'>
   const previous = await tx.estimate.findFirst({ where: { projectId: e.projectId, status: 'APPROVED' }, select: { id: true, revision: true } });
   const now = new Date();
   if (previous) await tx.estimate.update({ where: { id: previous.id }, data: { status: 'SUPERSEDED', supersededAt: now } });
-  await tx.estimate.update({ where: { id: e.id }, data: { status: 'APPROVED', approvedAt: now, approvedById: c.userId } });
+  // "Rates outdated" describes a draft; once approved (confirmed) its rates are the frozen ones (QA-A-23)
+  await tx.estimate.update({ where: { id: e.id }, data: { status: 'APPROVED', approvedAt: now, approvedById: c.userId, ratesOutdated: false } });
   if (opts.audit !== false) await audit(tx, c, 'estimate.approve', e.id, {
     projectId: e.projectId,
     revision: e.revision,
@@ -563,7 +594,7 @@ export async function ownerShoppingListPdf(projectId: string, q: { estimateId?: 
     const html = shoppingListHtml({ company: await letterhead(tx, c.tenantId), project: p, generatedOn: new Date().toISOString().slice(0, 10), items: list.items }, lang);
     const name = pdfFileName(`Owner shopping list ${p.code}${list.revision ? ` Rev ${list.revision}` : ''}`, lang);
     const id = await storePdf(tx, c.tenantId, c.userId, 'REPORT', name, html, `${tr(lang, 'pdf.ownerShoppingList')} · ${p.name}`, lang);
-    const items = list.items.slice(0, 6).map((i) => `${i.description} ${i.quantity} ${i.unit}`).join(', ');
+    const items = shoppingShareItems(list.items, lang); // every item, "To buy" rounded up (QA-A-09)
     const share = await shareOf(tx, c.tenantId, id, (url) => tr(lang, 'share.ownerShoppingList', { salutation: salutation(p.client?.name, lang), project: p.name, items, url }));
     return { ...share!, clientPhone: p.client?.phone ?? null };
   });
@@ -596,7 +627,7 @@ export async function estimatePdf(id: string, langOverride?: Lang) {
           lines: lines
             .filter((l) => l.section === s)
             .map((l) => ({
-              description: l.description,
+              description: pdfLineDescription(l),
               stageKey: l.stageKey,
               quantity: Number(l.overrideQuantity ?? l.quantityWithWastage),
               unit: l.unit,

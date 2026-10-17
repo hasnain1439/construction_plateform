@@ -8,7 +8,8 @@ import type { Tx } from '../../core/db/withTenant.js';
 export async function markRatesOutdated(tx: Tx, materialIds: string[]): Promise<number> {
   if (!materialIds.length) return 0;
   const r = await tx.estimate.updateMany({
-    where: { status: 'DRAFT', ratesOutdated: false, lines: { some: { materialId: { in: [...new Set(materialIds)] } } } },
+    // Only contractor-priced lines carry a rate: an owner-supplied material's price never changes the estimate (QA-A-23)
+    where: { status: 'DRAFT', ratesOutdated: false, lines: { some: { materialId: { in: [...new Set(materialIds)] }, suppliedBy: 'CONTRACTOR' } } },
     data: { ratesOutdated: true },
   });
   return r.count;

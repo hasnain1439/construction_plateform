@@ -337,6 +337,14 @@ describe('Step 15 — slip PDF and sync', () => {
     expect(html).not.toContain('Rs 200<'); // never the cost rate
     expect(html).toContain('+2 working days');
     expect(await audits('changeorder.pdf')).toBe(1);
+    expect(res.body.data.whatsappText).toContain('reply OK to approve');
+
+    // QA-A-27: once approved, the text no longer asks for approval
+    const ok = await api().post(`/api/v1/change-orders/${co.id}/approve`).set(o).send({ proofType: 'VERBAL', proofNote: 'Owner said yes on site' });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200);
+    const after = await api().get(`/api/v1/change-orders/${co.id}/pdf?lang=en`).set(o);
+    expect(after.body.data.whatsappText).not.toContain('reply OK');
+    expect(after.body.data.whatsappText).toContain('approved on');
   });
 
   it('sync: SITE_INSTRUCTION_CREATE is idempotent by clientId (photo by clientId); site_instructions pulls own rows without money', async () => {

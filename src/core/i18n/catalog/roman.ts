@@ -572,6 +572,8 @@ export const roman: Record<MessageKey, string> = {
   'pdf.estimateRevision': 'Revision {revision} · {status}',
   'pdf.ownerShoppingList': 'MAALIK KI KHAREEDARI LIST',
   'pdf.neededBy': 'Kab chahiye',
+  'pdf.toBuy': 'Lena hai',
+  'pdf.exactQty': 'Asal miqdaar',
   'pdf.unit': 'Unit',
   'pdf.wastage': 'Zaya',
   'pdf.suppliedByOwner': 'Maalik dega',
@@ -579,7 +581,7 @@ export const roman: Record<MessageKey, string> = {
   'pdf.costPerSqft': 'Fi sq ft lagat',
   'pdf.internalOnly': 'Andaruni document — client ke liye nahi',
   'share.estimate': 'Estimate {project} · Rev {revision}: {url}',
-  'share.ownerShoppingList': '{salutation}, {project} ke liye yeh samaan aap ne lena hai: {items}. Poori list: {url}',
+  'share.ownerShoppingList': '{salutation}, {project} ke liye yeh samaan aap ne lena hai:{items}\nPoori list: {url}',
   // ─── Step 12 · quotes ────────────────────────────────────────────────────
   'enum.QuoteStatus.DRAFT': 'Draft',
   'enum.QuoteStatus.SENT': 'Bhej diya',
@@ -609,6 +611,7 @@ export const roman: Record<MessageKey, string> = {
   'pdf.mumty': 'mumty',
   'pdf.structure': 'Dhancha',
   'pdf.workIncluded': 'Shamil kaam',
+  'pdf.workByOwner': 'Malik ke zimme / shamil nahi',
   'pdf.specifications': 'Samaan ki tafseel',
   'pdf.category': 'Qisam',
   'pdf.suppliedBy': 'Kaun dega',
@@ -660,4 +663,5 @@ export const roman: Record<MessageKey, string> = {
   'pdf.ownerApproval': 'Maalik ki manzoori',
   'share.changeOrder': '{salutation}, {project} ka tabdeeli order {code}: {title} — {amount}. Manzoori ke liye OK likh dein. Tafseel: {url}',
   'share.changeOrderDays': '{salutation}, {project} ka tabdeeli order {code}: {title} — {amount}, {days} izafi kaam ke din. Manzoori ke liye OK likh dein. Tafseel: {url}',
+  'share.changeOrderApproved': '{salutation}, {project} ka tabdeeli order {code}: {title} — {amount}, {date} ko manzoor hua. Tafseel: {url}',
 };

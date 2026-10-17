@@ -304,6 +304,15 @@ export async function addRevision(id: string, input: AddRevisionInput) {
 
 // ─── PDFs ───────────────────────────────────────────────────────────────────
 
+/** Work sections of a quote: priced by the contractor (amount > 0) vs owner-supplied only. */
+export function workSections(result: Pick<QuoteResult, 'sections'>): { included: string[]; byOwner: string[] } {
+  const work = result.sections.filter((s) => s.section !== 'SITE_OVERHEADS' && s.section !== 'CONTINGENCY');
+  return {
+    included: work.filter((s) => BigInt(s.amountPaisa) > 0n).map((s) => s.section),
+    byOwner: work.filter((s) => BigInt(s.amountPaisa) <= 0n).map((s) => s.section),
+  };
+}
+
 async function pdfData(tx: Tx, c: Caller, q: QuoteRow, r: QuoteRevision): Promise<QuotePdfData> {
   const inputs = r.inputs as unknown as QuoteInputs;
   const result = r.result as unknown as QuoteResult;
@@ -325,7 +334,11 @@ async function pdfData(tx: Tx, c: Caller, q: QuoteRow, r: QuoteRevision): Promis
     floors: inputs.floors,
     basement: inputs.basement,
     mumty: inputs.mumty,
-    sections: result.sections.map((s) => s.section).filter((s) => s !== 'SITE_OVERHEADS' && s !== 'CONTINGENCY'),
+    // QA-A-05: "Work included" = only the work the contractor prices; a section with no contractor
+    // amount (all owner-supplied, e.g. tiles / paint on a grey + owner-finishing contract) is listed
+    // as "By the owner / not included".
+    sections: workSections(result).included,
+    ownerSections: workSections(result).byOwner,
     specifications: result.specifications.map((s) => ({ categoryKey: s.categoryKey, suppliedBy: s.suppliedBy, quality: s.qualityCategory?.name ?? null, materials: s.materials })),
     paymentStages: stages.map((s) => ({ label: s.label, percent: s.percent, amountPaisa: BigInt(s.amountPaisa ?? '0') })),
     pricePaisa: r.pricePaisa,
