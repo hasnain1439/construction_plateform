@@ -15,8 +15,9 @@
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import type { Project } from '../../generated/prisma/client.js';
 import { BUCKET_OF, costRows, type CostRow, type PnlBucket } from '../billing/projectCost.service.js';
-import { moneyOf } from '../billing/receivables.service.js';
-import { approvedChangesOf, type ApprovedChanges } from './changeOrders.hook.js';
+import { moneyOfMany, type Money } from '../billing/receivables.service.js';
+import { approvedChangesMany } from '../change-orders/totals.js';
+import type { ApprovedChanges } from './changeOrders.hook.js';
 import { bigPct, controlCaller, controlProject, controlSettings, moneyView, p1, paisaOf, ref, str, today, type ControlSettings, type MoneyView } from './control.shared.js';
 import { CONTROL_BUCKETS, loadApprovedEstimate, type ControlBucket, type EstimateData } from './estimate.js';
 import { loadPlan, loadUpdates, physicalProgress, plannedProgress, progressAsOf, type ProgressBasis, type ProjectPlan } from './plan.js';
@@ -65,20 +66,76 @@ export function contractOf(m: { contract: bigint } & Record<string, unknown>, ch
 }
 
 export async function loadCostContext(tx: Tx, tenantId: string, project: Project, pre: { plan?: ProjectPlan | null; estimate?: EstimateData | null } = {}): Promise<CostContext> {
-  const plan = pre.plan !== undefined ? pre.plan : await loadPlan(tx, tenantId, project.id);
-  const estimate = pre.estimate !== undefined ? pre.estimate : await loadApprovedEstimate(tx, tenantId, project.id);
-  const progress = plan ? physicalProgress(plan.milestones, estimate?.stageValues ?? null) : { percent: 0, basis: 'NONE' as const, stages: new Map<string, number>() };
-  const rows = await costRows(tx, tenantId, { projectIds: [project.id] });
-  const m = await moneyOf(tx, tenantId, project);
-  return {
-    project,
-    estimate,
-    plan,
-    progress,
-    rows,
-    actualPaisa: rows.reduce((a, r) => a + r.amountPaisa, 0n),
-    ...contractOf(m, await approvedChangesOf(tx, tenantId, project.id)),
-  };
+  const plans = pre.plan !== undefined ? new Map([[project.id, pre.plan]]) : undefined;
+  const estimates = pre.estimate !== undefined ? new Map([[project.id, pre.estimate]]) : undefined;
+  return (await loadCostContexts(tx, tenantId, [project], { plans, estimates })).get(project.id)!;
+}
+
+/** Plans of several projects: one query finds the scheduled ones, only those load their plan. */
+export async function loadPlans(tx: Tx, tenantId: string, projectIds: string[]): Promise<Map<string, ProjectPlan | null>> {
+  const out = new Map<string, ProjectPlan | null>(projectIds.map((id) => [id, null]));
+  if (!projectIds.length) return out;
+  const scheduled = await tx.schedule.findMany({ where: { tenantId, projectId: { in: projectIds } }, select: { projectId: true } });
+  for (const s of scheduled) out.set(s.projectId, await loadPlan(tx, tenantId, s.projectId));
+  return out;
+}
+
+/** Approved estimates of several projects: one query finds them, only those load their lines. */
+export async function loadApprovedEstimates(tx: Tx, tenantId: string, projectIds: string[]): Promise<Map<string, EstimateData | null>> {
+  const out = new Map<string, EstimateData | null>(projectIds.map((id) => [id, null]));
+  if (!projectIds.length) return out;
+  const approved = await tx.estimate.findMany({ where: { tenantId, projectId: { in: projectIds }, status: 'APPROVED' }, select: { projectId: true }, distinct: ['projectId'] });
+  for (const e of approved) out.set(e.projectId, await loadApprovedEstimate(tx, tenantId, e.projectId));
+  return out;
+}
+
+/**
+ * Step 18 · cost contexts of several projects (P&L, dashboard, control summary, variance report):
+ * plans + approved estimates looked up once, cost rows in one query, receivables (`moneyOfMany`)
+ * and approved change orders in one set of queries — instead of a full `loadCostContext` per
+ * project. `pre` passes what the caller already loaded (missing plans / estimates are loaded here;
+ * `money` is used only when it covers every project).
+ */
+export async function loadCostContexts(
+  tx: Tx,
+  tenantId: string,
+  projects: Project[],
+  pre: { plans?: Map<string, ProjectPlan | null>; estimates?: Map<string, EstimateData | null>; money?: Map<string, Money> } = {},
+): Promise<Map<string, CostContext>> {
+  const out = new Map<string, CostContext>();
+  if (!projects.length) return out;
+  const ids = projects.map((p) => p.id);
+  const missing = (m?: Map<string, unknown>) => ids.filter((id) => !m?.has(id));
+  const plans = new Map(pre.plans ?? []);
+  const needPlans = missing(pre.plans);
+  if (needPlans.length === 1) plans.set(needPlans[0]!, await loadPlan(tx, tenantId, needPlans[0]!));
+  else for (const [id, p] of await loadPlans(tx, tenantId, needPlans)) plans.set(id, p);
+  const estimates = new Map(pre.estimates ?? []);
+  const needEstimates = missing(pre.estimates);
+  if (needEstimates.length === 1) estimates.set(needEstimates[0]!, await loadApprovedEstimate(tx, tenantId, needEstimates[0]!));
+  else for (const [id, e] of await loadApprovedEstimates(tx, tenantId, needEstimates)) estimates.set(id, e);
+  const allRows = await costRows(tx, tenantId, { projectIds: ids });
+  const rowsBy = new Map<string, CostRow[]>(ids.map((id) => [id, []]));
+  for (const r of allRows) rowsBy.get(r.projectId)?.push(r);
+  const changes = await approvedChangesMany(tx, tenantId, ids);
+  const money = pre.money && ids.every((id) => pre.money!.has(id)) ? pre.money : await moneyOfMany(tx, tenantId, projects, { changes });
+  for (const project of projects) {
+    const plan = plans.get(project.id) ?? null;
+    const estimate = estimates.get(project.id) ?? null;
+    const progress = plan ? physicalProgress(plan.milestones, estimate?.stageValues ?? null) : { percent: 0, basis: 'NONE' as const, stages: new Map<string, number>() };
+    const rows = rowsBy.get(project.id)!;
+    const c = changes.get(project.id)!;
+    out.set(project.id, {
+      project,
+      estimate,
+      plan,
+      progress,
+      rows,
+      actualPaisa: rows.reduce((a, r) => a + r.amountPaisa, 0n),
+      ...contractOf(money.get(project.id)!, { pricePaisa: c.totalPaisa, costPaisa: c.costPaisa, inContract: true }),
+    });
+  }
+  return out;
 }
 
 // ─── Projected margin ───────────────────────────────────────────────────────
@@ -175,6 +232,12 @@ export const projectionDto = (p: Projection) => ({
 /** Projected margin of a project (P&L, dashboard, summary). */
 export async function projectionFor(tx: Tx, tenantId: string, project: Project): Promise<Projection> {
   return computeProjection(await loadCostContext(tx, tenantId, project));
+}
+
+/** Projected margins of several projects (P&L) — batched cost contexts. */
+export async function projectionsFor(tx: Tx, tenantId: string, projects: Project[]): Promise<Map<string, Projection>> {
+  const ctx = await loadCostContexts(tx, tenantId, projects);
+  return new Map([...ctx].map(([id, c]) => [id, computeProjection(c)]));
 }
 
 // ─── Cost variance ──────────────────────────────────────────────────────────

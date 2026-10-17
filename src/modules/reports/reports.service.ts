@@ -18,7 +18,7 @@ import { dateOnly } from '../../core/utils/dates.js';
 import type { ExpenseCategory, StockMovementType } from '../../generated/prisma/client.js';
 import { daysBetween, today, ymd } from '../billing/billing.shared.js';
 import { bucketsOf, PNL_BUCKETS, projectCosts } from '../billing/projectCost.service.js';
-import { moneyOf } from '../billing/receivables.service.js';
+import { moneyOfMany } from '../billing/receivables.service.js';
 import { totalsOf } from '../cashbook/cash.js';
 import { periodOf, readActor, scopedProjects, str, type ReadActor } from '../dashboard/dashboard.shared.js';
 import { ageing, AGEING_BUCKETS } from '../finance/ageing.js';
@@ -80,9 +80,10 @@ async function projectSummary(c: Ctx): Promise<Omit<Report, 'generatedAt' | 'fil
     c.a.tenantId,
     projects.map((p) => p.id),
   );
+  const money = await moneyOfMany(c.tx, c.a.tenantId, projects);
   const rows: Array<Record<string, Cell>> = [];
   for (const p of projects) {
-    const m = await moneyOf(c.tx, c.a.tenantId, p);
+    const m = money.get(p.id)!;
     const cost = costs.get(p.id)!;
     const b = bucketsOf(cost.rows);
     rows.push({
@@ -431,9 +432,10 @@ async function supplierAgeing(c: Ctx): Promise<Omit<Report, 'generatedAt' | 'fil
 async function receivablesAgeing(c: Ctx): Promise<Omit<Report, 'generatedAt' | 'filters'>> {
   ownerOnly(c.a);
   const projects = await projectsFor(c);
+  const money = await moneyOfMany(c.tx, c.a.tenantId, projects);
   const rows: Array<Record<string, Cell>> = [];
   for (const p of projects) {
-    const m = await moneyOf(c.tx, c.a.tenantId, p);
+    const m = money.get(p.id)!;
     if (m.invoiced === 0n) continue;
     rows.push({
       project: p.code,

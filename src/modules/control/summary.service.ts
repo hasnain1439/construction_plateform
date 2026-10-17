@@ -7,13 +7,14 @@
 import { assertPerm } from '../../core/auth/access.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import type { Project } from '../../generated/prisma/client.js';
+import type { Money } from '../billing/receivables.service.js';
 import { projectScope } from '../projects/access.js';
 import { estimateOf, materialOveruse, planOf, quotaExhausted } from './alerts/rules/builtin.js';
 import type { RuleContext } from './alerts/registry.js';
 import { visibleAlerts } from './alerts.service.js';
 import { bigPct, CONTROL_VIEW, controlCaller, controlSettings, moneyView, p1, ref, str, today, type ControlCaller, type ControlSettings } from './control.shared.js';
-import { computeProjection, loadCostContext, type Projection } from './cost.service.js';
-import { behindOf, loadPlan, physicalProgress, plannedProgress } from './plan.js';
+import { computeProjection, loadCostContexts, loadPlans, type CostContext, type Projection } from './cost.service.js';
+import { behindOf, physicalProgress, plannedProgress, type ProjectPlan } from './plan.js';
 
 export interface ProjectControl {
   project: Project;
@@ -29,13 +30,21 @@ export interface ProjectControl {
   projection: Projection;
 }
 
-/** Control numbers of one project (no permission checks — callers decide what to show). */
-export async function projectControl(tx: Tx, tenantId: string, project: Project, settings: ControlSettings): Promise<ProjectControl> {
+/**
+ * Control numbers of one project (no permission checks — callers decide what to show).
+ * `pre` = its cost context from a batch (`loadCostContexts`, the summary); else loaded here.
+ */
+export async function projectControl(tx: Tx, tenantId: string, project: Project, settings: ControlSettings, pre?: CostContext): Promise<ProjectControl> {
   const date = today();
   const ctx: RuleContext = { tx, tenantId, project, settings, today: date, now: new Date(), memo: new Map() };
+  if (pre) {
+    ctx.memo.set('plan', pre.plan);
+    ctx.memo.set('estimate', pre.estimate);
+    ctx.memo.set('cost', pre);
+  }
   const plan = await planOf(ctx);
   const estimate = await estimateOf(ctx);
-  const cost = await loadCostContext(tx, tenantId, project, { plan, estimate });
+  const cost = pre ?? (await loadCostContexts(tx, tenantId, [project], { plans: new Map([[project.id, plan]]), estimates: new Map([[project.id, estimate]]) })).get(project.id)!;
   const planned = plan ? physicalProgress(plan.milestones, estimate?.stageValues ?? null, (m) => plannedProgress(m, date, plan.cal)).percent : 0;
   const behind = plan ? plan.milestones.map((m) => behindOf(m, date, plan.cal, settings)) : [];
   const revised = cost.contractPaisa + (cost.changes.inContract ? 0n : cost.changes.pricePaisa);
@@ -69,9 +78,10 @@ export async function summary() {
       const settings = await controlSettings(tx, c.tenantId);
       const projects = await scopedControlProjects(tx, c);
       const alerts = await visibleAlerts(tx, c, { status: 'OPEN', projectId: { in: projects.map((p) => p.id) } });
+      const contexts = await loadCostContexts(tx, c.tenantId, projects);
       const rows = [];
       for (const p of projects) {
-        const x = await projectControl(tx, c.tenantId, p, settings);
+        const x = await projectControl(tx, c.tenantId, p, settings, contexts.get(p.id));
         const mine = alerts.filter((a) => a.projectId === p.id);
         rows.push({
           project: { ...ref(p), status: p.status },
@@ -102,14 +112,19 @@ export async function summary() {
   );
 }
 
-/** Ids of the projects with at least one behind-plan / late milestone (dashboard "delayed"). */
-export async function delayedProjectIds(tx: Tx, tenantId: string, projectIds: string[]): Promise<Set<string>> {
+/**
+ * Ids of the projects with at least one behind-plan / late milestone (dashboard "delayed").
+ * `plans` = plans the caller already loaded (`loadPlans`); the rest are loaded here.
+ */
+export async function delayedProjectIds(tx: Tx, tenantId: string, projectIds: string[], plans?: Map<string, ProjectPlan | null>): Promise<Set<string>> {
   const out = new Set<string>();
   if (!projectIds.length) return out;
   const settings = await controlSettings(tx, tenantId);
   const date = today();
+  const missing = projectIds.filter((id) => !plans?.has(id));
+  const loaded = await loadPlans(tx, tenantId, missing);
   for (const id of projectIds) {
-    const plan = await loadPlan(tx, tenantId, id);
+    const plan = plans?.get(id) ?? loaded.get(id) ?? null;
     if (plan?.milestones.some((m) => behindOf(m, date, plan.cal, settings).behind)) out.add(id);
   }
   return out;
@@ -117,6 +132,16 @@ export async function delayedProjectIds(tx: Tx, tenantId: string, projectIds: st
 
 /** Physical progress + projected margin of a project (dashboard project rows). */
 export async function progressAndMargin(tx: Tx, tenantId: string, project: Project): Promise<{ progressPercent: number; projection: Projection }> {
-  const cost = await loadCostContext(tx, tenantId, project);
-  return { progressPercent: p1(cost.progress.percent), projection: computeProjection(cost) };
+  return (await progressAndMargins(tx, tenantId, [project])).get(project.id)!;
+}
+
+/** Step 18 · progress + projected margin of several projects in one batch (`loadCostContexts`). */
+export async function progressAndMargins(
+  tx: Tx,
+  tenantId: string,
+  projects: Project[],
+  pre: { plans?: Map<string, ProjectPlan | null>; money?: Map<string, Money> } = {},
+): Promise<Map<string, { progressPercent: number; projection: Projection }>> {
+  const contexts = await loadCostContexts(tx, tenantId, projects, pre);
+  return new Map([...contexts].map(([id, cost]) => [id, { progressPercent: p1(cost.progress.percent), projection: computeProjection(cost) }]));
 }

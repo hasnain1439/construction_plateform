@@ -8,7 +8,8 @@
  */
 import { assertPerm, can, fieldAccess, scopeAll } from '../../core/auth/access.js';
 import { alertDto, visibleAlerts } from '../control/alerts.service.js';
-import { delayedProjectIds, progressAndMargin } from '../control/summary.service.js';
+import { loadPlans } from '../control/cost.service.js';
+import { delayedProjectIds, progressAndMargins } from '../control/summary.service.js';
 import { withTenant, type Tx } from '../../core/db/withTenant.js';
 import { Forbidden } from '../../core/errors/AppError.js';
 import { dateOnly, formatDateOnly } from '../../core/utils/dates.js';
@@ -17,7 +18,7 @@ import { collectApprovals } from '../approvals/approvals.service.js';
 import { addDays, today, ymd } from '../billing/billing.shared.js';
 import { eventHref, eventSeverity, eventTitle } from '../billing/events.service.js';
 import { projectCosts } from '../billing/projectCost.service.js';
-import { moneyOf } from '../billing/receivables.service.js';
+import { moneyOfMany } from '../billing/receivables.service.js';
 import { totalsOf } from '../cashbook/cash.js';
 import { balances, qn, systemLocations } from '../inventory/stock.js';
 import { pktDayEnd, pktDayStart } from '../inventory/inventory.service.js';
@@ -56,15 +57,16 @@ async function projectMoney(tx: Tx, a: ReadActor, projects: ProjectWithClient[])
     a.tenantId,
     projects.map((p) => p.id),
   );
+  const money = await moneyOfMany(tx, a.tenantId, projects);
   const rows = [];
   for (const p of projects) {
-    const m = await moneyOf(tx, a.tenantId, p);
+    const m = money.get(p.id)!;
     const cost = costs.get(p.id)!.cost.totalPaisa;
     const own = cost - m.received;
     const atRisk = m.overdue > 0n || (m.contract > 0n && own * 100n > m.contract * BigInt(AT_RISK_OWN_MONEY_PERCENT));
     rows.push({ project: p, m, cost, own, atRisk });
   }
-  return rows;
+  return { rows, money };
 }
 
 async function siteStats(tx: Tx, a: ReadActor, ids: string[], date: string) {
@@ -215,7 +217,9 @@ async function buildOverview(tx: Tx, a: ReadActor, query: OverviewQuery) {
     labor: { period: { from: period.from, to: period.to }, ...(await laborStats(tx, a, ids, period)) },
     alerts: await alertsFor(tx, a, ids),
   };
-  base.kpis.activeProjects.delayed = (await delayedProjectIds(tx, a.tenantId, active.map((p) => p.id))).size; // Step 14
+  // Step 18: plans loaded once for the delayed count and the control columns.
+  const plans = await loadPlans(tx, a.tenantId, a.seesFinancials && can('control.view') ? projects.map((p) => p.id) : active.map((p) => p.id));
+  base.kpis.activeProjects.delayed = (await delayedProjectIds(tx, a.tenantId, active.map((p) => p.id), plans)).size; // Step 14
 
   if (!a.seesFinancials) {
     return {
@@ -224,12 +228,11 @@ async function buildOverview(tx: Tx, a: ReadActor, query: OverviewQuery) {
     };
   }
 
-  const money = await projectMoney(tx, a, projects);
+  const { rows: money, money: moneyBy } = await projectMoney(tx, a, projects);
   const sum = (f: (r: (typeof money)[number]) => bigint) => money.reduce((s, r) => s + f(r), 0n);
   const invoiced = sum((r) => r.m.invoiced);
   const received = sum((r) => r.m.received);
-  const controlRows = new Map<string, Awaited<ReturnType<typeof progressAndMargin>>>();
-  if (can('control.view')) for (const p of projects) controlRows.set(p.id, await progressAndMargin(tx, a.tenantId, p));
+  const controlRows: Awaited<ReturnType<typeof progressAndMargins>> = can('control.view') ? await progressAndMargins(tx, a.tenantId, projects, { plans, money: moneyBy }) : new Map();
   base.kpis.activeProjects.atRisk = money.filter((r) => r.atRisk && (r.project.status === 'ACTIVE' || r.project.status === 'CLOSEOUT')).length;
 
   const suppliers = await tx.supplier.findMany({ where: { tenantId: a.tenantId }, select: { id: true } });

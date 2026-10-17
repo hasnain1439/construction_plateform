@@ -9,8 +9,8 @@ import { dateOnly } from '../../core/utils/dates.js';
 import { addDays, today, ymd } from '../billing/billing.shared.js';
 import { LIVE } from '../billing/ledger.js';
 import { bucketsDto, bucketsOf, costRows, PNL_BUCKETS, projectCosts, type CostRow } from '../billing/projectCost.service.js';
-import { companyReceivables, moneyOf } from '../billing/receivables.service.js';
-import { projectionFor, type Projection } from '../control/cost.service.js';
+import { companyReceivables, moneyOfMany } from '../billing/receivables.service.js';
+import { computeProjection, loadCostContexts, type Projection } from '../control/cost.service.js';
 import { listAccounts } from '../cashbook/cashbook.service.js';
 import { pktDayEnd, pktDayStart } from '../inventory/inventory.service.js';
 import { laborSettings, weekOf } from '../labor/labor.shared.js';
@@ -116,7 +116,8 @@ async function buildCashFlow(tx: Tx, a: ReadActor, months: number) {
 
   const costs = await projectCosts(tx, a.tenantId, ids);
   let opening = 0n;
-  for (const p of projects) opening += costs.get(p.id)!.cost.totalPaisa - (await moneyOf(tx, a.tenantId, p)).received;
+  const money = await moneyOfMany(tx, a.tenantId, projects);
+  for (const p of projects) opening += costs.get(p.id)!.cost.totalPaisa - money.get(p.id)!.received;
 
   let position = opening;
   const rows = list.map((month) => {
@@ -203,11 +204,15 @@ async function buildPnl(tx: Tx, a: ReadActor, query: PnlQuery) {
     ).map((g) => [g.projectId, (g._sum.amountPaisa ?? 0n) + (g._sum.whtDeductedPaisa ?? 0n)]),
   );
 
+  // Step 14: projected margin at completion (as of today). Step 18: every project in one batch
+  // (cost contexts carry the receivables contract too).
+  const contexts = await loadCostContexts(tx, a.tenantId, projects);
   const contracts = new Map<string, bigint>();
-  for (const p of projects) contracts.set(p.id, (await moneyOf(tx, a.tenantId, p)).contract);
-  // Step 14: projected margin at completion (as of today)
   const projections = new Map<string, Projection>();
-  for (const p of projects) projections.set(p.id, await projectionFor(tx, a.tenantId, p));
+  for (const [id, ctx] of contexts) {
+    contracts.set(id, ctx.contractPaisa + (ctx.changes.inContract ? 0n : ctx.changes.pricePaisa));
+    projections.set(id, computeProjection(ctx));
+  }
   const rows = projects.map((p) => {
     const contract = contracts.get(p.id)!;
     const c = costs.get(p.id)!;
