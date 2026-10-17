@@ -161,6 +161,8 @@ export async function updateContract(id: string, input: UpdateContractInput) {
     });
     await saveSupplyRules(tx, c.tenantId, id, input, project.contractType !== input.contractType);
     if (stages) {
+      // Milestones keep their schedule but lose the link to the stages being replaced.
+      await tx.milestone.updateMany({ where: { projectId: id, billingStageId: { not: null } }, data: { billingStageId: null } });
       await tx.projectBillingStage.deleteMany({ where: { projectId: id } });
       await tx.projectBillingStage.createMany({
         data: stages.map((s, i) => ({ tenantId: c.tenantId, projectId: id, sortOrder: i + 1, label: s.label, percent: s.percent, isRetention: Boolean(s.isRetention) })),
